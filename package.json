@@ -1,0 +1,21 @@
+{
+  "name": "rpi4-opcua-mock-plc",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OPC UA mock PLC and gateway client for Raspberry Pi OEE/RCA end-to-end testing",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js",
+    "smoke": "node scripts/smoke-test.js",
+    "e2e": "node scripts/run-e2e.js",
+    "gateway": "node src/gateway/index.js"
+  },
+  "dependencies": {
+    "node-opcua": "2.160.0"
+  }
+}

@@ -221,3 +221,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Node.js dependencies and local runtime artifacts
+node_modules/
+.npm/
+*.log
+PKI/
+coverage/
+.pki/
