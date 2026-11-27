@@ -251,6 +251,10 @@ function loadGatewayConfig(env = process.env) {
         min: 0.001,
         max: 100000
       }),
+      idealCycleTimeMs: numberFromEnv(env, "OEE_IDEAL_CYCLE_TIME_MS", null, {
+        min: 0.001,
+        max: 3600000
+      }),
       plannedTime: Object.freeze({
         timeZone,
         windows: shiftWindows,

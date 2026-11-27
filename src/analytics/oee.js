@@ -421,14 +421,37 @@ function calculateOee(samples, options = {}) {
   const nominalOutputPerMinute = Number(
     options.nominalOutputPerMinute ?? DEFAULT_NOMINAL_OUTPUT_PER_MINUTE
   );
+  const idealCycleTimeRaw = options.idealCycleTimeMs;
+  let idealCycleTimeMs = null;
+  if (
+    idealCycleTimeRaw !== undefined &&
+    idealCycleTimeRaw !== null &&
+    idealCycleTimeRaw !== ""
+  ) {
+    idealCycleTimeMs = Number(idealCycleTimeRaw);
+  }
   const ngCount = Number(options.ngCount ?? 0);
 
   if (!Number.isFinite(nominalOutputPerMinute) || nominalOutputPerMinute <= 0) {
     throw new Error("nominalOutputPerMinute must be a positive number");
   }
+  if (
+    idealCycleTimeMs !== null &&
+    (!Number.isFinite(idealCycleTimeMs) || idealCycleTimeMs <= 0)
+  ) {
+    throw new Error("idealCycleTimeMs must be a positive number");
+  }
   if (!Number.isInteger(ngCount) || ngCount < 0) {
     throw new Error("ngCount must be a non-negative integer");
   }
+  const performanceSource =
+    idealCycleTimeMs === null ? "nominal-output-rate" : "ideal-cycle-time";
+  const idealCycleTimeSource =
+    idealCycleTimeMs === null ? null : options.idealCycleTimeSource || null;
+  const throughputBasis =
+    idealCycleTimeMs === null
+      ? "theoretical produced units at nominal output"
+      : "theoretical produced units at configured ideal cycle time";
 
   const dataQuality = createDataQualityTracker();
   if (rows.length < 2) {
@@ -444,8 +467,8 @@ function calculateOee(samples, options = {}) {
         : "goodDelta / (goodDelta + ngCount)";
     const performanceBasis =
       counterMode === "total-produced"
-        ? "totalProducedCount delta / theoretical produced units at nominal output"
-        : "goodCount delta / theoretical good units at nominal output";
+        ? `totalProducedCount delta / ${throughputBasis}`
+        : `goodCount delta / ${throughputBasis.replace("produced", "good")}`;
     dataQuality.add(
       "INSUFFICIENT_SAMPLES",
       "error",
@@ -483,6 +506,9 @@ function calculateOee(samples, options = {}) {
       counterContinuity,
       ngCount,
       nominalOutputPerMinute,
+      idealCycleTimeMs,
+      idealCycleTimeSource,
+      performanceSource,
       plannedTime,
       downtimeSources,
       qualityReconciliation,
@@ -505,6 +531,8 @@ function calculateOee(samples, options = {}) {
         firstSampleAt: rows[0]?.sample?.occurredAt ?? null,
         lastSampleAt: rows[0]?.sample?.occurredAt ?? null,
         counterMode,
+        performanceSource,
+        idealCycleTimeMs,
         counterScope: "first-to-last sample in observed window",
         counterContinuity,
         plannedTime,
@@ -606,7 +634,10 @@ function calculateOee(samples, options = {}) {
   const runningSeconds = runningMs / 1000;
   const availability =
     plannedProductionMs > 0 ? clamp(runningMs / plannedProductionMs, 0, 1) : 0;
-  const theoreticalGood = nominalOutputPerMinute * (runningSeconds / 60);
+  const theoreticalGood =
+    idealCycleTimeMs === null
+      ? nominalOutputPerMinute * (runningSeconds / 60)
+      : (runningSeconds * 1000) / idealCycleTimeMs;
   const counter = resolveCounterMode(
     rows,
     goodDelta,
@@ -629,8 +660,8 @@ function calculateOee(samples, options = {}) {
       : "goodDelta / (goodDelta + ngCount)";
   const performanceBasis =
     usesTotalCounter
-      ? "totalProducedCount delta / theoretical produced units at nominal output"
-      : "goodCount delta / theoretical good units at nominal output";
+      ? `totalProducedCount delta / ${throughputBasis}`
+      : `goodCount delta / ${throughputBasis.replace("produced", "good")}`;
   const availabilityLossMs = unplannedStopMs + unknownStopMs;
   const speedLossUnits = Math.max(0, theoreticalGood - performanceNumerator);
   const qualityLossUnits =
@@ -713,6 +744,9 @@ function calculateOee(samples, options = {}) {
     counterContinuity,
     ngCount,
     nominalOutputPerMinute,
+    idealCycleTimeMs,
+    idealCycleTimeSource,
+    performanceSource,
     plannedTime,
     downtimeSources,
     lossBreakdown,
@@ -723,6 +757,8 @@ function calculateOee(samples, options = {}) {
       firstSampleAt: new Date(first.at).toISOString(),
       lastSampleAt: new Date(last.at).toISOString(),
       counterMode: counter.counterMode,
+      performanceSource,
+      idealCycleTimeMs,
       counterScope:
         counterContinuity.resetCount > 0
           ? "sum of adjacent increments within observed counter epochs"

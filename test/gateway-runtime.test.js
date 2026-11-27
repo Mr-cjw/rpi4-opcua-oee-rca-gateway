@@ -279,6 +279,36 @@ test("gateway runtime reports total-production OEE counter mode", async (t) => {
   assert.equal(oee.dataQuality.status, "ok");
 });
 
+test("gateway runtime applies config and query ideal cycle times", async (t) => {
+  const { runtime } = makeRuntime({ OEE_IDEAL_CYCLE_TIME_MS: "500" });
+  t.after(async () => runtime.stop());
+  await runtime.start();
+  captureWindow(runtime.collector);
+
+  const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
+  oeeUrl.searchParams.set("from", iso(0));
+  oeeUrl.searchParams.set("to", iso(10));
+  const configuredResponse = await fetch(oeeUrl);
+  assert.equal(configuredResponse.status, 200);
+  const configured = await configuredResponse.json();
+  assert.equal(configured.performance, 0.9);
+  assert.equal(configured.idealCycleTimeMs, 500);
+  assert.equal(configured.idealCycleTimeSource, "config");
+  assert.equal(configured.performanceSource, "ideal-cycle-time");
+
+  oeeUrl.searchParams.set("idealCycleTimeMs", "600");
+  const queryResponse = await fetch(oeeUrl);
+  assert.equal(queryResponse.status, 200);
+  const query = await queryResponse.json();
+  assert.equal(query.performance, 1);
+  assert.equal(query.idealCycleTimeMs, 600);
+  assert.equal(query.idealCycleTimeSource, "query");
+
+  oeeUrl.searchParams.set("idealCycleTimeMs", "0");
+  const invalidResponse = await fetch(oeeUrl);
+  assert.equal(invalidResponse.status, 400);
+});
+
 test("gateway runtime exposes counter-to-quality reconciliation warnings", async (t) => {
   const { runtime } = makeRuntime();
   t.after(async () => runtime.stop());

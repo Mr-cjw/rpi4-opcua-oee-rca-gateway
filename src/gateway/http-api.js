@@ -124,6 +124,14 @@ function integerQuery(searchParams, name) {
   return value;
 }
 
+function positiveIntegerQuery(searchParams, name) {
+  const value = integerQuery(searchParams, name);
+  if (value !== undefined && value <= 0) {
+    throw new HttpError(400, `${name} must be a positive integer`);
+  }
+  return value;
+}
+
 function createGatewayApi(runtime, options = {}) {
   const host = options.host || "127.0.0.1";
   const port = options.port ?? 8080;
@@ -208,6 +216,7 @@ function createGatewayApi(runtime, options = {}) {
         workOrderId: url.searchParams.get("workOrderId") || undefined,
         correlationId: url.searchParams.get("correlationId") || undefined,
         windowMs: integerQuery(url.searchParams, "windowMs"),
+        idealCycleTimeMs: positiveIntegerQuery(url.searchParams, "idealCycleTimeMs"),
         ngCount: integerQuery(url.searchParams, "ngCount")
       });
       sendJson(response, 200, result);

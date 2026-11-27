@@ -105,6 +105,19 @@ test("gateway config parses and validates downtime alarm classification", () => 
   );
 });
 
+test("gateway config parses an optional ideal cycle time", () => {
+  const defaults = loadGatewayConfig({});
+  assert.equal(defaults.analytics.idealCycleTimeMs, null);
+
+  const configured = loadGatewayConfig({ OEE_IDEAL_CYCLE_TIME_MS: "750" });
+  assert.equal(configured.analytics.idealCycleTimeMs, 750);
+
+  assert.throws(
+    () => loadGatewayConfig({ OEE_IDEAL_CYCLE_TIME_MS: "0" }),
+    /OEE_IDEAL_CYCLE_TIME_MS/
+  );
+});
+
 test("gateway config refuses to disable a required PLC point", () => {
   assert.throws(
     () => loadGatewayConfig({ OPCUA_DEVICE_STATUS_NODE: "off" }),

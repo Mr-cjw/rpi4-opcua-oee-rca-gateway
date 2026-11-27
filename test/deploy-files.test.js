@@ -44,6 +44,7 @@ test("gateway environment template includes persistence and API safeguards", asy
     "QUALITY_EVENT_LOG_MAX_BYTES",
     "QUALITY_EVENT_LOG_MAX_FILES",
     "OEE_NOMINAL_OUTPUT_PER_MIN",
+    "OEE_IDEAL_CYCLE_TIME_MS",
     "OEE_TIMEZONE",
     "OEE_SHIFT_WINDOWS",
     "OEE_PLANNED_DOWNTIME_ALARM_CODES",

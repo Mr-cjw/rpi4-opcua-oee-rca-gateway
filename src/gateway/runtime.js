@@ -264,6 +264,15 @@ class GatewayRuntime extends EventEmitter {
       qualityEventCount: qualityEvents.length,
       qualityEventQuantity: qualityEventNgCount
     };
+    const idealCycleTimeMs =
+      options.idealCycleTimeMs !== undefined
+        ? options.idealCycleTimeMs
+        : this.config.analytics.idealCycleTimeMs;
+    if (idealCycleTimeMs !== undefined && idealCycleTimeMs !== null) {
+      analyticsOptions.idealCycleTimeMs = idealCycleTimeMs;
+      analyticsOptions.idealCycleTimeSource =
+        options.idealCycleTimeMs !== undefined ? "query" : "config";
+    }
     if (options.ngCount !== undefined) {
       analyticsOptions.ngCount = options.ngCount;
     } else {

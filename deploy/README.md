@@ -39,5 +39,6 @@ is also writable for development runs.
   10 MiB per file with three retained backups; tune
   `PROCESS_CONTEXT_LOG_MAX_*` and `QUALITY_EVENT_LOG_MAX_*` to the available SD
   card or SSD budget.
-- `OEE_NOMINAL_OUTPUT_PER_MIN`, planned time, and quality-event connectivity must
-  be validated before quoting OEE as a production metric.
+- `OEE_NOMINAL_OUTPUT_PER_MIN` or `OEE_IDEAL_CYCLE_TIME_MS`, planned time, and
+  quality-event connectivity must be validated before quoting OEE as a
+  production metric.

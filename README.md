@@ -263,9 +263,17 @@ The API intentionally exposes every input instead of only showing a single
 headline number:
 
 - Availability = `RUNNING` intervals / available planned intervals after planned downtime and changeover;
-- Performance = production-count delta / theoretical units at nominal output;
+- Performance = production-count delta / theoretical units at nominal output or the configured ideal cycle time;
 - Quality = good-count delta / production-count delta;
 - OEE = Availability x Performance x Quality.
+
+Performance uses `OEE_NOMINAL_OUTPUT_PER_MIN` by default. Set
+`OEE_IDEAL_CYCLE_TIME_MS` to use a validated per-unit cycle time instead, or
+pass `idealCycleTimeMs` to `/v1/oee` to override it for one query. Query values
+take precedence. Responses expose `idealCycleTimeMs`, `idealCycleTimeSource`
+(`config` or `query`), and `performanceSource` (`nominal-output-rate` or
+`ideal-cycle-time`). This is currently one cycle time per Gateway context;
+product/SKU-specific lookup for mixed-product windows remains a later step.
 
 Planned time is the intersection of the sampled window and the configured
 `OEE_SHIFT_WINDOWS` in `OEE_TIMEZONE`. The default is
@@ -444,7 +452,8 @@ Gateway only reads points; it does not write PLC controls.
 | `PROCESS_CONTEXT_LOG` | `data/process-context.jsonl` | JSONL path; use `off` to disable or `stdout` to stream |
 | `PROCESS_CONTEXT_LOG_MAX_BYTES` | `10485760` | Rotate the active context log after this many bytes |
 | `PROCESS_CONTEXT_LOG_MAX_FILES` | `3` | Number of rotated context-log backups to retain |
-| `OEE_NOMINAL_OUTPUT_PER_MIN` | `120` | Theoretical output for Performance |
+| `OEE_NOMINAL_OUTPUT_PER_MIN` | `120` | Fallback theoretical output for Performance |
+| `OEE_IDEAL_CYCLE_TIME_MS` | empty | Optional validated cycle time; overrides the nominal rate when set |
 | `OEE_TIMEZONE` | system time zone | IANA time zone for shift and planned-time calculations |
 | `OEE_SHIFT_WINDOWS` | `00:00-24:00` | Daily shift windows; `[DAYS:]HH:MM-HH:MM` separated by semicolons |
 | `OEE_PLANNED_DOWNTIME_ALARM_CODES` | empty | Comma-separated active alarm codes classified as planned downtime |

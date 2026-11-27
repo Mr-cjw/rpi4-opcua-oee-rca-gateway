@@ -67,6 +67,9 @@ Progress:
   Gateway restarts.
 - Completed 2026-11-27: structured OEE `dataQuality` issues plus counter-vs-NG
   reconciliation status, deltas, and mismatch warnings.
+- Completed 2026-11-27: a global validated ideal-cycle-time input with config
+  and per-query overrides plus explicit Performance provenance. Product/SKU
+  lookup for mixed-product windows remains.
 
 Deliverables:
 
@@ -204,7 +207,8 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Define product/SKU or ideal-cycle-time inputs for Performance.
+1. Add product/SKU-specific ideal-cycle lookup and product context for
+   mixed-product windows.
 2. Add a real-PLC `doctor`/commissioning validation path.
 3. Add CI and a repeatable soak-test harness.
 4. Begin the M2 storage boundary and disk-pressure behavior.

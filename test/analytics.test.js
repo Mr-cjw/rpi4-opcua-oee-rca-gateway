@@ -76,6 +76,36 @@ test("OEE uses total production counter deltas when available", () => {
   assert.deepEqual(result.warnings, []);
 });
 
+test("OEE uses an ideal cycle time when supplied", () => {
+  const samples = [
+    sample(0, { goodCount: 0, totalProducedCount: 0 }),
+    sample(1, { goodCount: 1, totalProducedCount: 1 }),
+    sample(2, { goodCount: 2, totalProducedCount: 2 })
+  ];
+  const nominal = calculateOee(samples, { nominalOutputPerMinute: 120, ngCount: 0 });
+  assert.equal(nominal.performance, 0.5);
+  assert.equal(nominal.performanceSource, "nominal-output-rate");
+  assert.equal(nominal.idealCycleTimeMs, null);
+
+  const ideal = calculateOee(samples, {
+    nominalOutputPerMinute: 120,
+    ngCount: 0,
+    idealCycleTimeMs: 1000,
+    idealCycleTimeSource: "query"
+  });
+  assert.equal(ideal.theoreticalGood, 2);
+  assert.equal(ideal.performance, 1);
+  assert.equal(ideal.idealCycleTimeMs, 1000);
+  assert.equal(ideal.idealCycleTimeSource, "query");
+  assert.equal(ideal.performanceSource, "ideal-cycle-time");
+  assert.match(ideal.basis.performance, /configured ideal cycle time/);
+
+  assert.throws(
+    () => calculateOee(samples, { idealCycleTimeMs: 0 }),
+    /idealCycleTimeMs/
+  );
+});
+
 test("OEE reconciles counter scrap with the effective quality feed", () => {
   const samples = [
     sample(0, { goodCount: 0, totalProducedCount: 0 }),
