@@ -58,7 +58,7 @@ async function main() {
     SIM_DOWNTIME_RATE_PER_MIN: "0",
     SIM_TEMP_SPIKE_RATE_PER_MIN: "0",
     SIM_SEED: "42",
-    SIM_YIELD_RATE: "1.0"
+    SIM_YIELD_RATE: "0.5"
   });
   const server = createMockPlcServer(serverConfig);
   let runtime = null;
@@ -91,6 +91,14 @@ async function main() {
       5000,
       "the first process-context event"
     );
+    await waitFor(
+      () =>
+        Number.isFinite(
+          Number(runtime.getLatestContext()?.metrics.totalProducedCount)
+        ),
+      5000,
+      "the total produced counter"
+    );
     console.log(`Gateway API: ${runtime.api.address}`);
     console.log(`OPC UA endpoint: ${running.endpointUrl}`);
 
@@ -102,6 +110,9 @@ async function main() {
     const beforeFault = await getJson(`${runtime.api.address}/v1/context/latest`);
     assert.equal(beforeFault.eventType, "PROCESS_CONTEXT");
     assert.equal(beforeFault.workOrderId, "WO-GATEWAY-E2E-001");
+    assert.ok(
+      beforeFault.metrics.totalProducedCount >= beforeFault.metrics.goodCount
+    );
 
     const workContext = await getJson(`${runtime.api.address}/v1/work-context`, {
       method: "POST",
@@ -122,6 +133,24 @@ async function main() {
         }).length >= 2,
       5000,
       "two context samples with the updated work context"
+    );
+    await waitFor(
+      () => {
+        const events = runtime.getContextEvents({
+          workOrderId: "WO-GATEWAY-E2E-002",
+          correlationId: "corr-gateway-e2e-002"
+        });
+        if (events.length < 2) {
+          return false;
+        }
+        return (
+          Number(events.at(-1).metrics.totalProducedCount) -
+            Number(events[0].metrics.totalProducedCount) >=
+          2
+        );
+      },
+      5000,
+      "a meaningful total-produced delta"
     );
 
     server.simulator.triggerDowntime(2, "gateway-e2e");
@@ -167,6 +196,9 @@ async function main() {
       assert.ok(oee[key] >= 0 && oee[key] <= 1, `${key} must be between 0 and 1`);
     }
     assert.ok(oee.eventCount >= 2);
+    assert.equal(oee.counterMode, "total-produced");
+    assert.ok(oee.totalDelta > 0);
+    assert.ok(oee.counterScrapDelta >= 0);
     assert.equal(oee.qualitySource, "quality-events");
     assert.equal(oee.qualityEventCount, 1);
     assert.deepEqual(oee.scope, {

@@ -28,6 +28,7 @@ test("gateway environment template includes persistence and API safeguards", asy
   for (const name of [
     "OPCUA_ENDPOINT",
     "OPCUA_DEVICE_STATUS_NODE",
+    "OPCUA_TOTAL_PRODUCED_NODE",
     "GATEWAY_LINE_ID",
     "GATEWAY_STATION_ID",
     "GATEWAY_WORK_CONTEXT_FILE",

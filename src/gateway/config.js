@@ -89,7 +89,18 @@ function loadGatewayConfig(env = process.env) {
     {
       name: "goodCount",
       nodeId: nodeIdFromEnv(env, "OPCUA_GOOD_COUNT_NODE", "ns=1;s=MockPLC.GoodCount")
-    },
+    }
+  ];
+  const totalProducedCountNodeId = nodeIdFromEnv(
+    env,
+    "OPCUA_TOTAL_PRODUCED_NODE",
+    "ns=1;s=MockPLC.TotalProducedCount",
+    { optional: true }
+  );
+  if (totalProducedCountNodeId) {
+    variables.push({ name: "totalProducedCount", nodeId: totalProducedCountNodeId });
+  }
+  variables.push(
     {
       name: "temperatureSensor",
       nodeId: nodeIdFromEnv(
@@ -98,7 +109,7 @@ function loadGatewayConfig(env = process.env) {
         "ns=1;s=MockPLC.TemperatureSensor"
       )
     }
-  ];
+  );
   const alarmEventsNodeId = nodeIdFromEnv(
     env,
     "OPCUA_ALARM_EVENTS_NODE",

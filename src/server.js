@@ -17,6 +17,7 @@ const NODE_IDS = Object.freeze({
   deviceStatus: "ns=1;s=MockPLC.DeviceStatus",
   currentOutput: "ns=1;s=MockPLC.CurrentOutput",
   goodCount: "ns=1;s=MockPLC.GoodCount",
+  totalProducedCount: "ns=1;s=MockPLC.TotalProducedCount",
   temperatureSensor: "ns=1;s=MockPLC.TemperatureSensor",
   alarmEvents: "ns=1;s=MockPLC.AlarmEvents",
   alarmEventCount: "ns=1;s=MockPLC.AlarmEventCount",
@@ -42,6 +43,7 @@ function addAlarmEventType(namespace) {
     ["TemperatureC", DataType.Double],
     ["CurrentOutput", DataType.Double],
     ["GoodCount", DataType.UInt32],
+    ["TotalProducedCount", DataType.UInt32],
     ["AlarmSequence", DataType.UInt32]
   ];
 
@@ -115,6 +117,17 @@ function addNodeSet(server, simulator) {
     componentOf: mockPlc,
     dataType: DataType.UInt32,
     value: variableValue(DataType.UInt32, simulator.goodCount),
+    minimumSamplingInterval: 100
+  });
+
+  const totalProducedCount = namespace.addVariable({
+    nodeId: "s=MockPLC.TotalProducedCount",
+    browseName: "TotalProducedCount",
+    displayName: "Total Produced Count",
+    description: "Monotonic count of all units produced, including good and rejected units",
+    componentOf: mockPlc,
+    dataType: DataType.UInt32,
+    value: variableValue(DataType.UInt32, simulator.totalProducedCount),
     minimumSamplingInterval: 100
   });
 
@@ -247,6 +260,7 @@ function addNodeSet(server, simulator) {
       deviceStatus,
       currentOutput,
       goodCount,
+      totalProducedCount,
       temperatureSensor,
       alarmEvents,
       alarmEventCount
@@ -384,6 +398,10 @@ function createMockPlcServer(options = loadConfig()) {
             dataType: DataType.UInt32,
             value: event.goodCount
           },
+          totalProducedCount: {
+            dataType: DataType.UInt32,
+            value: event.totalProducedCount
+          },
           alarmSequence: {
             dataType: DataType.UInt32,
             value: event.sequence
@@ -397,6 +415,7 @@ function createMockPlcServer(options = loadConfig()) {
           console.log(
             `[sample] seq=${snapshot.sequence} status=${snapshot.deviceStatus} ` +
               `output=${snapshot.currentOutput} good=${snapshot.goodCount} ` +
+              `total=${snapshot.totalProducedCount} ` +
               `temperature=${snapshot.temperatureC}`
           );
         };
@@ -411,6 +430,11 @@ function createMockPlcServer(options = loadConfig()) {
         updateVariable(nodeSet.nodes.deviceStatus, DataType.String, snapshot.deviceStatus);
         updateVariable(nodeSet.nodes.currentOutput, DataType.Double, snapshot.currentOutput);
         updateVariable(nodeSet.nodes.goodCount, DataType.UInt32, snapshot.goodCount);
+        updateVariable(
+          nodeSet.nodes.totalProducedCount,
+          DataType.UInt32,
+          snapshot.totalProducedCount
+        );
         updateVariable(
           nodeSet.nodes.temperatureSensor,
           DataType.Double,

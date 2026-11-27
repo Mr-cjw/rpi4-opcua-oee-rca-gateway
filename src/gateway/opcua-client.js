@@ -19,6 +19,7 @@ const DEFAULT_VARIABLES = Object.freeze([
   { name: "deviceStatus", nodeId: "ns=1;s=MockPLC.DeviceStatus" },
   { name: "currentOutput", nodeId: "ns=1;s=MockPLC.CurrentOutput" },
   { name: "goodCount", nodeId: "ns=1;s=MockPLC.GoodCount" },
+  { name: "totalProducedCount", nodeId: "ns=1;s=MockPLC.TotalProducedCount" },
   { name: "temperatureSensor", nodeId: "ns=1;s=MockPLC.TemperatureSensor" },
   { name: "alarmEvents", nodeId: "ns=1;s=MockPLC.AlarmEvents" }
 ]);
@@ -38,6 +39,7 @@ const EVENT_FIELDS = Object.freeze([
   "1:TemperatureC",
   "1:CurrentOutput",
   "1:GoodCount",
+  "1:TotalProducedCount",
   "1:AlarmSequence"
 ]);
 
@@ -484,6 +486,7 @@ class OpcUaGatewayClient extends EventEmitter {
       temperatureC: values["1:TemperatureC"],
       currentOutput: values["1:CurrentOutput"],
       goodCount: values["1:GoodCount"],
+      totalProducedCount: values["1:TotalProducedCount"],
       alarmSequence: values["1:AlarmSequence"]
     };
 

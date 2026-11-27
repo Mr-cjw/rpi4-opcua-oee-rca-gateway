@@ -43,6 +43,8 @@ class MockPlcSimulator extends EventEmitter {
     this.currentOutput = options.nominalOutputPerMinute;
     this.goodCount = 0;
     this.goodCountAccumulator = 0;
+    this.totalProducedCount = 0;
+    this.totalProducedAccumulator = 0;
     this.temperatureC = options.ambientTemperatureC;
 
     this.downtimeRemainingMs = 0;
@@ -173,6 +175,7 @@ class MockPlcSimulator extends EventEmitter {
       deviceStatus: this.deviceStatus,
       currentOutput: round(this.currentOutput, 3),
       goodCount: this.goodCount,
+      totalProducedCount: this.totalProducedCount,
       temperatureC: round(this.temperatureC, 3),
       activeAlarms: [...this.activeAlarms.values()].map((alarm) => ({ ...alarm })),
       latestAlarm: this.latestAlarm ? { ...this.latestAlarm } : null
@@ -215,8 +218,17 @@ class MockPlcSimulator extends EventEmitter {
     this.temperatureC += (this.random() - 0.5) * 0.12;
 
     if (this.isRunning && this.currentOutput > 0) {
-      this.goodCountAccumulator +=
-        ((this.currentOutput / 60000) * dt) * this.options.yieldRate;
+      const outputUnits = (this.currentOutput / 60000) * dt;
+      this.totalProducedAccumulator += outputUnits;
+      this.goodCountAccumulator += outputUnits * this.options.yieldRate;
+      const completedTotal = Math.floor(this.totalProducedAccumulator);
+      if (completedTotal > 0) {
+        this.totalProducedCount = Math.min(
+          0xffffffff,
+          this.totalProducedCount + completedTotal
+        );
+        this.totalProducedAccumulator -= completedTotal;
+      }
       const completedUnits = Math.floor(this.goodCountAccumulator);
       if (completedUnits > 0) {
         this.goodCount = Math.min(0xffffffff, this.goodCount + completedUnits);
@@ -259,7 +271,8 @@ class MockPlcSimulator extends EventEmitter {
       deviceStatus: this.deviceStatus,
       temperatureC: round(this.temperatureC, 3),
       currentOutput: round(this.currentOutput, 3),
-      goodCount: this.goodCount
+      goodCount: this.goodCount,
+      totalProducedCount: this.totalProducedCount
     };
 
     this.latestAlarm = event;

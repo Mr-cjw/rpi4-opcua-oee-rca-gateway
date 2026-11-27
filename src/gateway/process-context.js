@@ -210,6 +210,18 @@ class ProcessContextCollector extends EventEmitter {
     const deviceStatusRaw = unwrap(snapshot.deviceStatus);
     const currentOutput = Number(unwrap(snapshot.currentOutput));
     const goodCount = Number(unwrap(snapshot.goodCount));
+    const totalProducedRaw = snapshot.totalProducedCount;
+    let totalProducedCount = null;
+    if (totalProducedRaw !== undefined && totalProducedRaw !== null) {
+      const candidate = Number(unwrap(totalProducedRaw));
+      if (Number.isFinite(candidate) && candidate >= 0) {
+        totalProducedCount = candidate;
+      } else {
+        this._log("warn", "Ignoring invalid totalProducedCount", {
+          value: totalProducedRaw
+        });
+      }
+    }
     const temperatureC = Number(unwrap(snapshot.temperatureSensor));
     if (
       deviceStatusRaw === undefined ||
@@ -250,6 +262,7 @@ class ProcessContextCollector extends EventEmitter {
         deviceStatus: String(deviceStatusRaw).toUpperCase(),
         currentOutput: round(currentOutput),
         goodCount,
+        ...(totalProducedCount === null ? {} : { totalProducedCount }),
         temperatureC: round(temperatureC),
         alarmSequence: metricAlarmSequence
       },

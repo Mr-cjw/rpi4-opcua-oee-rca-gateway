@@ -47,13 +47,93 @@ function normalizeSamples(samples) {
     .map((sample, index) => {
       const at = sampleTime(sample);
       const goodCount = Number(metricValue(sample, "goodCount"));
+      const totalProducedRaw = metricValue(sample, "totalProducedCount");
+      let totalProducedCount = null;
+      let invalidTotalProducedCount = false;
+      if (
+        totalProducedRaw !== undefined &&
+        totalProducedRaw !== null &&
+        totalProducedRaw !== ""
+      ) {
+        const candidate = Number(totalProducedRaw);
+        if (Number.isFinite(candidate) && candidate >= 0) {
+          totalProducedCount = candidate;
+        } else {
+          invalidTotalProducedCount = true;
+        }
+      }
       const deviceStatus = String(metricValue(sample, "deviceStatus") || "UNKNOWN").toUpperCase();
       if (!Number.isFinite(goodCount)) {
         throw new Error(`samples[${index}].goodCount must be a finite number`);
       }
-      return { at, goodCount, deviceStatus, sample };
+      return {
+        at,
+        goodCount,
+        totalProducedCount,
+        invalidTotalProducedCount,
+        deviceStatus,
+        sample
+      };
     })
     .sort((left, right) => left.at - right.at);
+}
+
+function resolveCounterMode(rows, goodDelta, ngCount, warnings) {
+  const proxy = {
+    counterMode: "good-count-proxy",
+    totalDelta: null,
+    counterScrapDelta: null
+  };
+  const hasTotalFields = rows.some(
+    (row) => row.totalProducedCount !== null || row.invalidTotalProducedCount
+  );
+  if (!hasTotalFields) {
+    return proxy;
+  }
+  if (rows.some((row) => row.invalidTotalProducedCount || row.totalProducedCount === null)) {
+    warnings.push(
+      "totalProducedCount is missing or invalid in one or more samples; falling back to the goodCount proxy."
+    );
+    return proxy;
+  }
+
+  const rollbackIndex = rows.findIndex(
+    (row, index) => index > 0 && row.totalProducedCount < rows[index - 1].totalProducedCount
+  );
+  if (rollbackIndex >= 0) {
+    warnings.push(
+      `totalProducedCount moved backwards at sample ${rollbackIndex}; falling back to the goodCount proxy.`
+    );
+    return proxy;
+  }
+
+  const belowGoodIndex = rows.findIndex(
+    (row) => row.totalProducedCount < row.goodCount
+  );
+  if (belowGoodIndex >= 0) {
+    warnings.push(
+      `totalProducedCount is below goodCount at sample ${belowGoodIndex}; falling back to the goodCount proxy.`
+    );
+    return proxy;
+  }
+
+  const totalDelta = rows[rows.length - 1].totalProducedCount - rows[0].totalProducedCount;
+  if (totalDelta < goodDelta) {
+    warnings.push(
+      "totalProducedCount delta is below goodCount delta; falling back to the goodCount proxy."
+    );
+    return proxy;
+  }
+  if (totalDelta === 0 && ngCount > 0) {
+    warnings.push(
+      "totalProducedCount did not advance although NG quantity was recorded; quality is reported as zero."
+    );
+  }
+  return {
+    counterMode: "total-produced",
+    totalDelta: round(totalDelta),
+    counterScrapDelta: round(Math.max(0, totalDelta - goodDelta))
+  };
 }
 
 function calculateOee(samples, options = {}) {
@@ -72,6 +152,20 @@ function calculateOee(samples, options = {}) {
 
   const warnings = [];
   if (rows.length < 2) {
+    const counterMode =
+      rows.length === 1 &&
+      rows[0].totalProducedCount !== null &&
+      !rows[0].invalidTotalProducedCount
+        ? "total-produced"
+        : "good-count-proxy";
+    const qualityBasis =
+      counterMode === "total-produced"
+        ? "goodCount delta / totalProducedCount delta"
+        : "goodDelta / (goodDelta + ngCount)";
+    const performanceBasis =
+      counterMode === "total-produced"
+        ? "totalProducedCount delta / theoretical produced units at nominal output"
+        : "goodCount delta / theoretical good units at nominal output";
     return {
       availability: 0,
       performance: 0,
@@ -82,20 +176,24 @@ function calculateOee(samples, options = {}) {
       downtimeSeconds: 0,
       goodDelta: 0,
       theoreticalGood: 0,
+      totalDelta: counterMode === "total-produced" ? 0 : null,
+      counterScrapDelta: null,
+      counterMode,
       ngCount,
       nominalOutputPerMinute,
       inputs: {
         sampleCount: rows.length,
         firstSampleAt: rows[0]?.sample?.occurredAt ?? null,
         lastSampleAt: rows[0]?.sample?.occurredAt ?? null,
-        qualityBasis: "goodDelta / (goodDelta + ngCount)"
+        counterMode,
+        qualityBasis
       },
       warnings: ["At least two samples are required to calculate OEE."],
       basis: {
         plannedTime: "observed window",
         availability: "RUNNING intervals / observed intervals",
-        performance: "goodCount delta / theoretical good units at nominal output",
-        quality: "goodCount delta / (goodCount delta + NG count)"
+        performance: performanceBasis,
+        quality: qualityBasis
       }
     };
   }
@@ -129,12 +227,25 @@ function calculateOee(samples, options = {}) {
   const runningSeconds = runningMs / 1000;
   const availability = observedMs > 0 ? clamp(runningMs / observedMs, 0, 1) : 0;
   const theoreticalGood = nominalOutputPerMinute * (runningSeconds / 60);
-  const performance = theoreticalGood > 0 ? clamp(goodDelta / theoreticalGood, 0, 1) : 0;
-  const qualityDenominator = goodDelta + ngCount;
+  const counter = resolveCounterMode(rows, goodDelta, ngCount, warnings);
+  const performanceNumerator =
+    counter.counterMode === "total-produced" ? counter.totalDelta : goodDelta;
+  const performance =
+    theoreticalGood > 0 ? clamp(performanceNumerator / theoreticalGood, 0, 1) : 0;
+  const qualityDenominator =
+    counter.counterMode === "total-produced" ? counter.totalDelta : goodDelta + ngCount;
   const quality = qualityDenominator > 0 ? clamp(goodDelta / qualityDenominator, 0, 1) : 0;
   const oee = availability * performance * quality;
+  const qualityBasis =
+    counter.counterMode === "total-produced"
+      ? "goodCount delta / totalProducedCount delta"
+      : "goodDelta / (goodDelta + ngCount)";
+  const performanceBasis =
+    counter.counterMode === "total-produced"
+      ? "totalProducedCount delta / theoretical produced units at nominal output"
+      : "goodCount delta / theoretical good units at nominal output";
 
-  if (options.ngCount === undefined) {
+  if (options.ngCount === undefined && counter.counterMode === "good-count-proxy") {
     warnings.push(
       "ngCount was not supplied; quality assumes zero NG units and may overstate OEE."
     );
@@ -150,20 +261,25 @@ function calculateOee(samples, options = {}) {
     downtimeSeconds: round(Math.max(0, observedSeconds - runningSeconds), 3),
     goodDelta,
     theoreticalGood: round(theoreticalGood, 3),
+    totalDelta: counter.totalDelta,
+    counterScrapDelta: counter.counterScrapDelta,
+    counterMode: counter.counterMode,
     ngCount,
     nominalOutputPerMinute,
     inputs: {
       sampleCount: rows.length,
       firstSampleAt: new Date(first.at).toISOString(),
       lastSampleAt: new Date(last.at).toISOString(),
-      qualityBasis: "goodDelta / (goodDelta + ngCount)"
+      counterMode: counter.counterMode,
+      totalDelta: counter.totalDelta,
+      qualityBasis
     },
     warnings,
     basis: {
       plannedTime: "observed window",
       availability: "RUNNING intervals / observed intervals",
-      performance: "goodCount delta / theoretical good units at nominal output",
-      quality: "goodCount delta / (goodCount delta + NG count)"
+      performance: performanceBasis,
+      quality: qualityBasis
     }
   };
 }

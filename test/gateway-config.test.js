@@ -12,6 +12,7 @@ test("gateway config keeps the mock PLC node map by default", () => {
       ["deviceStatus", "ns=1;s=MockPLC.DeviceStatus"],
       ["currentOutput", "ns=1;s=MockPLC.CurrentOutput"],
       ["goodCount", "ns=1;s=MockPLC.GoodCount"],
+      ["totalProducedCount", "ns=1;s=MockPLC.TotalProducedCount"],
       ["temperatureSensor", "ns=1;s=MockPLC.TemperatureSensor"],
       ["alarmEvents", "ns=1;s=MockPLC.AlarmEvents"]
     ]
@@ -24,6 +25,7 @@ test("gateway config maps a real PLC and can disable optional event sources", ()
     OPCUA_DEVICE_STATUS_NODE: "ns=2;s=Line1.RunState",
     OPCUA_CURRENT_OUTPUT_NODE: "ns=2;s=Line1.Output",
     OPCUA_GOOD_COUNT_NODE: "ns=2;s=Line1.GoodCount",
+    OPCUA_TOTAL_PRODUCED_NODE: "ns=2;s=Line1.TotalProduced",
     OPCUA_TEMPERATURE_NODE: "ns=2;s=Line1.Temperature",
     OPCUA_ALARM_EVENTS_NODE: "off",
     OPCUA_EVENT_NODE: "off"
@@ -35,10 +37,20 @@ test("gateway config maps a real PLC and can disable optional event sources", ()
       ["deviceStatus", "ns=2;s=Line1.RunState"],
       ["currentOutput", "ns=2;s=Line1.Output"],
       ["goodCount", "ns=2;s=Line1.GoodCount"],
+      ["totalProducedCount", "ns=2;s=Line1.TotalProduced"],
       ["temperatureSensor", "ns=2;s=Line1.Temperature"]
     ]
   );
   assert.equal(config.eventNodeId, null);
+});
+
+test("gateway config can omit the optional total production counter", () => {
+  const config = loadGatewayConfig({ OPCUA_TOTAL_PRODUCED_NODE: "off" });
+
+  assert.equal(
+    config.variables.some((variable) => variable.name === "totalProducedCount"),
+    false
+  );
 });
 
 test("gateway config refuses to disable a required PLC point", () => {

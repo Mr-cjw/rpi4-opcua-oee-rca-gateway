@@ -41,7 +41,84 @@ test("OEE decomposes availability, performance and quality inputs", () => {
   assert.equal(result.runningSeconds, 10);
   assert.equal(result.goodDelta, 18);
   assert.equal(result.theoreticalGood, 20);
+  assert.equal(result.counterMode, "good-count-proxy");
   assert.deepEqual(result.warnings, []);
+});
+
+test("OEE uses total production counter deltas when available", () => {
+  const goodCounts = [0, 2, 4, 6, 8, 10, 12, 14, 16, 17, 18];
+  const samples = goodCounts.map((goodCount, second) =>
+    sample(second, {
+      goodCount,
+      totalProducedCount: second * 2
+    })
+  );
+
+  const result = calculateOee(samples, {
+    nominalOutputPerMinute: 120,
+    ngCount: 2
+  });
+
+  assert.equal(result.counterMode, "total-produced");
+  assert.equal(result.performance, 1);
+  assert.equal(result.quality, 0.9);
+  assert.equal(result.oee, 0.9);
+  assert.equal(result.goodDelta, 18);
+  assert.equal(result.totalDelta, 20);
+  assert.equal(result.counterScrapDelta, 2);
+  assert.deepEqual(result.warnings, []);
+});
+
+test("OEE falls back when total production counters are incomplete or inconsistent", () => {
+  const rollbackSamples = [0, 2, 1, 4].map((totalProducedCount, second) =>
+    sample(second, {
+      goodCount: second,
+      totalProducedCount
+    })
+  );
+  const rollback = calculateOee(rollbackSamples, {
+    nominalOutputPerMinute: 120,
+    ngCount: 0
+  });
+  assert.equal(rollback.counterMode, "good-count-proxy");
+  assert.ok(rollback.warnings.some((warning) => warning.includes("moved backwards")));
+
+  const mixedSamples = [
+    sample(0, { goodCount: 0, totalProducedCount: 0 }),
+    sample(1, { goodCount: 1 }),
+    sample(2, { goodCount: 2, totalProducedCount: 4 })
+  ];
+  const mixed = calculateOee(mixedSamples, {
+    nominalOutputPerMinute: 120,
+    ngCount: 0
+  });
+  assert.equal(mixed.counterMode, "good-count-proxy");
+  assert.ok(mixed.warnings.some((warning) => warning.includes("missing or invalid")));
+
+  const belowGood = calculateOee(
+    [
+      sample(0, { goodCount: 0, totalProducedCount: 0 }),
+      sample(1, { goodCount: 5, totalProducedCount: 4 })
+    ],
+    { nominalOutputPerMinute: 120, ngCount: 0 }
+  );
+  assert.equal(belowGood.counterMode, "good-count-proxy");
+  assert.ok(belowGood.warnings.some((warning) => warning.includes("below goodCount")));
+});
+
+test("OEE reports zero quality when total production does not advance", () => {
+  const result = calculateOee(
+    [
+      sample(0, { goodCount: 0, totalProducedCount: 0 }),
+      sample(10, { goodCount: 0, totalProducedCount: 0 })
+    ],
+    { nominalOutputPerMinute: 120, ngCount: 1 }
+  );
+
+  assert.equal(result.counterMode, "total-produced");
+  assert.equal(result.totalDelta, 0);
+  assert.equal(result.quality, 0);
+  assert.ok(result.warnings.some((warning) => warning.includes("did not advance")));
 });
 
 test("OEE counts a simulated downtime against availability and freezes GoodCount", () => {

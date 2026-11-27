@@ -16,14 +16,23 @@ function iso(seconds) {
   return new Date(BASE_MS + seconds * 1000).toISOString();
 }
 
-function plcSnapshot({ goodCount = 0, deviceStatus = "RUNNING", temperatureC = 24 } = {}) {
-  return {
+function plcSnapshot({
+  goodCount = 0,
+  totalProducedCount,
+  deviceStatus = "RUNNING",
+  temperatureC = 24
+} = {}) {
+  const snapshot = {
     deviceStatus: { value: deviceStatus },
     currentOutput: { value: 120 },
     goodCount: { value: goodCount },
     temperatureSensor: { value: temperatureC },
     alarmEvents: { alarmSnapshot: { sequence: 0, active: [] } }
   };
+  if (totalProducedCount !== undefined) {
+    snapshot.totalProducedCount = { value: totalProducedCount };
+  }
+  return snapshot;
 }
 
 class FakeOpcUaClient extends EventEmitter {
@@ -81,12 +90,13 @@ function makeRuntime(extraEnv = {}) {
   };
 }
 
-function captureWindow(collector) {
+function captureWindow(collector, { totalProduced = false } = {}) {
   const goodCounts = [0, 2, 4, 6, 8, 10, 12, 14, 16, 17, 18];
   for (let second = 0; second <= 10; second += 1) {
     collector.capture(
       plcSnapshot({
         goodCount: goodCounts[second],
+        totalProducedCount: totalProduced ? second * 2 : undefined,
         temperatureC: second === 10 ? 92 : 24
       }),
       { occurredAt: iso(second) }
@@ -198,6 +208,7 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(oee.performance, 0.9);
   assert.equal(oee.quality, 0.9);
   assert.equal(oee.oee, 0.81);
+  assert.equal(oee.counterMode, "good-count-proxy");
   assert.equal(oee.qualitySource, "quality-events");
   assert.equal(oee.qualityEventCount, 1);
   assert.equal(oee.qualityEventQuantity, 2);
@@ -231,6 +242,29 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
     body: JSON.stringify({ qualityEventId: "qevt-missing" })
   });
   assert.equal(missingRcaResponse.status, 404);
+});
+
+test("gateway runtime reports total-production OEE counter mode", async (t) => {
+  const { runtime } = makeRuntime();
+  t.after(async () => runtime.stop());
+  await runtime.start();
+  captureWindow(runtime.collector, { totalProduced: true });
+
+  const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
+  oeeUrl.searchParams.set("from", iso(0));
+  oeeUrl.searchParams.set("to", iso(10));
+  oeeUrl.searchParams.set("ngCount", "2");
+  const response = await fetch(oeeUrl);
+  assert.equal(response.status, 200);
+  const oee = await response.json();
+
+  assert.equal(oee.counterMode, "total-produced");
+  assert.equal(oee.performance, 1);
+  assert.equal(oee.quality, 0.9);
+  assert.equal(oee.oee, 0.9);
+  assert.equal(oee.totalDelta, 20);
+  assert.equal(oee.counterScrapDelta, 2);
+  assert.equal(oee.qualitySource, "query");
 });
 
 test("gateway API enforces a bearer token when configured", async (t) => {

@@ -13,6 +13,7 @@ function snapshot(overrides = {}) {
     deviceStatus: { value: "RUNNING" },
     currentOutput: { value: 118.4321 },
     goodCount: { value: 155 },
+    totalProducedCount: { value: 160 },
     temperatureSensor: { value: 24.125 },
     alarmEvents: {
       alarmSnapshot: {
@@ -69,6 +70,7 @@ test("process context builds the shared event contract", () => {
     deviceStatus: "RUNNING",
     currentOutput: 118.432,
     goodCount: 155,
+    totalProducedCount: 160,
     temperatureC: 24.125,
     alarmSequence: 2
   });
@@ -88,6 +90,16 @@ test("process context rejects incomplete snapshots", () => {
 
   assert.equal(event, null);
   assert.equal(collector.eventCount, 0);
+});
+
+test("process context accepts legacy snapshots without total production", () => {
+  const collector = makeCollector();
+  const event = collector.capture(snapshot({ totalProducedCount: undefined }), {
+    occurredAt: "2026-11-27T00:00:10.000Z"
+  });
+
+  assert.ok(event);
+  assert.equal(Object.hasOwn(event.metrics, "totalProducedCount"), false);
 });
 
 test("process context works when the PLC has no AlarmEvents node", () => {
@@ -293,14 +305,35 @@ test("process context replays retained JSONL and skips corrupt or foreign lines"
     alarms: []
   };
   await fs.appendFile(logPath, `${JSON.stringify(foreign)}\nnot-json\n`, "utf8");
+  await fs.appendFile(
+    logPath,
+    `${JSON.stringify({
+      schemaVersion: "1.0",
+      eventId: "legacy-event-1",
+      source: "rpi4-gateway",
+      eventType: "PROCESS_CONTEXT",
+      occurredAt: "2026-11-27T00:00:02.500Z",
+      lineId: "JX-LINE-01",
+      stationId: "JX-LINQIN-STATION-01",
+      metrics: {
+        deviceStatus: "RUNNING",
+        currentOutput: 120,
+        goodCount: 2,
+        temperatureC: 24,
+        alarmSequence: null
+      },
+      alarms: []
+    })}\n`,
+    "utf8"
+  );
 
   const replayed = makeCollector({ eventLogPath: logPath });
   const result = await replayed.load();
-  assert.equal(result.loaded, 2);
+  assert.equal(result.loaded, 3);
   assert.equal(result.skipped, 2);
-  assert.equal(result.retained, 2);
-  assert.equal(replayed.getEvents().length, 2);
-  assert.equal(replayed.getLatest().occurredAt, "2026-11-27T00:00:02.000Z");
+  assert.equal(result.retained, 3);
+  assert.equal(replayed.getEvents().length, 3);
+  assert.equal(replayed.getLatest().occurredAt, "2026-11-27T00:00:02.500Z");
 
   const again = await replayed.load();
   assert.equal(again.alreadyLoaded, true);

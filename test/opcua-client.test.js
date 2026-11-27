@@ -94,13 +94,20 @@ test("gateway client subscribes to values and native alarm events", { timeout: 3
     "data",
     (payload) => payload.name === "deviceStatus" && payload.value === "RUNNING"
   );
+  const initialTotal = waitForEvent(
+    client,
+    "data",
+    (payload) => payload.name === "totalProducedCount"
+  );
   await client.start();
-  const initialStatus = await initialData;
+  const [initialStatus, totalStatus] = await Promise.all([initialData, initialTotal]);
 
   assert.equal(client.isConnected, true);
   assert.equal(initialStatus.dataType, "String");
   assert.equal(initialStatus.statusCode, "Good (0x00000000)");
+  assert.equal(totalStatus.dataType, "UInt32");
   assert.equal(client.getSnapshot().deviceStatus.value, "RUNNING");
+  assert.ok(client.getSnapshot().totalProducedCount.value >= 0);
   assert.equal("fingerprint" in client.getSnapshot().deviceStatus, false);
 
   const alarmReceived = waitForEvent(
@@ -114,6 +121,7 @@ test("gateway client subscribes to values and native alarm events", { timeout: 3
   assert.equal(alarm.sourceName, "MockPLC");
   assert.equal(alarm.deviceStatus, "DOWN");
   assert.ok(alarm.alarmSequence >= 1);
+  assert.ok(alarm.totalProducedCount >= alarm.goodCount);
   assert.ok(
     logRecords.some(
       (record) => record.type === "event" && record.alarmCode === "DOWNTIME"

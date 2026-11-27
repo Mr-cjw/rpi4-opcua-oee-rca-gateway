@@ -9,6 +9,7 @@ It provides:
 - `DeviceStatus`: `RUNNING` or `DOWN`
 - `CurrentOutput`: production rate in units per minute
 - `GoodCount`: monotonic good-unit counter
+- `TotalProducedCount`: monotonic counter for all produced units
 - `TemperatureSensor`: synthetic temperature in degrees Celsius
 - `AlarmEvents`: JSON snapshot of active/latest alarms
 - Standard OPC UA event notifications for downtime and temperature alarms
@@ -251,23 +252,35 @@ the retention settings below.
 
 ### OEE inputs and limits
 
-The first version intentionally exposes every input instead of only showing a
-single headline number:
+The API intentionally exposes every input instead of only showing a single
+headline number:
 
 - Availability = `RUNNING` intervals / observed intervals;
-- Performance = `goodCount` delta / theoretical good units at nominal output;
-- Quality = `goodCount` delta / (`goodCount` delta + recorded NG quantity);
+- Performance = production-count delta / theoretical units at nominal output;
+- Quality = good-count delta / production-count delta;
 - OEE = Availability x Performance x Quality.
+
+When every sample in the window has a valid `totalProducedCount`,
+`counterMode` is `total-produced`: Performance uses the
+`totalProducedCount` delta and Quality uses `goodCount` delta divided by that
+same total delta. Responses also include `totalDelta` and
+`counterScrapDelta` (`totalDelta - goodDelta`) for reconciliation, while
+`ngCount`, `qualitySource`, `qualityEventCount`, and `qualityEventQuantity`
+remain available for comparison with the quality feed.
+
+Legacy or mixed samples without a valid total counter keep the previous
+`good-count-proxy` behavior:
+
+- Performance = `goodCount` delta / theoretical good units at nominal output;
+- Quality = `goodCount` delta / (`goodCount` delta + recorded NG quantity).
 
 The observed window is currently used as planned production time. Shift
 calendars, planned stops, changeovers, and speed loss need to be added before
 using this as a formal production OEE figure. If `ngCount` is omitted, the API
 uses recorded quality events; if none exist in the window it returns a warning
-because the quality feed may not be connected.
-
-The mock PLC exposes `GoodCount` but not `TotalProducedCount`, so Performance
-currently uses `GoodCount` as the production proxy. A real PLC mapping should
-add total produced count to separate speed loss from quality loss cleanly.
+because the quality feed may not be connected. If a total counter rolls back,
+falls below `goodCount`, or is missing from only part of the window, the API
+falls back to `good-count-proxy` and returns an explicit warning.
 
 ### RCA boundary
 
@@ -305,24 +318,28 @@ Example response shape:
 ### Real PLC node mapping
 
 The Gateway does not require the Mock PLC address space. Map the four required
-read-only points with full OPC UA NodeIds:
+read-only points with full OPC UA NodeIds; also map the optional total counter
+when the PLC exposes one:
 
 ```bash
 OPCUA_ENDPOINT=opc.tcp://192.168.1.50:4840 \
 OPCUA_DEVICE_STATUS_NODE='ns=2;s=Line1.RunState' \
 OPCUA_CURRENT_OUTPUT_NODE='ns=2;s=Line1.Output' \
 OPCUA_GOOD_COUNT_NODE='ns=2;s=Line1.GoodCount' \
+OPCUA_TOTAL_PRODUCED_NODE='ns=2;s=Line1.TotalProduced' \
 OPCUA_TEMPERATURE_NODE='ns=2;s=Line1.Temperature' \
 OPCUA_ALARM_EVENTS_NODE=off \
 OPCUA_EVENT_NODE=off \
 npm run gateway
 ```
 
-`OPCUA_ALARM_EVENTS_NODE` and `OPCUA_EVENT_NODE` are optional and can be set to
-`off` when a real PLC has no equivalent JSON alarm snapshot or MockPLC event
-type. If native event subscription fails, the client logs a warning and keeps
-the value subscription alive. In that mode RCA still uses sampled downtime and
-temperature thresholds, but it will not have native PLC alarm messages.
+`OPCUA_TOTAL_PRODUCED_NODE`, `OPCUA_ALARM_EVENTS_NODE`, and `OPCUA_EVENT_NODE`
+are optional and can be set to `off` when a real PLC has no equivalent point.
+With the total counter disabled, OEE remains on the `good-count-proxy`
+behavior. If native event subscription fails, the client logs a warning and
+keeps the value subscription alive. In that mode RCA still uses sampled
+downtime and temperature thresholds, but it will not have native PLC alarm
+messages.
 
 The required values must be convertible to a status string and to numbers, and
 `DeviceStatus` should remain `RUNNING`/`DOWN` (or be mapped upstream). The
@@ -341,6 +358,7 @@ Gateway only reads points; it does not write PLC controls.
 | `OPCUA_DEVICE_STATUS_NODE` | `ns=1;s=MockPLC.DeviceStatus` | Device status NodeId |
 | `OPCUA_CURRENT_OUTPUT_NODE` | `ns=1;s=MockPLC.CurrentOutput` | Current output NodeId |
 | `OPCUA_GOOD_COUNT_NODE` | `ns=1;s=MockPLC.GoodCount` | Good count NodeId |
+| `OPCUA_TOTAL_PRODUCED_NODE` | `ns=1;s=MockPLC.TotalProducedCount` | Optional total-produced NodeId; `off` enables proxy mode |
 | `OPCUA_TEMPERATURE_NODE` | `ns=1;s=MockPLC.TemperatureSensor` | Temperature NodeId |
 | `OPCUA_ALARM_EVENTS_NODE` | `ns=1;s=MockPLC.AlarmEvents` | Optional alarm JSON NodeId; `off` disables |
 | `OPCUA_EVENT_NODE` | `ns=1;s=MockPLC` | Optional native event NodeId; `off` disables |
@@ -417,6 +435,7 @@ urn:rpi4:opcua:mock-plc:server
 | `DeviceStatus` | `ns=1;s=MockPLC.DeviceStatus` | `String` | `RUNNING` or `DOWN` |
 | `CurrentOutput` | `ns=1;s=MockPLC.CurrentOutput` | `Double` | Units per minute |
 | `GoodCount` | `ns=1;s=MockPLC.GoodCount` | `UInt32` | Monotonic good units since server start |
+| `TotalProducedCount` | `ns=1;s=MockPLC.TotalProducedCount` | `UInt32` | Monotonic all units since server start |
 | `TemperatureSensor` | `ns=1;s=MockPLC.TemperatureSensor` | `Double` | Temperature in degrees Celsius |
 | `AlarmEvents` | `ns=1;s=MockPLC.AlarmEvents` | `String` | JSON alarm snapshot |
 | `AlarmEventCount` | `ns=1;s=MockPLC.AlarmEventCount` | `UInt32` | Monotonic alarm sequence number |
@@ -425,8 +444,10 @@ urn:rpi4:opcua:mock-plc:server
 | `ResumeNormal` | `ns=1;s=MockPLC.ResumeNormal` | Method | Clear forced downtime/spike |
 
 `CurrentOutput` is smoothed with a first-order low-pass filter, so it moves
-gradually instead of jumping on every update. `GoodCount` increments only while
-the device is `RUNNING`.
+gradually instead of jumping on every update. `TotalProducedCount` accumulates
+all completed output while `GoodCount` accumulates output multiplied by
+`SIM_YIELD_RATE`; both stop while the device is not `RUNNING`, and
+`GoodCount` never exceeds `TotalProducedCount`.
 
 ### AlarmEvents JSON
 
@@ -448,7 +469,8 @@ subscriptions. It changes whenever an alarm is raised or cleared:
       "deviceStatus": "DOWN",
       "temperatureC": 24.12,
       "currentOutput": 118.43,
-      "goodCount": 155
+      "goodCount": 155,
+      "totalProducedCount": 160
     }
   ],
   "latest": {
@@ -479,6 +501,7 @@ fields plus these namespace-1 fields:
 - `1:TemperatureC`
 - `1:CurrentOutput`
 - `1:GoodCount`
+- `1:TotalProducedCount`
 - `1:AlarmSequence`
 
 The standard fields include `EventId`, `EventType`, `SourceNode`, `SourceName`,
@@ -521,7 +544,7 @@ All configuration is supplied through environment variables.
 | `SIM_INTERVAL_MS` | `500` | Simulation and value update interval |
 | `SIM_SEED` | `8675309` | Random seed |
 | `SIM_NOMINAL_OUTPUT` | `120` | Normal production rate, units/minute |
-| `SIM_YIELD_RATE` | `0.98` | Fraction of output added to `GoodCount` |
+| `SIM_YIELD_RATE` | `0.98` | Fraction of completed output added to `GoodCount`; total output goes to `TotalProducedCount` |
 | `SIM_AMBIENT_TEMP_C` | `23.5` | Normal ambient temperature |
 | `SIM_DOWNTIME_RATE_PER_MIN` | `0.35` | Random downtime starts per minute |
 | `SIM_TEMP_SPIKE_RATE_PER_MIN` | `0.40` | Random spike starts per minute |
@@ -646,6 +669,7 @@ const nodes = [
   "ns=1;s=MockPLC.DeviceStatus",
   "ns=1;s=MockPLC.CurrentOutput",
   "ns=1;s=MockPLC.GoodCount",
+  "ns=1;s=MockPLC.TotalProducedCount",
   "ns=1;s=MockPLC.TemperatureSensor",
   "ns=1;s=MockPLC.AlarmEvents"
 ];
@@ -758,16 +782,18 @@ OPCUA_ENDPOINT=opc.tcp://192.168.1.50:4840/UA/MockPLC npm run smoke
 ## Recommended E2E Scenario
 
 1. Start the mock server with random faults disabled.
-2. Start the Gateway and confirm that all five values update.
-3. Record the initial `GoodCount`; verify that it increases over 10 seconds.
+2. Start the Gateway and confirm that all six values update.
+3. Record the initial `GoodCount` and `TotalProducedCount`; verify that both
+   increase over 10 seconds and that `GoodCount <= TotalProducedCount`.
 4. Call `TriggerDowntime` for 15 seconds.
-5. Verify that `DeviceStatus=DOWN`, output trends to zero, and `GoodCount` is
-   flat.
+5. Verify that `DeviceStatus=DOWN`, output trends to zero, and both counters
+   are flat.
 6. Verify that the RCA pipeline receives a downtime event and creates the
    expected root-cause record.
 7. Query `/v1/oee` and `/v1/rca`; confirm that every OEE component and RCA
    candidate includes its inputs/evidence rather than only a headline value.
-8. Wait for recovery and verify that output and `GoodCount` resume.
+8. Wait for recovery and verify that output, `GoodCount`, and
+   `TotalProducedCount` resume.
 9. Call `TriggerTemperatureSpike` with `DurationSeconds=15` and
    `PeakCelsius=95`.
 10. Verify that the RCA rule triggers on the temperature threshold and clears
@@ -856,7 +882,8 @@ OPCUA_PKI_ROOT=/var/lib/opcua-mock/pki npm start
 - Match the Gateway subscription interval to `SIM_INTERVAL_MS`.
 - Confirm the namespace index is `1`.
 - Read the NodeIds directly with `npm run smoke`.
-- Remember that `GoodCount` resets when the mock server restarts.
+- Remember that `GoodCount` and `TotalProducedCount` reset when the mock server
+  restarts.
 
 ## Important Limitations
 

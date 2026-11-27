@@ -40,6 +40,8 @@ test("normal production is smooth and increases GoodCount", () => {
   assert.ok(simulator.currentOutput > 100 && simulator.currentOutput < 140);
   assert.ok(simulator.temperatureC > 20 && simulator.temperatureC < 32);
   assert.ok(simulator.goodCount > 0);
+  assert.ok(simulator.totalProducedCount >= simulator.goodCount);
+  assert.ok(simulator.totalProducedCount > simulator.goodCount);
 });
 
 test("downtime freezes GoodCount and recovers after its duration", () => {
@@ -51,6 +53,7 @@ test("downtime freezes GoodCount and recovers after its duration", () => {
   const event = simulator.triggerDowntime(2, "unit-test");
   assert.equal(event.code, "DOWNTIME");
   const countAtStop = simulator.goodCount;
+  const totalAtStop = simulator.totalProducedCount;
 
   for (let index = 0; index < 6; index += 1) {
     simulator.tick(250);
@@ -58,6 +61,7 @@ test("downtime freezes GoodCount and recovers after its duration", () => {
 
   assert.equal(simulator.deviceStatus, "DOWN");
   assert.equal(simulator.goodCount, countAtStop);
+  assert.equal(simulator.totalProducedCount, totalAtStop);
   assert.ok(simulator.currentOutput < 80);
 
   simulator.tick(750);
@@ -96,6 +100,10 @@ test("the same seed produces deterministic snapshots", () => {
   for (let index = 0; index < firstSnapshots.length; index += 1) {
     assert.equal(firstSnapshots[index].currentOutput, secondSnapshots[index].currentOutput);
     assert.equal(firstSnapshots[index].goodCount, secondSnapshots[index].goodCount);
+    assert.equal(
+      firstSnapshots[index].totalProducedCount,
+      secondSnapshots[index].totalProducedCount
+    );
     assert.equal(firstSnapshots[index].temperatureC, secondSnapshots[index].temperatureC);
   }
 });
