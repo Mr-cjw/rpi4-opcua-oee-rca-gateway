@@ -1018,10 +1018,11 @@ npm test
 The suite covers deterministic simulation, OEE input decomposition, downtime
 impact, RCA candidate/evidence behavior, the versioned process-context event,
 JSONL persistence, NG quality-event ingestion and idempotency, bearer-token
-enforcement, restart replay, and an end-to-end runtime API. The OPC UA
-integration test starts an isolated mock server, connects through
-`OpcUaGatewayClient`, verifies variable data, injects a downtime, verifies the
-normalized native alarm event, and then cleans up the session and subscription.
+enforcement, restart replay, three virtual-day retention/disk-budget checks,
+and an end-to-end runtime API. The OPC UA integration test starts an isolated
+mock server, connects through `OpcUaGatewayClient`, verifies variable data,
+injects a downtime, verifies the normalized native alarm event, and then cleans
+up the session and subscription.
 The doctor tests cover counter/type failures, timestamp warnings, and a live
 connection against the Mock PLC.
 

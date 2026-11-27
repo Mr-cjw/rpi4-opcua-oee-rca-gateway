@@ -105,3 +105,10 @@ Current legacy replay compatibility is exercised by
 `test/fixtures/legacy-jsonl/` and `test/storage-migration.test.js`. Those
 fixtures cover rotated JSONL, records without `sequence`, and idempotency-ledger
 entries whose source event is no longer retained in the event log.
+
+Multi-day behavior is exercised without waiting three real days by
+`test/retention-budget.test.js`. It advances a virtual clock through 4,320
+process-context samples and 432 quality events, then verifies in-memory
+retention, idempotency expiry, replay, sequence continuity, and the
+`(MAX_FILES + 1) x MAX_BYTES` per-stream disk bound. Physical 72-hour and
+power-cut validation remain Raspberry Pi release gates.
