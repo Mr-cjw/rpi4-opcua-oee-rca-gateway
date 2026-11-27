@@ -477,6 +477,85 @@ test("gateway API fails closed and degrades health when quality storage is unava
   );
 });
 
+test("gateway API fails closed on a simulated full quality disk", async (t) => {
+  try {
+    await fs.access("/dev/full");
+  } catch {
+    t.skip("/dev/full is not available on this platform");
+    return;
+  }
+
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-disk-full-"));
+  const { runtime } = makeRuntime({
+    QUALITY_EVENT_LOG: path.join(directory, "quality-events.jsonl"),
+    QUALITY_EVENT_IDEMPOTENCY_FILE: path.join(directory, "quality-idempotency.json")
+  });
+  t.after(async () => {
+    await runtime.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  await runtime.start();
+  runtime.qualityEvents._logStore.filePath = "/dev/full";
+  runtime.qualityEvents._logStore._size = 0;
+
+  const response = await fetch(`${runtime.api.address}/v1/quality-events`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      sourceEventId: "QC-DISK-FULL",
+      occurredAt: new Date().toISOString()
+    })
+  });
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /ENOSPC/);
+  assert.equal(runtime.getQualityEvents().length, 0);
+
+  const health = await (await fetch(`${runtime.api.address}/healthz`)).json();
+  assert.equal(health.status, "degraded");
+  assert.equal(health.storage.components["quality-event-log"].status, "critical");
+  assert.equal(health.storage.components["quality-event-log"].totalFailures, 1);
+});
+
+test("gateway API does not acknowledge a slow quality-log write early", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-slow-write-"));
+  const { runtime } = makeRuntime({
+    QUALITY_EVENT_LOG: path.join(directory, "quality-events.jsonl"),
+    QUALITY_EVENT_IDEMPOTENCY_FILE: "off"
+  });
+  t.after(async () => {
+    await runtime.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  await runtime.start();
+
+  const append = runtime.qualityEvents._logStore.append.bind(runtime.qualityEvents._logStore);
+  runtime.qualityEvents._logStore.append = (record) =>
+    new Promise((resolve) => {
+      setTimeout(() => resolve(append(record)), 150);
+    });
+
+  let settled = false;
+  const request = fetch(`${runtime.api.address}/v1/quality-events`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      sourceEventId: "QC-SLOW-WRITE",
+      occurredAt: new Date().toISOString()
+    })
+  }).then(async (response) => {
+    settled = true;
+    return { status: response.status, body: await response.json() };
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(settled, false);
+
+  const response = await request;
+  assert.equal(response.status, 201);
+  assert.equal(response.body.duplicate, false);
+  assert.equal(runtime.getQualityEvents().length, 1);
+});
+
 test("gateway API rolls back work context when persistence fails", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-work-context-fail-"));
   const { runtime } = makeRuntime({
