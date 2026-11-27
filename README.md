@@ -23,6 +23,7 @@ It provides:
 - Runtime-updatable work-order, serial-number, and correlation context
 - Durable quality-event idempotency independent of log rotation
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
+- Time-zone-aware shift windows for planned production time
 
 The phased plan from the current prototype to a field pilot is documented in
 [`docs/ROADMAP.md`](docs/ROADMAP.md). The immediate priority is OEE correctness:
@@ -260,10 +261,28 @@ the retention settings below.
 The API intentionally exposes every input instead of only showing a single
 headline number:
 
-- Availability = `RUNNING` intervals / observed intervals;
+- Availability = `RUNNING` planned intervals / planned intervals;
 - Performance = production-count delta / theoretical units at nominal output;
 - Quality = good-count delta / production-count delta;
 - OEE = Availability x Performance x Quality.
+
+Planned time is the intersection of the sampled window and the configured
+`OEE_SHIFT_WINDOWS` in `OEE_TIMEZONE`. The default is
+`00:00-24:00` every day, which preserves the previous observed-window behavior.
+Shift windows use `[DAYS:]HH:MM-HH:MM`, separated by semicolons. Examples:
+
+```text
+00:00-24:00
+MON-FRI:08:00-20:00;SAT:08:00-12:00
+FRI:20:00-08:00
+```
+
+A day prefix names the day on which the window starts, so an overnight window
+continues into the next local day. OEE responses expose `plannedSeconds`,
+`plannedStopSeconds`, and `outsidePlanRunningSeconds`; `downtimeSeconds` is now
+the non-running portion of planned time. Running outside plan is excluded from
+Availability and produces a warning, while counters still reflect the observed
+sample window.
 
 When every sample in the window has a valid `totalProducedCount`,
 `counterMode` is `total-produced`: Performance uses the
@@ -279,13 +298,13 @@ Legacy or mixed samples without a valid total counter keep the previous
 - Performance = `goodCount` delta / theoretical good units at nominal output;
 - Quality = `goodCount` delta / (`goodCount` delta + recorded NG quantity).
 
-The observed window is currently used as planned production time. Shift
-calendars, planned stops, changeovers, and speed loss need to be added before
-using this as a formal production OEE figure. If `ngCount` is omitted, the API
-uses recorded quality events; if none exist in the window it returns a warning
-because the quality feed may not be connected. If a total counter rolls back,
-falls below `goodCount`, or is missing from only part of the window, the API
-falls back to `good-count-proxy` and returns an explicit warning.
+Explicit downtime classification, changeover handling, product-mix ideal cycle
+time, and speed-loss attribution still need to be added before using this as a
+formal production OEE figure. If `ngCount` is omitted, the API uses recorded
+quality events; if none exist in the window it returns a warning because the
+quality feed may not be connected. If a total counter rolls back, falls below
+`goodCount`, or is missing from only part of the window, the API falls back to
+`good-count-proxy` and returns an explicit warning.
 
 ### RCA boundary
 
@@ -374,6 +393,8 @@ Gateway only reads points; it does not write PLC controls.
 | `PROCESS_CONTEXT_LOG_MAX_BYTES` | `10485760` | Rotate the active context log after this many bytes |
 | `PROCESS_CONTEXT_LOG_MAX_FILES` | `3` | Number of rotated context-log backups to retain |
 | `OEE_NOMINAL_OUTPUT_PER_MIN` | `120` | Theoretical output for Performance |
+| `OEE_TIMEZONE` | system time zone | IANA time zone for shift and planned-time calculations |
+| `OEE_SHIFT_WINDOWS` | `00:00-24:00` | Daily shift windows; `[DAYS:]HH:MM-HH:MM` separated by semicolons |
 | `OEE_WINDOW_MS` | `300000` | Default OEE query window |
 | `RCA_WINDOW_MS` | `300000` | Default RCA +/- window |
 | `RCA_TEMPERATURE_THRESHOLD_C` | `70` | Temperature anomaly threshold |

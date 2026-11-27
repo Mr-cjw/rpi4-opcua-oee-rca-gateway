@@ -1,6 +1,12 @@
 "use strict";
 
 const path = require("node:path");
+const {
+  DEFAULT_SHIFT_WINDOWS,
+  defaultTimeZone,
+  parseShiftSchedule,
+  validateTimeZone
+} = require("../analytics/planned-time");
 const { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } = require("./jsonl");
 
 function integerFromEnv(env, name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -67,6 +73,20 @@ function loadGatewayConfig(env = process.env) {
   const password = env.OPCUA_PASSWORD || "";
   if (Boolean(username) !== Boolean(password)) {
     throw new Error("OPCUA_USERNAME and OPCUA_PASSWORD must be configured together");
+  }
+
+  const timeZone = env.OEE_TIMEZONE || defaultTimeZone();
+  try {
+    validateTimeZone(timeZone);
+  } catch (error) {
+    throw new Error(`OEE_TIMEZONE: ${error.message}`);
+  }
+  const shiftWindows = env.OEE_SHIFT_WINDOWS || DEFAULT_SHIFT_WINDOWS;
+  let shiftSchedule;
+  try {
+    shiftSchedule = parseShiftSchedule(shiftWindows);
+  } catch (error) {
+    throw new Error(`OEE_SHIFT_WINDOWS: ${error.message}`);
   }
 
   const variables = [
@@ -205,6 +225,11 @@ function loadGatewayConfig(env = process.env) {
       nominalOutputPerMinute: numberFromEnv(env, "OEE_NOMINAL_OUTPUT_PER_MIN", 120, {
         min: 0.001,
         max: 100000
+      }),
+      plannedTime: Object.freeze({
+        timeZone,
+        windows: shiftWindows,
+        schedule: shiftSchedule
       }),
       oeeWindowMs: integerFromEnv(env, "OEE_WINDOW_MS", 300000, {
         min: 1000,

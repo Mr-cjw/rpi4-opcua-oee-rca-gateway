@@ -199,6 +199,9 @@ async function main() {
     assert.equal(oee.counterMode, "total-produced");
     assert.ok(oee.totalDelta > 0);
     assert.ok(oee.counterScrapDelta >= 0);
+    assert.equal(oee.plannedSeconds, oee.observedSeconds);
+    assert.equal(oee.plannedStopSeconds, 0);
+    assert.equal(oee.plannedTime.windows, "00:00-24:00");
     assert.equal(oee.qualitySource, "quality-events");
     assert.equal(oee.qualityEventCount, 1);
     assert.deepEqual(oee.scope, {

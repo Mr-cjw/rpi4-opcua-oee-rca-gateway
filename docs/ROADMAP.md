@@ -53,6 +53,13 @@ time, all non-running time is effectively unplanned, and product/changeover
 context is absent. Counter continuity and NG-feed reconciliation also need
 first-class output fields.
 
+Progress:
+
+- Completed 2026-11-27: configurable time-zone-aware daily/weekly shift windows,
+  overnight windows, planned-time clipping, and `plannedSeconds` /
+  `plannedStopSeconds` / `outsidePlanRunningSeconds` OEE outputs. The default
+  remains 24-hour planned time for backward compatibility.
+
 Deliverables:
 
 - Add explicit planned-time and shift-calendar configuration, including timezone

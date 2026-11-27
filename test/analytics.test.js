@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { calculateOee } = require("../src/analytics/oee");
+const { parseShiftSchedule } = require("../src/analytics/planned-time");
 const { analyzeRca } = require("../src/analytics/rca");
 
 const BASE_MS = Date.parse("2026-11-27T00:00:00.000Z");
@@ -119,6 +120,54 @@ test("OEE reports zero quality when total production does not advance", () => {
   assert.equal(result.totalDelta, 0);
   assert.equal(result.quality, 0);
   assert.ok(result.warnings.some((warning) => warning.includes("did not advance")));
+});
+
+test("OEE clips availability to configured planned-time windows", () => {
+  const result = calculateOee(
+    [
+      sample(50, { goodCount: 0 }),
+      sample(70, { goodCount: 20 })
+    ],
+    {
+      nominalOutputPerMinute: 120,
+      ngCount: 0,
+      plannedTime: {
+        schedule: parseShiftSchedule("00:00-00:01"),
+        timeZone: "UTC"
+      }
+    }
+  );
+
+  assert.equal(result.observedSeconds, 20);
+  assert.equal(result.plannedSeconds, 10);
+  assert.equal(result.plannedStopSeconds, 10);
+  assert.equal(result.runningSeconds, 10);
+  assert.equal(result.downtimeSeconds, 0);
+  assert.equal(result.availability, 1);
+  assert.equal(result.theoreticalGood, 20);
+  assert.equal(result.plannedTime.windows, "00:00-00:01");
+  assert.equal(result.plannedTime.timeZone, "UTC");
+});
+
+test("OEE warns when running occurs outside the planned shift", () => {
+  const result = calculateOee(
+    [
+      sample(50, { goodCount: 0 }),
+      sample(70, { goodCount: 20 })
+    ],
+    {
+      nominalOutputPerMinute: 120,
+      ngCount: 0,
+      plannedTime: {
+        schedule: parseShiftSchedule("00:01-00:02"),
+        timeZone: "UTC"
+      }
+    }
+  );
+
+  assert.equal(result.plannedSeconds, 10);
+  assert.equal(result.outsidePlanRunningSeconds, 10);
+  assert.ok(result.warnings.some((warning) => warning.includes("outside configured shift")));
 });
 
 test("OEE counts a simulated downtime against availability and freezes GoodCount", () => {

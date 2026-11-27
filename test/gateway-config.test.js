@@ -53,6 +53,31 @@ test("gateway config can omit the optional total production counter", () => {
   );
 });
 
+test("gateway config validates planned-time shifts and time zone", () => {
+  const defaults = loadGatewayConfig({});
+  assert.equal(defaults.analytics.plannedTime.windows, "00:00-24:00");
+  assert.equal(defaults.analytics.plannedTime.schedule[0].startMinute, 0);
+  assert.equal(defaults.analytics.plannedTime.schedule[0].endMinute, 1440);
+  assert.ok(defaults.analytics.plannedTime.timeZone);
+
+  const configured = loadGatewayConfig({
+    OEE_TIMEZONE: "Asia/Shanghai",
+    OEE_SHIFT_WINDOWS: "MON-FRI:08:00-20:00;SAT:08:00-12:00"
+  });
+  assert.equal(configured.analytics.plannedTime.timeZone, "Asia/Shanghai");
+  assert.equal(configured.analytics.plannedTime.schedule.length, 2);
+  assert.deepEqual(configured.analytics.plannedTime.schedule[0].days, [1, 2, 3, 4, 5]);
+
+  assert.throws(
+    () => loadGatewayConfig({ OEE_TIMEZONE: "Not/A_Zone" }),
+    /OEE_TIMEZONE/
+  );
+  assert.throws(
+    () => loadGatewayConfig({ OEE_SHIFT_WINDOWS: "MON-FRI 08:00-20:00" }),
+    /OEE_SHIFT_WINDOWS/
+  );
+});
+
 test("gateway config refuses to disable a required PLC point", () => {
   assert.throws(
     () => loadGatewayConfig({ OPCUA_DEVICE_STATUS_NODE: "off" }),

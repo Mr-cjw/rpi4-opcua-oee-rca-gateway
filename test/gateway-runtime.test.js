@@ -209,6 +209,10 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(oee.quality, 0.9);
   assert.equal(oee.oee, 0.81);
   assert.equal(oee.counterMode, "good-count-proxy");
+  assert.equal(oee.plannedSeconds, 10);
+  assert.equal(oee.plannedStopSeconds, 0);
+  assert.equal(oee.outsidePlanRunningSeconds, 0);
+  assert.equal(oee.plannedTime.windows, "00:00-24:00");
   assert.equal(oee.qualitySource, "quality-events");
   assert.equal(oee.qualityEventCount, 1);
   assert.equal(oee.qualityEventQuantity, 2);
@@ -264,6 +268,7 @@ test("gateway runtime reports total-production OEE counter mode", async (t) => {
   assert.equal(oee.oee, 0.9);
   assert.equal(oee.totalDelta, 20);
   assert.equal(oee.counterScrapDelta, 2);
+  assert.equal(oee.plannedSeconds, 10);
   assert.equal(oee.qualitySource, "query");
 });
 

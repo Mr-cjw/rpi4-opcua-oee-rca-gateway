@@ -257,7 +257,8 @@ class GatewayRuntime extends EventEmitter {
       0
     );
     const analyticsOptions = {
-      nominalOutputPerMinute: this.config.analytics.nominalOutputPerMinute
+      nominalOutputPerMinute: this.config.analytics.nominalOutputPerMinute,
+      plannedTime: this.config.analytics.plannedTime
     };
     if (options.ngCount !== undefined) {
       analyticsOptions.ngCount = options.ngCount;
