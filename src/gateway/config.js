@@ -8,6 +8,10 @@ const {
   validateTimeZone
 } = require("../analytics/planned-time");
 const { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } = require("./jsonl");
+const {
+  DEFAULT_CLOCK_SKEW_WARNING_MS,
+  DEFAULT_STALE_WARNING_MS
+} = require("./plc-diagnostics");
 
 function integerFromEnv(env, name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
   const raw = env[name];
@@ -359,6 +363,20 @@ function loadGatewayConfig(env = process.env) {
         "GATEWAY_DOCTOR_STALE_WARNING_MS",
         300000,
         { min: 1000, max: 30 * 24 * 60 * 60 * 1000 }
+      )
+    }),
+    plcDiagnostics: Object.freeze({
+      staleWarningMs: integerFromEnv(
+        env,
+        "GATEWAY_PLC_STALE_WARNING_MS",
+        DEFAULT_STALE_WARNING_MS,
+        { min: 1000, max: 30 * 24 * 60 * 60 * 1000 }
+      ),
+      clockSkewWarningMs: integerFromEnv(
+        env,
+        "GATEWAY_PLC_CLOCK_SKEW_WARNING_MS",
+        DEFAULT_CLOCK_SKEW_WARNING_MS,
+        { min: 0, max: 24 * 60 * 60 * 1000 }
       )
     }),
     storage: Object.freeze({

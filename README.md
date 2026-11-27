@@ -137,7 +137,10 @@ await client.stop();  // terminate subscription, close session, disconnect
 The module handles one shared session/subscription, sequential reconnect with
 bounded exponential backoff, duplicate value suppression, structured alarm
 normalization, and deterministic cleanup. `getSnapshot()` returns the latest
-value payload for every subscribed variable.
+payload for subscribed variables with Good status; non-Good values are omitted
+so an incomplete process snapshot fails visibly instead of reusing a plausible
+stale value. `getStatus()` exposes per-variable status, timestamp, staleness,
+reconnect, and event-subscription diagnostics.
 
 ## Gateway Runtime: Process Context, OEE and RCA
 
@@ -196,7 +199,8 @@ curl -X POST http://127.0.0.1:8080/v1/rca \
 
 `GET /metrics` exposes Prometheus text metrics for process uptime, OPC UA
 connectivity, retained context/alarm/quality counts, latest context timestamp,
-the current line/work context, and storage health. Storage metrics include
+the current line/work context, live PLC diagnostics, and storage health.
+Storage metrics include
 `rpi4_gateway_storage_healthy`,
 `rpi4_gateway_storage_disk_free_bytes`,
 `rpi4_gateway_storage_disk_total_bytes`,
@@ -213,6 +217,16 @@ Per-stream sequence metrics are also exported as
 `rpi4_gateway_event_sequence_duplicates_total`,
 `rpi4_gateway_event_sequence_out_of_order_total`, and
 `rpi4_gateway_event_sequence_healthy`, with a `stream` label.
+
+Live PLC metrics include `rpi4_gateway_plc_diagnostics_healthy`,
+`rpi4_gateway_plc_bad_values`, `rpi4_gateway_plc_uncertain_values`,
+`rpi4_gateway_plc_stale_values`, `rpi4_gateway_plc_clock_skew_values`,
+`rpi4_gateway_plc_future_timestamp_values`,
+`rpi4_gateway_plc_reconnects_total`, reconnect-gap gauges, connection-failure
+counters, native-event subscription health/failure/recovery counters, and the
+per-variable `rpi4_gateway_plc_value_good`, `rpi4_gateway_plc_value_stale`,
+`rpi4_gateway_plc_value_age_seconds`, and
+`rpi4_gateway_plc_value_clock_skew_seconds` series with a `name` label.
 
 `/v1/events`, `/v1/alarms`, `/v1/quality-events`, and `/v1/oee` accept optional
 `workOrderId`, `correlationId`, and `productId` query parameters. `/v1/rca`
@@ -295,6 +309,30 @@ log replay restores recent source-event keys after a restart.
 or filesystem sync fails, it returns `503` and restores the previous in-memory
 work context. State-file and idempotency-ledger replacement fsync the temporary
 file before rename and the parent directory after rename.
+
+### Live PLC diagnostics
+
+`GET /healthz` includes a `plc` object with `status` (`ok`, `warning`, or
+`critical`), connection state, reconnect attempts/failures/gaps, native-event
+subscription state, thresholds, summary counts, and per-variable `issues`.
+`plc.status: "critical"` means the OPC UA session is disconnected or at least
+one subscribed value has a Bad status; either condition also degrades the
+overall health status. Uncertain values, stale notifications, missing or future
+source timestamps, source/server clock skew, an unavailable native-event
+subscription, and a connection with no observed values are warnings. A disabled
+`OPCUA_EVENT_NODE` is not a warning because native events were intentionally
+omitted.
+
+The stale check is a notification timeout: it measures time since the last
+fresh value notification, not whether a counter happened to change. Unchanged
+values may not be emitted by an OPC UA data-change subscription, so a tag that
+is intentionally static can eventually report `stale_value`; tune
+`GATEWAY_PLC_STALE_WARNING_MS` only after validating the tag's update cadence.
+The optional `alarmEvents` JSON snapshot is exempt because it normally remains
+unchanged until an alarm changes. Source/server skew and future-source checks
+use `GATEWAY_PLC_CLOCK_SKEW_WARNING_MS`. Use `npm run doctor` before deployment
+and `/healthz.plc` after deployment for the complementary read-time and live
+checks.
 
 ### State backup and restore
 
@@ -639,6 +677,8 @@ report never includes the OPC UA password or private-key material.
 | `GATEWAY_DOCTOR_TIMEOUT_MS` | `15000` | Doctor connect/session timeout |
 | `GATEWAY_DOCTOR_CLOCK_SKEW_WARNING_MS` | `30000` | Doctor warning threshold for future or source/server timestamp skew |
 | `GATEWAY_DOCTOR_STALE_WARNING_MS` | `300000` | Doctor warning threshold for stale source timestamps |
+| `GATEWAY_PLC_STALE_WARNING_MS` | `300000` | Live stale-notification threshold; `alarmEvents` is exempt |
+| `GATEWAY_PLC_CLOCK_SKEW_WARNING_MS` | `30000` | Live future-source and source/server timestamp-skew warning threshold |
 
 Both process-context and quality-event JSONL logs are replayed at startup,
 including retained rotated segments. Logs rotate by size with three backups by

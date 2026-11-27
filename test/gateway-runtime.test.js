@@ -58,6 +58,29 @@ class FakeOpcUaClient extends EventEmitter {
   getSnapshot() {
     return this.snapshot;
   }
+
+  getStatus() {
+    return (
+      this.plcStatus || {
+        status: "ok",
+        healthy: true,
+        connection: {
+          reconnectCount: 0,
+          lastReconnectGapMs: null,
+          maxReconnectGapMs: 0
+        },
+        eventSubscription: { status: "disabled" },
+        summary: {
+          badValues: 0,
+          uncertainValues: 0,
+          staleValues: 0,
+          clockSkewValues: 0,
+          futureTimestampValues: 0
+        },
+        variables: []
+      }
+    );
+  }
 }
 
 function makeRuntime(extraEnv = {}) {
@@ -118,6 +141,7 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(health.status, "ok");
   assert.equal(health.opcuaConnected, true);
   assert.equal(health.identity.lineId, "JX-LINE-01");
+  assert.equal(health.plc.status, "ok");
 
   const metricsResponse = await fetch(`${runtime.api.address}/metrics`);
   assert.equal(metricsResponse.status, 200);
@@ -130,6 +154,8 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   );
   assert.ok(processContextMetric && Number(processContextMetric[1]) >= 11);
   assert.match(metrics, /^rpi4_gateway_quality_events 0$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_diagnostics_healthy 1$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_stale_values 0$/m);
 
   const latestResponse = await fetch(`${runtime.api.address}/v1/context/latest`);
   assert.equal(latestResponse.status, 200);
@@ -281,6 +307,65 @@ test("gateway health and metrics expose event sequence watermarks", async (t) =>
     /^rpi4_gateway_event_sequence_healthy\{stream="process-context"\} 1$/m
   );
   assert.match(metrics, /^rpi4_gateway_event_sequence_healthy\{stream="quality"\} 1$/m);
+});
+
+test("gateway health and metrics surface degraded PLC diagnostics", async (t) => {
+  const { runtime, client } = makeRuntime();
+  client.plcStatus = {
+    status: "warning",
+    healthy: false,
+    connection: {
+      attempts: 4,
+      failures: 1,
+      reconnectCount: 2,
+      lastReconnectGapMs: 1500,
+      maxReconnectGapMs: 3000,
+      totalReconnectGapMs: 4500,
+      currentGapMs: 2500
+    },
+    eventSubscription: { status: "unavailable", failures: 1, recoveries: 1 },
+    summary: {
+      badValues: 0,
+      uncertainValues: 0,
+      staleValues: 1,
+      clockSkewValues: 1,
+      futureTimestampValues: 0
+    },
+    variables: [
+      {
+        name: "temperatureSensor",
+        good: true,
+        stale: true,
+        ageMs: 600000,
+        clockSkewMs: 45000
+      }
+    ]
+  };
+  t.after(async () => runtime.stop());
+  await runtime.start();
+
+  const health = await (await fetch(`${runtime.api.address}/healthz`)).json();
+  assert.equal(health.status, "degraded");
+  assert.equal(health.plc.status, "warning");
+  assert.equal(health.plc.summary.staleValues, 1);
+
+  const metrics = await (await fetch(`${runtime.api.address}/metrics`)).text();
+  assert.match(metrics, /^rpi4_gateway_plc_diagnostics_healthy 0$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_stale_values 1$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_clock_skew_values 1$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_reconnects_total 2$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_connection_attempts_total 4$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_connection_failures_total 1$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_last_reconnect_gap_seconds 1\.5$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_total_reconnect_gap_seconds 4\.5$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_current_disconnect_gap_seconds 2\.5$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_event_subscription_healthy 0$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_event_subscription_failures_total 1$/m);
+  assert.match(metrics, /^rpi4_gateway_plc_event_subscription_recoveries_total 1$/m);
+  assert.match(
+    metrics,
+    /^rpi4_gateway_plc_value_stale\{name="temperatureSensor"\} 1$/m
+  );
 });
 
 test("gateway runtime reports total-production OEE counter mode", async (t) => {

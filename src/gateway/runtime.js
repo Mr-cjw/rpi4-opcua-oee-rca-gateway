@@ -141,8 +141,10 @@ class GatewayRuntime extends EventEmitter {
   getStatus() {
     const latest = this.collector.getLatest();
     const storage = this.storageMonitor.getStatus();
+    const plc = typeof this.client.getStatus === "function" ? this.client.getStatus() : null;
+    const plcHealthy = !plc || plc.healthy !== false;
     const healthy =
-      this._started && this.client.isConnected && storage.status === "ok";
+      this._started && this.client.isConnected && storage.status === "ok" && plcHealthy;
     return {
       status: healthy ? "ok" : "degraded",
       opcuaConnected: Boolean(this.client.isConnected),
@@ -167,6 +169,7 @@ class GatewayRuntime extends EventEmitter {
         processContext: this.collector.getSequenceStatus(),
         quality: this.qualityEvents.getSequenceStatus()
       },
+      plc,
       storage
     };
   }

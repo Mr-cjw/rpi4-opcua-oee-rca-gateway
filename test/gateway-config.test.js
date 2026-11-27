@@ -168,6 +168,23 @@ test("gateway config validates doctor sampling and timeout settings", () => {
   );
 });
 
+test("gateway config validates live PLC diagnostic thresholds", () => {
+  const defaults = loadGatewayConfig({});
+  assert.equal(defaults.plcDiagnostics.staleWarningMs, 300000);
+  assert.equal(defaults.plcDiagnostics.clockSkewWarningMs, 30000);
+
+  const config = loadGatewayConfig({
+    GATEWAY_PLC_STALE_WARNING_MS: "120000",
+    GATEWAY_PLC_CLOCK_SKEW_WARNING_MS: "5000"
+  });
+  assert.equal(config.plcDiagnostics.staleWarningMs, 120000);
+  assert.equal(config.plcDiagnostics.clockSkewWarningMs, 5000);
+  assert.throws(
+    () => loadGatewayConfig({ GATEWAY_PLC_STALE_WARNING_MS: "999" }),
+    /GATEWAY_PLC_STALE_WARNING_MS/
+  );
+});
+
 test("gateway config validates storage pressure thresholds", () => {
   const config = loadGatewayConfig({
     GATEWAY_STORAGE_DISK_PATH: "/var/lib/rpi4-gateway",

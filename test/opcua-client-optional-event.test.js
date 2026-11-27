@@ -74,4 +74,5 @@ test("gateway client connects without native OPC UA event subscription", { timeo
   const payload = await data;
   assert.equal(payload.value, "RUNNING");
   assert.equal(client.isConnected, true);
+  assert.equal(client.getStatus().eventSubscription.status, "disabled");
 });

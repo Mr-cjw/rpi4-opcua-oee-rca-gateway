@@ -109,6 +109,13 @@ test("gateway client subscribes to values and native alarm events", { timeout: 3
   assert.equal(client.getSnapshot().deviceStatus.value, "RUNNING");
   assert.ok(client.getSnapshot().totalProducedCount.value >= 0);
   assert.equal("fingerprint" in client.getSnapshot().deviceStatus, false);
+  let diagnostics = client.getStatus();
+  assert.equal(diagnostics.connected, true);
+  assert.equal(diagnostics.connection.valueSubscriptionActive, true);
+  assert.equal(diagnostics.eventSubscription.status, "active");
+  assert.ok(diagnostics.variables.length >= 4);
+  assert.equal(diagnostics.summary.badValues, 0);
+  assert.notEqual(diagnostics.status, "critical");
 
   const alarmReceived = waitForEvent(
     client,
@@ -146,4 +153,8 @@ test("gateway client subscribes to values and native alarm events", { timeout: 3
     15000
   );
   assert.equal(client.isConnected, true);
+  diagnostics = client.getStatus();
+  assert.ok(diagnostics.connection.reconnectCount >= 1);
+  assert.ok(diagnostics.connection.lastReconnectGapMs >= 0);
+  assert.equal(diagnostics.eventSubscription.status, "active");
 });

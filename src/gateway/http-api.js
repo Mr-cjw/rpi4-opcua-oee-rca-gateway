@@ -51,6 +51,15 @@ function metricsPayload(runtime) {
     ? Date.parse(status.context.latestOccurredAt) / 1000
     : 0;
   const identity = status.identity;
+  const plc = status.plc || {};
+  const plcSummary = plc.summary || {};
+  const plcConnection = plc.connection || {};
+  const plcVariables = Array.isArray(plc.variables) ? plc.variables : [];
+  const plcHealthy = plc.healthy !== false;
+  const eventSubscriptionHealthy =
+    !plc.eventSubscription || ["active", "disabled"].includes(plc.eventSubscription.status)
+      ? 1
+      : 0;
   const storageComponentLines = Object.entries(storage.components || {}).flatMap(
     ([component, componentStatus]) => [
       `rpi4_gateway_storage_component_healthy{component="${prometheusLabel(component)}"} ${componentStatus.status === "ok" ? 1 : 0}`,
@@ -70,6 +79,15 @@ function metricsPayload(runtime) {
       ];
     }
   );
+  const plcVariableLines = plcVariables.flatMap((variable) => {
+    const name = prometheusLabel(variable.name);
+    return [
+      `rpi4_gateway_plc_value_good{name="${name}"} ${variable.good ? 1 : 0}`,
+      `rpi4_gateway_plc_value_stale{name="${name}"} ${variable.stale ? 1 : 0}`,
+      `rpi4_gateway_plc_value_age_seconds{name="${name}"} ${(variable.ageMs || 0) / 1000}`,
+      `rpi4_gateway_plc_value_clock_skew_seconds{name="${name}"} ${(variable.clockSkewMs || 0) / 1000}`
+    ];
+  });
   return [
     "# HELP rpi4_gateway_up Gateway process is running.",
     "# TYPE rpi4_gateway_up gauge",
@@ -118,6 +136,63 @@ function metricsPayload(runtime) {
     "# HELP rpi4_gateway_event_sequence_healthy Whether a stream has no sequence integrity warnings.",
     "# TYPE rpi4_gateway_event_sequence_healthy gauge",
     ...sequenceLines,
+    "# HELP rpi4_gateway_plc_diagnostics_healthy Whether live PLC data diagnostics are healthy.",
+    "# TYPE rpi4_gateway_plc_diagnostics_healthy gauge",
+    `rpi4_gateway_plc_diagnostics_healthy ${plcHealthy ? 1 : 0}`,
+    "# HELP rpi4_gateway_plc_bad_values Current variables with Bad status.",
+    "# TYPE rpi4_gateway_plc_bad_values gauge",
+    `rpi4_gateway_plc_bad_values ${plcSummary.badValues || 0}`,
+    "# HELP rpi4_gateway_plc_uncertain_values Current variables with Uncertain status.",
+    "# TYPE rpi4_gateway_plc_uncertain_values gauge",
+    `rpi4_gateway_plc_uncertain_values ${plcSummary.uncertainValues || 0}`,
+    "# HELP rpi4_gateway_plc_stale_values Current variables whose last update is stale.",
+    "# TYPE rpi4_gateway_plc_stale_values gauge",
+    `rpi4_gateway_plc_stale_values ${plcSummary.staleValues || 0}`,
+    "# HELP rpi4_gateway_plc_clock_skew_values Current variables with source/server clock skew.",
+    "# TYPE rpi4_gateway_plc_clock_skew_values gauge",
+    `rpi4_gateway_plc_clock_skew_values ${plcSummary.clockSkewValues || 0}`,
+    "# HELP rpi4_gateway_plc_future_timestamp_values Current variables with timestamps too far in the future.",
+    "# TYPE rpi4_gateway_plc_future_timestamp_values gauge",
+    `rpi4_gateway_plc_future_timestamp_values ${plcSummary.futureTimestampValues || 0}`,
+    "# HELP rpi4_gateway_plc_reconnects_total Completed OPC UA reconnect cycles.",
+    "# TYPE rpi4_gateway_plc_reconnects_total counter",
+    `rpi4_gateway_plc_reconnects_total ${plcConnection.reconnectCount || 0}`,
+    "# HELP rpi4_gateway_plc_connection_attempts_total OPC UA connection attempts since process start.",
+    "# TYPE rpi4_gateway_plc_connection_attempts_total counter",
+    `rpi4_gateway_plc_connection_attempts_total ${plcConnection.attempts || 0}`,
+    "# HELP rpi4_gateway_plc_connection_failures_total Failed OPC UA connection attempts since process start.",
+    "# TYPE rpi4_gateway_plc_connection_failures_total counter",
+    `rpi4_gateway_plc_connection_failures_total ${plcConnection.failures || 0}`,
+    "# HELP rpi4_gateway_plc_last_reconnect_gap_seconds Time between disconnect and the latest reconnect.",
+    "# TYPE rpi4_gateway_plc_last_reconnect_gap_seconds gauge",
+    `rpi4_gateway_plc_last_reconnect_gap_seconds ${(plcConnection.lastReconnectGapMs || 0) / 1000}`,
+    "# HELP rpi4_gateway_plc_max_reconnect_gap_seconds Maximum disconnect-to-reconnect gap since process start.",
+    "# TYPE rpi4_gateway_plc_max_reconnect_gap_seconds gauge",
+    `rpi4_gateway_plc_max_reconnect_gap_seconds ${(plcConnection.maxReconnectGapMs || 0) / 1000}`,
+    "# HELP rpi4_gateway_plc_total_reconnect_gap_seconds Total disconnect-to-reconnect gap since process start.",
+    "# TYPE rpi4_gateway_plc_total_reconnect_gap_seconds gauge",
+    `rpi4_gateway_plc_total_reconnect_gap_seconds ${(plcConnection.totalReconnectGapMs || 0) / 1000}`,
+    "# HELP rpi4_gateway_plc_current_disconnect_gap_seconds Current disconnect duration, or zero when connected.",
+    "# TYPE rpi4_gateway_plc_current_disconnect_gap_seconds gauge",
+    `rpi4_gateway_plc_current_disconnect_gap_seconds ${(plcConnection.currentGapMs || 0) / 1000}`,
+    "# HELP rpi4_gateway_plc_event_subscription_healthy Whether the configured native-event subscription is active or disabled.",
+    "# TYPE rpi4_gateway_plc_event_subscription_healthy gauge",
+    `rpi4_gateway_plc_event_subscription_healthy ${eventSubscriptionHealthy}`,
+    "# HELP rpi4_gateway_plc_event_subscription_failures_total Native-event subscription failures since process start.",
+    "# TYPE rpi4_gateway_plc_event_subscription_failures_total counter",
+    `rpi4_gateway_plc_event_subscription_failures_total ${plc.eventSubscription?.failures || 0}`,
+    "# HELP rpi4_gateway_plc_event_subscription_recoveries_total Native-event subscription recoveries since process start.",
+    "# TYPE rpi4_gateway_plc_event_subscription_recoveries_total counter",
+    `rpi4_gateway_plc_event_subscription_recoveries_total ${plc.eventSubscription?.recoveries || 0}`,
+    "# HELP rpi4_gateway_plc_value_good Whether an individual PLC variable has Good status.",
+    "# TYPE rpi4_gateway_plc_value_good gauge",
+    "# HELP rpi4_gateway_plc_value_stale Whether an individual PLC variable is stale.",
+    "# TYPE rpi4_gateway_plc_value_stale gauge",
+    "# HELP rpi4_gateway_plc_value_age_seconds Seconds since an individual PLC variable was received.",
+    "# TYPE rpi4_gateway_plc_value_age_seconds gauge",
+    "# HELP rpi4_gateway_plc_value_clock_skew_seconds Source/server timestamp skew for an individual PLC variable.",
+    "# TYPE rpi4_gateway_plc_value_clock_skew_seconds gauge",
+    ...plcVariableLines,
     "# HELP rpi4_gateway_work_order_info Current line and work context.",
     "# TYPE rpi4_gateway_work_order_info gauge",
     `rpi4_gateway_work_order_info{line_id="${prometheusLabel(identity.lineId)}",` +

@@ -14,6 +14,7 @@ const {
   constructEventFilter,
   ofType
 } = require("node-opcua");
+const { PlcDiagnostics, isGoodStatus } = require("./plc-diagnostics");
 
 const DEFAULT_VARIABLES = Object.freeze([
   { name: "deviceStatus", nodeId: "ns=1;s=MockPLC.DeviceStatus" },
@@ -173,6 +174,12 @@ class OpcUaGatewayClient extends EventEmitter {
     };
 
     this.logger = options.logger || defaultLogger;
+    this._diagnostics =
+      options.diagnostics ||
+      new PlcDiagnostics({
+        ...(this.options.plcDiagnostics || {}),
+        eventSubscriptionConfigured: Boolean(this.options.eventNodeId)
+      });
     this._running = false;
     this._connected = false;
     this._client = null;
@@ -200,9 +207,17 @@ class OpcUaGatewayClient extends EventEmitter {
   }
 
   getSnapshot() {
-    return Object.fromEntries(
-      [...this._lastValues.entries()].map(([name, entry]) => [name, entry.payload])
-    );
+    const snapshot = {};
+    for (const [name, entry] of this._lastValues.entries()) {
+      if (!entry.payload.statusCode || isGoodStatus(entry.payload.statusCode)) {
+        snapshot[name] = entry.payload;
+      }
+    }
+    return snapshot;
+  }
+
+  getStatus() {
+    return this._diagnostics.getStatus();
   }
 
   async start() {
@@ -256,6 +271,7 @@ class OpcUaGatewayClient extends EventEmitter {
   async _runLoop() {
     while (this._running) {
       try {
+        this._diagnostics.recordConnectionAttempt();
         await this._connectOnce();
         this._retryCount = 0;
         await this._waitForDisconnect();
@@ -263,6 +279,7 @@ class OpcUaGatewayClient extends EventEmitter {
         if (!this._running) {
           break;
         }
+        this._diagnostics.recordConnectionFailure(error);
         this._log("error", "OPC UA connection attempt failed", {
           endpointUrl: this.options.endpointUrl,
           error: error.message,
@@ -358,6 +375,7 @@ class OpcUaGatewayClient extends EventEmitter {
       priority: 10
     });
     this._subscription = subscription;
+    this._diagnostics.recordValueSubscription(true, subscription.subscriptionId);
 
     for (const definition of this.options.variables) {
       const item = await monitorItem(
@@ -389,20 +407,28 @@ class OpcUaGatewayClient extends EventEmitter {
           }
         );
         this._monitoredItems.push(eventItem);
+        this._diagnostics.recordEventSubscription("active");
         eventItem.on("changed", (eventFields) => {
           this._handleOpcUaEvent(eventFields);
         });
       } catch (error) {
+        this._diagnostics.recordEventSubscription("unavailable", error);
         this._log("warn", "Unable to subscribe to OPC UA events; continuing with values", {
           eventNodeId: this.options.eventNodeId,
           error: error.message
         });
       }
+    } else {
+      this._diagnostics.recordEventSubscription("disabled");
     }
 
     await this._readInitialValues(session);
 
     this._connected = true;
+    this._diagnostics.recordConnected({
+      subscriptionId: subscription.subscriptionId,
+      valueSubscriptionActive: true
+    });
     this._emitState("connected", {
       endpointUrl: this.options.endpointUrl,
       subscriptionId: subscription.subscriptionId
@@ -454,6 +480,7 @@ class OpcUaGatewayClient extends EventEmitter {
       }
     }
 
+    this._diagnostics.observe(payload);
     this._lastValues.set(definition.name, { payload, fingerprint });
     this._log("info", "OPC UA variable update", payload);
     this.emit("data", payload);
@@ -470,6 +497,7 @@ class OpcUaGatewayClient extends EventEmitter {
       return;
     }
     this._lastEventId = eventId;
+    this._diagnostics.recordEventReceived();
 
     const payload = {
       type: "event",
@@ -518,6 +546,7 @@ class OpcUaGatewayClient extends EventEmitter {
     }
     this._disconnectSignaled = true;
     this._connected = false;
+    this._diagnostics.recordDisconnected(error?.message || "OPC UA connection lost");
     this._emitState("disconnected", {
       endpointUrl: this.options.endpointUrl,
       reason: error?.message || "unknown"
@@ -541,6 +570,7 @@ class OpcUaGatewayClient extends EventEmitter {
     this._certificateManager = null;
     this._disconnectWaiter = null;
     this._disconnectSignaled = false;
+    this._diagnostics.recordValueSubscription(false);
 
     for (const item of this._monitoredItems) {
       item.removeAllListeners("changed");

@@ -170,8 +170,11 @@ Deliverables:
 - Completed 2026-11-27: commissioning/doctor command validates endpoint
   reachability, NodeIds, data types, status codes, timestamps, event notifier,
   and expected counter invariants with pass/warn/fail and JSON output.
-- Detect stale values, Bad status, clock skew, reconnect gaps, and subscription
-  recovery events; expose them in health and metrics.
+- Completed 2026-11-27: live subscriber diagnostics detect Bad/Uncertain status,
+  stale notifications, missing/future source timestamps, source/server clock
+  skew, reconnect gaps, and native-event subscription failures/recoveries;
+  expose them through `/healthz.plc` and Prometheus metrics. Non-Good values are
+  excluded from process snapshots so incomplete context is visible.
 - Support OPC UA Sign and Sign&Encrypt with client certificates, certificate
   rotation, and external credential injection.
 - Synchronize the Pi clock and record source/server timestamps for analytics.
@@ -254,12 +257,13 @@ The next implementation-sized units are:
 1. Finish the M2 storage boundary with physical power-cut validation on
    Raspberry Pi hardware and the gated SQLite importer/backend if the documented
    adoption gates are met.
-2. Add live health/metrics detection for stale values, Bad status, clock skew,
-   reconnect gaps, and subscription recovery.
-3. Execute the 72-hour soak on Raspberry Pi hardware and add release packaging,
-   upgrade, and rollback procedures.
+2. Add injected full-path E2E coverage for stale, Bad, and clock-skew scenarios,
+   finish M3 security/clock synchronization, and execute the 72-hour soak on
+   Raspberry Pi hardware.
+3. Add release packaging, upgrade, and rollback procedures.
 
-M1 is complete. Prioritize M2 durability and M3 live PLC diagnostics before
+M1 is complete, and the live PLC diagnostics software is complete. Prioritize
+the remaining M2 hardware/durability gates and M3 security/E2E validation before
 adding new outward integrations.
 
 ## Release Gates

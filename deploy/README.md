@@ -83,6 +83,36 @@ through the certificate procedure. Files in the state directory that are not
 listed in the manifest remain untouched, so inspect stale rotated segments
 after restoring an older snapshot.
 
+### Live PLC diagnostics and alerts
+
+After startup, inspect the live PLC view before trusting OEE or RCA output:
+
+```bash
+curl -s http://127.0.0.1:8080/healthz | jq '.plc'
+curl -s http://127.0.0.1:8080/metrics | rg 'rpi4_gateway_plc_'
+```
+
+Recommended alerting baseline:
+
+- Page on `rpi4_gateway_opcua_connected == 0` or
+  `rpi4_gateway_plc_bad_values > 0`; these are critical PLC-path failures.
+- Warn on `rpi4_gateway_plc_diagnostics_healthy == 0` after a short grace
+  period, and inspect `.plc.variables[].issues` to separate bad, uncertain,
+  stale, missing-timestamp, future-timestamp, and clock-skew cases.
+- Alert on a reconnect-rate increase, a growing
+  `rpi4_gateway_plc_current_disconnect_gap_seconds`, or
+  `rpi4_gateway_plc_event_subscription_healthy == 0`. Event-subscription loss
+  still allows value collection but means native alarm events are missing.
+
+For `bad_status` or `uncertain_status`, check the PLC point, NodeId, access
+permissions, and vendor diagnostics before restarting the Gateway. For
+`stale_value`, compare `plc_value_age_seconds` and the source timestamp with the
+PLC scan/change cadence; a static tag can be reported stale because data-change
+subscriptions may suppress unchanged values. `alarmEvents` is exempt from stale
+checking. Do not increase `GATEWAY_PLC_STALE_WARNING_MS` without confirming that
+the tag is expected to remain quiet. For clock issues, synchronize both the Pi
+and PLC clocks and verify the configured skew threshold.
+
 ## Operational notes
 
 - Keep `GATEWAY_HTTP_HOST=127.0.0.1` unless a reverse proxy and network policy
@@ -101,6 +131,9 @@ after restoring an older snapshot.
   the caller must retry with the same `sourceEventId`; do not treat the event as
   accepted until a success response arrives. Free space and replace/expand the
   state volume before restarting the service.
+- A critical `plc` diagnostic means the latest PLC snapshot may be incomplete.
+  Do not treat OEE/RCA output as production truth until the connection recovers
+  and `rpi4_gateway_plc_diagnostics_healthy` returns to `1`.
 - Keep at least one recent verified state backup off the Raspberry Pi. A
   backup stored on the same failing SD card or SSD does not protect accepted
   quality events after hardware loss.
