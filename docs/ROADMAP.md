@@ -125,8 +125,11 @@ Progress:
   in-memory context.
 - Completed 2026-11-27: runtime fault-injection tests cover a real `ENOSPC`
   target, slow log writes, and no early acknowledgement of in-flight duplicates.
-- Remaining: backup/export/restore procedures, event watermarks, SQLite WAL
-  evaluation, and migration fixtures.
+- Completed 2026-11-27: checksummed state backup/export/verify/restore tooling
+  with a manifest, preflight validation, file-mode preservation, and atomic
+  per-file restore; deployment runbook updated for quiesced backups.
+- Remaining: event sequence/watermark checks, SQLite WAL evaluation, and
+  migration fixtures.
 
 Acceptance:
 
@@ -230,8 +233,8 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Finish the M2 storage boundary with backup/export/restore procedures, event
-   watermarks, and a SQLite WAL evaluation.
+1. Finish the M2 storage boundary with event sequence/watermark checks, a
+   SQLite WAL evaluation, and migration fixtures.
 2. Add live health/metrics detection for stale values, Bad status, clock skew,
    reconnect gaps, and subscription recovery.
 3. Execute the 72-hour soak on Raspberry Pi hardware and add release packaging,

@@ -23,6 +23,7 @@ It provides:
 - Runtime-updatable work-order, serial-number, correlation, and product context
 - Durable quality-event idempotency independent of log rotation
 - Disk-pressure health checks and fail-closed NG quality ingestion
+- Checksummed Gateway state backup, verification, and restore tooling
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
 - Time-zone-aware shift windows for planned production time
 - Classified stoppage and OEE loss breakdown
@@ -281,6 +282,33 @@ recent source-event keys after a restart.
 
 `POST /v1/work-context` also fails closed. If its atomic state-file replacement
 fails, it returns `503` and restores the previous in-memory work context.
+
+### State backup and restore
+
+Stop the Gateway before taking or restoring a state backup so the JSONL,
+idempotency ledger, and work context represent one consistent point in time.
+The state commands use the same environment configuration as the Gateway and
+keep all configured state paths relative to `GATEWAY_STORAGE_DISK_PATH`.
+
+```bash
+npm run state:backup -- --output /var/backups/rpi4-gateway/20261127T120000
+npm run state:verify -- --backup /var/backups/rpi4-gateway/20261127T120000
+npm run state:restore -- --backup /var/backups/rpi4-gateway/20261127T120000 --force
+```
+
+The backup includes the active and rotated process-context/quality JSONL files,
+the quality idempotency ledger, and the work-context state. It records a
+SHA-256 checksum, byte count, and file mode for every file in
+`state-manifest.json`; missing optional files and zero-byte logs are listed
+explicitly. Verification rejects missing files, size/checksum changes, and
+unsafe manifest paths. Restore verifies the complete backup before replacing
+any destination, stages all copies first, and atomically renames each file into
+place. Unrelated files already present in the state directory are left alone.
+
+OPC UA PKI material is deliberately excluded from the state backup and should
+be backed up separately under the certificate-management procedure. Copy the
+completed backup off the Raspberry Pi; a backup on the same failed SD card or
+SSD is not a recovery plan.
 
 When `/v1/oee` is called without an explicit `ngCount`, the Gateway sums the NG
 quantity recorded in the same time window. `/v1/rca` accepts

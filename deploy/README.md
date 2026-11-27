@@ -45,6 +45,44 @@ and per-component write failures; `GET /metrics` exports the same storage state.
 Size the thresholds for JSONL rotation, the idempotency ledger, and atomic
 temporary files, not only for the current log sizes.
 
+### State backup and restore
+
+Stop the service before backup or restore so JSONL, the idempotency ledger, and
+work-context state form a consistent snapshot. The backup command uses the
+production environment file and writes a checksummed manifest beside the copied
+state files:
+
+```bash
+sudo systemctl stop rpi4-gateway.service
+sudo install -d -o rpi4-gateway -g rpi4-gateway -m 0750 /var/backups/rpi4-gateway
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway && npm run state:backup -- --output /var/backups/rpi4-gateway/20261127T120000'
+sudo systemctl start rpi4-gateway.service
+curl http://127.0.0.1:8080/healthz
+```
+
+Verify the backup before moving it off the Pi, and periodically test a restore
+on a spare directory or device:
+
+```bash
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway && npm run state:verify -- --backup /var/backups/rpi4-gateway/20261127T120000'
+```
+
+To restore, stop the service and use `--force` only after confirming the target
+state directory and backup timestamp. Restore verifies every checksum first,
+stages all files, and atomically replaces each destination:
+
+```bash
+sudo systemctl stop rpi4-gateway.service
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway && npm run state:restore -- --backup /var/backups/rpi4-gateway/20261127T120000 --force'
+sudo systemctl start rpi4-gateway.service
+curl http://127.0.0.1:8080/healthz
+```
+
+The backup excludes OPC UA PKI private keys and certificates; back those up
+through the certificate procedure. Files in the state directory that are not
+listed in the manifest remain untouched, so inspect stale rotated segments
+after restoring an older snapshot.
+
 ## Operational notes
 
 - Keep `GATEWAY_HTTP_HOST=127.0.0.1` unless a reverse proxy and network policy
@@ -63,6 +101,9 @@ temporary files, not only for the current log sizes.
   the caller must retry with the same `sourceEventId`; do not treat the event as
   accepted until a success response arrives. Free space and replace/expand the
   state volume before restarting the service.
+- Keep at least one recent verified state backup off the Raspberry Pi. A
+  backup stored on the same failing SD card or SSD does not protect accepted
+  quality events after hardware loss.
 - `OEE_NOMINAL_OUTPUT_PER_MIN` or `OEE_IDEAL_CYCLE_TIME_MS`, planned time, and
   quality-event connectivity must be validated before quoting OEE as a
   production metric. When `OEE_PRODUCT_CYCLE_TIMES` is used, validate every
