@@ -5,6 +5,7 @@ const { EventEmitter } = require("node:events");
 const { toMillis } = require("../analytics/oee");
 const { JsonlLog } = require("./jsonl");
 const {
+  WORK_CONTEXT_FIELDS,
   matchesWorkContext,
   normalizeWorkContextUpdate,
   workContextFilterFrom,
@@ -185,9 +186,14 @@ class ProcessContextCollector extends EventEmitter {
 
   getAlarmHistory(options = {}) {
     const { from, to } = parseTimeRange(options);
+    const filter = workContextFilterFrom(options);
     let alarms = this._alarmHistory.filter((alarm) => {
       const at = toMillis(alarm.occurredAt, "alarm timestamp");
-      return (from === null || at >= from) && (to === null || at <= to);
+      return (
+        (from === null || at >= from) &&
+        (to === null || at <= to) &&
+        matchesWorkContext(alarm, filter)
+      );
     });
     const limit = Number(options.limit ?? 0);
     if (Number.isInteger(limit) && limit > 0) {
@@ -280,10 +286,17 @@ class ProcessContextCollector extends EventEmitter {
       return null;
     }
 
-    this._alarmHistory.push(normalized);
+    const recorded = { ...normalized };
+    for (const field of WORK_CONTEXT_FIELDS) {
+      const value = this.options[field];
+      if (value) {
+        recorded[field] = value;
+      }
+    }
+    this._alarmHistory.push(recorded);
     this._prune();
-    this.emit("alarm", normalized);
-    return normalized;
+    this.emit("alarm", recorded);
+    return recorded;
   }
 
   start(client) {

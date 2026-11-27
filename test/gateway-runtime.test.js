@@ -205,6 +205,12 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(rca.targetAt, iso(10));
   assert.equal(rca.targetQualityEventId, quality.event.qualityEventId);
   assert.equal(rca.correlationId, "corr-runtime-001");
+  assert.equal(rca.scopeApplied, false);
+  assert.deepEqual(rca.scope, {
+    workOrderId: "WO-RUNTIME-001",
+    correlationId: "corr-runtime-001"
+  });
+  assert.ok(rca.warnings.some((warning) => warning.includes("fell back")));
 
   const missingRcaResponse = await fetch(`${runtime.api.address}/v1/rca`, {
     method: "POST",
@@ -425,6 +431,110 @@ test("gateway API scopes events, NG input and OEE by work context", async (t) =>
     workOrderId: "WO-SCOPE-A",
     correlationId: null
   });
+});
+
+test("RCA scopes context and alarms to the quality event work context", async (t) => {
+  const { runtime } = makeRuntime();
+  t.after(async () => runtime.stop());
+  await runtime.start();
+
+  await runtime.updateWorkContext({
+    workOrderId: "WO-RCA-A",
+    serialNumber: "SN-RCA-A",
+    correlationId: "corr-rca-a"
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 0, temperatureC: 24 }), {
+    occurredAt: iso(41)
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 1, temperatureC: 92 }), {
+    occurredAt: iso(51)
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 2, temperatureC: 93 }), {
+    occurredAt: iso(61)
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 3, temperatureC: 24 }), {
+    occurredAt: iso(71)
+  });
+  runtime.collector.recordAlarm({
+    eventId: "alarm-rca-a",
+    occurredAt: iso(51),
+    code: "TEMPERATURE_SPIKE",
+    severity: 800,
+    message: "Temperature spike for A"
+  });
+  const qualityA = runtime.recordQualityEvent({
+    sourceEventId: "QC-RCA-A",
+    occurredAt: iso(61),
+    quantity: 1
+  });
+
+  await runtime.updateWorkContext({
+    workOrderId: "WO-RCA-B",
+    serialNumber: "SN-RCA-B",
+    correlationId: "corr-rca-b"
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 4, temperatureC: 24 }), {
+    occurredAt: iso(42)
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 5, temperatureC: 25 }), {
+    occurredAt: iso(52)
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 6, temperatureC: 25 }), {
+    occurredAt: iso(62)
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 7, temperatureC: 24 }), {
+    occurredAt: iso(72)
+  });
+  const qualityB = runtime.recordQualityEvent({
+    sourceEventId: "QC-RCA-B",
+    occurredAt: iso(62),
+    quantity: 1
+  });
+
+  const rcaA = runtime.analyzeRca({
+    qualityEventId: qualityA.event.qualityEventId,
+    windowMs: 30_000,
+    temperatureThresholdC: 70
+  });
+  assert.equal(rcaA.scopeApplied, true);
+  assert.deepEqual(rcaA.scope, {
+    workOrderId: "WO-RCA-A",
+    correlationId: "corr-rca-a"
+  });
+  assert.equal(rcaA.sampleCount, 4);
+  assert.equal(rcaA.alarmCount, 1);
+  assert.equal(rcaA.conclusion, "TEMPERATURE_SPIKE");
+
+  const rcaB = runtime.analyzeRca({
+    qualityEventId: qualityB.event.qualityEventId,
+    windowMs: 30_000,
+    temperatureThresholdC: 70
+  });
+  assert.equal(rcaB.scopeApplied, true);
+  assert.deepEqual(rcaB.scope, {
+    workOrderId: "WO-RCA-B",
+    correlationId: "corr-rca-b"
+  });
+  assert.equal(rcaB.sampleCount, 4);
+  assert.equal(rcaB.alarmCount, 0);
+  assert.equal(rcaB.conclusion, "INCONCLUSIVE");
+
+  const explicitMissing = runtime.analyzeRca({
+    qualityEventId: qualityB.event.qualityEventId,
+    workOrderId: "WO-RCA-MISSING",
+    windowMs: 30_000
+  });
+  assert.equal(explicitMissing.scopeApplied, true);
+  assert.equal(explicitMissing.sampleCount, 0);
+  assert.equal(explicitMissing.conclusion, "INCONCLUSIVE");
+
+  const alarmsResponse = await fetch(
+    `${runtime.api.address}/v1/alarms?workOrderId=WO-RCA-A`
+  );
+  assert.equal(alarmsResponse.status, 200);
+  const alarms = await alarmsResponse.json();
+  assert.equal(alarms.count, 1);
+  assert.equal(alarms.alarms[0].correlationId, "corr-rca-a");
 });
 
 test("gateway runtime stops the OPC UA client and HTTP API", async () => {

@@ -172,17 +172,20 @@ curl 'http://127.0.0.1:8080/v1/oee?windowMs=300000&workOrderId=WO-JX-001'
 curl -X POST http://127.0.0.1:8080/v1/quality-events \
   -H 'content-type: application/json' \
   -d '{"sourceEventId":"QC-JX-001","result":"NG","occurredAt":"2026-11-27T06:00:00.000Z","workOrderId":"WO-JX-001","correlationId":"corr-jx-001","quantity":1}'
+curl 'http://127.0.0.1:8080/v1/alarms?workOrderId=WO-JX-001&limit=20'
 curl 'http://127.0.0.1:8080/v1/quality-events?limit=20'
 curl -X POST http://127.0.0.1:8080/v1/rca \
   -H 'content-type: application/json' \
-  -d '{"qualityEventId":"qevt-...","windowMs":300000}'
+  -d '{"qualityEventId":"qevt-...","windowMs":300000,"workOrderId":"WO-JX-001"}'
 ```
 
-`/v1/events`, `/v1/quality-events`, and `/v1/oee` accept optional
-`workOrderId` and `correlationId` query parameters. Filters are applied before
-limit/OEE aggregation, so a 5-minute OEE window does not mix two work orders
-when one is selected. Scoped OEE responses echo the active filter in `scope`;
-an explicit `ngCount` still overrides the quality-event input.
+`/v1/events`, `/v1/alarms`, `/v1/quality-events`, and `/v1/oee` accept optional
+`workOrderId` and `correlationId` query parameters. `/v1/rca` accepts the same
+fields in its JSON body. Filters are applied before limit/OEE aggregation, so a
+5-minute OEE window does not mix two work orders when one is selected. Scoped
+OEE responses echo the active filter in `scope`; an explicit `ngCount` still
+overrides the quality-event input. Alarm-history entries retain the work
+context active when the alarm was recorded.
 
 ### Runtime work context
 
@@ -254,6 +257,13 @@ RCA first performs explainable time-window correlation. It looks for downtime
 and temperature anomalies around the requested `targetAt` and returns candidate
 root causes with raw evidence and a confidence label. Every candidate has
 `causalClaim: false`; time overlap is not presented as proof of causation.
+
+When the target is a quality event with `workOrderId` or `correlationId`, RCA
+uses that context to exclude unrelated samples and alarms. If no context or
+alarm matches and no filter was explicitly supplied, it falls back to the
+unscoped time window and adds a warning; explicit RCA filters fail closed with
+an `INCONCLUSIVE` result. Responses expose `scope` and `scopeApplied` so callers
+can see which mode was used.
 
 Example response shape:
 

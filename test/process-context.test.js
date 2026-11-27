@@ -220,6 +220,44 @@ test("process context records alarms once and persists JSONL", async (t) => {
   assert.equal(collector.alarmCount, 1);
 });
 
+test("process context scopes alarm history by its active work context", () => {
+  const collector = makeCollector();
+  collector.setWorkContext({
+    workOrderId: "WO-ALARM-A",
+    serialNumber: "SN-ALARM-A",
+    correlationId: "corr-alarm-a"
+  });
+  const first = collector.recordAlarm({
+    eventId: "alarm-context-a",
+    time: "2026-11-27T00:00:02.000Z",
+    alarmCode: "DOWNTIME",
+    message: "Stopped for A"
+  });
+  collector.setWorkContext({
+    workOrderId: "WO-ALARM-B",
+    serialNumber: "SN-ALARM-B",
+    correlationId: "corr-alarm-b"
+  });
+  collector.recordAlarm({
+    eventId: "alarm-context-b",
+    time: "2026-11-27T00:00:03.000Z",
+    alarmCode: "TEMPERATURE_SPIKE",
+    message: "Hot for B"
+  });
+
+  assert.equal(first.workOrderId, "WO-ALARM-A");
+  assert.equal(first.correlationId, "corr-alarm-a");
+  assert.equal(collector.getAlarmHistory({ workOrderId: "WO-ALARM-A" }).length, 1);
+  assert.equal(collector.getAlarmHistory({ correlationId: "corr-alarm-b" }).length, 1);
+  assert.equal(
+    collector.getAlarmHistory({
+      workOrderId: "WO-ALARM-A",
+      correlationId: "corr-alarm-b"
+    }).length,
+    0
+  );
+});
+
 test("process context replays retained JSONL and skips corrupt or foreign lines", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "process-context-replay-"));
   const logPath = path.join(directory, "events.jsonl");

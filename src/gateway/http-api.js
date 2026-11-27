@@ -132,6 +132,8 @@ function createGatewayApi(runtime, options = {}) {
       const alarms = runtime.getAlarmHistory({
         from: url.searchParams.get("from") || undefined,
         to: url.searchParams.get("to") || undefined,
+        workOrderId: url.searchParams.get("workOrderId") || undefined,
+        correlationId: url.searchParams.get("correlationId") || undefined,
         limit: integerQuery(url.searchParams, "limit")
       });
       sendJson(response, 200, { count: alarms.length, alarms });
@@ -191,6 +193,8 @@ function createGatewayApi(runtime, options = {}) {
       const result = runtime.analyzeRca({
         targetAt: body.targetAt,
         qualityEventId: body.qualityEventId,
+        workOrderId: body.workOrderId,
+        correlationId: body.correlationId,
         windowMs: body.windowMs,
         temperatureThresholdC: body.temperatureThresholdC
       });

@@ -285,6 +285,10 @@ class GatewayRuntime extends EventEmitter {
   }
 
   analyzeRca(options = {}) {
+    const explicitScope = workContextFilterFrom(options);
+    const explicitScopeRequested = Boolean(
+      explicitScope.workOrderId || explicitScope.correlationId
+    );
     let qualityEvent = null;
     let targetAt;
     if (options.qualityEventId) {
@@ -306,12 +310,44 @@ class GatewayRuntime extends EventEmitter {
 
     const from = targetAt - windowMs;
     const to = targetAt + windowMs;
-    const result = analyzeRca(this.collector.getEvents({ from, to }), {
+    const scope = qualityEvent
+      ? {
+          workOrderId: explicitScope.workOrderId || qualityEvent.workOrderId || null,
+          correlationId:
+            explicitScope.correlationId || qualityEvent.correlationId || null
+        }
+      : explicitScope;
+    const scopeRequested = Boolean(scope.workOrderId || scope.correlationId);
+    let events = this.collector.getEvents({ from, to, ...scope });
+    let alarms = this.collector.getAlarmHistory({ from, to, ...scope });
+    let scopeApplied = scopeRequested;
+    let scopeFallback = false;
+    if (
+      scopeRequested &&
+      !explicitScopeRequested &&
+      events.length === 0 &&
+      alarms.length === 0
+    ) {
+      events = this.collector.getEvents({ from, to });
+      alarms = this.collector.getAlarmHistory({ from, to });
+      scopeApplied = false;
+      scopeFallback = true;
+    }
+
+    const result = analyzeRca(events, {
       targetAt,
       windowMs,
       temperatureThresholdC,
-      alarms: this.collector.getAlarmHistory({ from, to })
+      alarms
     });
+    result.scope = scope;
+    result.scopeApplied = scopeApplied;
+    if (scopeFallback) {
+      result.warnings = [
+        ...(result.warnings || []),
+        "No process context or alarms matched the quality event work context; RCA fell back to the unscoped time window."
+      ];
+    }
     if (qualityEvent) {
       result.qualityEvent = qualityEvent;
       result.targetQualityEventId = qualityEvent.qualityEventId;
