@@ -167,8 +167,8 @@ curl http://127.0.0.1:8080/v1/work-context
 curl -X POST http://127.0.0.1:8080/v1/work-context \
   -H 'content-type: application/json' \
   -d '{"workOrderId":"WO-JX-001","serialNumber":"SN-JX-001","correlationId":"corr-jx-001"}'
-curl 'http://127.0.0.1:8080/v1/events?limit=20'
-curl 'http://127.0.0.1:8080/v1/oee?windowMs=300000&ngCount=3'
+curl 'http://127.0.0.1:8080/v1/events?workOrderId=WO-JX-001&limit=20'
+curl 'http://127.0.0.1:8080/v1/oee?windowMs=300000&workOrderId=WO-JX-001'
 curl -X POST http://127.0.0.1:8080/v1/quality-events \
   -H 'content-type: application/json' \
   -d '{"sourceEventId":"QC-JX-001","result":"NG","occurredAt":"2026-11-27T06:00:00.000Z","workOrderId":"WO-JX-001","correlationId":"corr-jx-001","quantity":1}'
@@ -177,6 +177,12 @@ curl -X POST http://127.0.0.1:8080/v1/rca \
   -H 'content-type: application/json' \
   -d '{"qualityEventId":"qevt-...","windowMs":300000}'
 ```
+
+`/v1/events`, `/v1/quality-events`, and `/v1/oee` accept optional
+`workOrderId` and `correlationId` query parameters. Filters are applied before
+limit/OEE aggregation, so a 5-minute OEE window does not mix two work orders
+when one is selected. Scoped OEE responses echo the active filter in `scope`;
+an explicit `ngCount` still overrides the quality-event input.
 
 ### Runtime work context
 

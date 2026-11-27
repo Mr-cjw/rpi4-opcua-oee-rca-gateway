@@ -160,6 +160,29 @@ test("quality event store filters by occurrence time and sums quantity", () => {
   assert.equal(store.quantity({ from: iso(4), to: iso(9) }), 3);
 });
 
+test("quality event store filters by work order and correlation ID", () => {
+  const { store } = makeStore();
+  store.record({
+    sourceEventId: "QC-WO-A",
+    occurredAt: iso(1),
+    workOrderId: "WO-A",
+    correlationId: "corr-a",
+    quantity: 2
+  });
+  store.record({
+    sourceEventId: "QC-WO-B",
+    occurredAt: iso(2),
+    workOrderId: "WO-B",
+    correlationId: "corr-b",
+    quantity: 3
+  });
+
+  assert.equal(store.list({ workOrderId: "WO-A" }).length, 1);
+  assert.equal(store.list({ correlationId: "corr-b" }).length, 1);
+  assert.equal(store.quantity({ workOrderId: "WO-A" }), 2);
+  assert.equal(store.list({ workOrderId: "WO-A", correlationId: "corr-b" }).length, 0);
+});
+
 test("quality event store prunes old events and their idempotency keys", () => {
   const { store, setNow } = makeStore();
   const old = store.record({ sourceEventId: "QC-OLD", occurredAt: iso(0) });

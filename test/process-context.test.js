@@ -169,6 +169,22 @@ test("process context filters and limits retained events", () => {
   );
 });
 
+test("process context filters retained events by work context", () => {
+  const collector = makeCollector();
+  collector.setWorkContext({ workOrderId: "WO-A", correlationId: "corr-a" });
+  collector.capture(snapshot(), { occurredAt: "2026-11-27T00:00:01.000Z" });
+  collector.setWorkContext({ workOrderId: "WO-B", correlationId: "corr-b" });
+  collector.capture(snapshot(), { occurredAt: "2026-11-27T00:00:02.000Z" });
+
+  assert.equal(collector.getEvents({ workOrderId: "WO-A" }).length, 1);
+  assert.equal(collector.getEvents({ workOrderId: "WO-B" }).length, 1);
+  assert.equal(
+    collector.getEvents({ workOrderId: "WO-A", correlationId: "corr-b" }).length,
+    0
+  );
+  assert.equal(collector.getEvents({ correlationId: "corr-b" }).length, 1);
+});
+
 test("process context records alarms once and persists JSONL", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "process-context-"));
   const logPath = path.join(directory, "events.jsonl");

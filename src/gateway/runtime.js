@@ -8,6 +8,7 @@ const { ProcessContextCollector } = require("./process-context");
 const { QualityEventNotFoundError, QualityEventStore } = require("./quality-events");
 const { createGatewayApi } = require("./http-api");
 const { WorkContextStore } = require("./work-context-store");
+const { workContextFilterFrom } = require("./work-context");
 
 const defaultLogger = {
   info(record) {
@@ -245,8 +246,9 @@ class GatewayRuntime extends EventEmitter {
       throw new Error("from must be earlier than or equal to to");
     }
 
-    const events = this.collector.getEvents({ from, to });
-    const qualityEvents = this.qualityEvents.list({ from, to });
+    const scope = workContextFilterFrom(options);
+    const events = this.collector.getEvents({ from, to, ...scope });
+    const qualityEvents = this.qualityEvents.list({ from, to, ...scope });
     const qualityEventNgCount = qualityEvents.reduce(
       (total, qualityEvent) => total + qualityEvent.quantity,
       0
@@ -277,6 +279,7 @@ class GatewayRuntime extends EventEmitter {
         windowMs
       },
       eventCount: events.length,
+      scope,
       ...result
     };
   }

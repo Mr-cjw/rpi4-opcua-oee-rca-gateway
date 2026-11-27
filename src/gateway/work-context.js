@@ -45,9 +45,29 @@ function workContextFrom(options = {}) {
   };
 }
 
+function workContextFilterFrom(options = {}) {
+  const normalized = normalizeWorkContextUpdate(options);
+  return {
+    workOrderId: normalized.workOrderId ?? null,
+    correlationId: normalized.correlationId ?? null
+  };
+}
+
+function matchesWorkContext(record, filter = {}) {
+  if (filter.workOrderId && record?.workOrderId !== filter.workOrderId) {
+    return false;
+  }
+  if (filter.correlationId && record?.correlationId !== filter.correlationId) {
+    return false;
+  }
+  return true;
+}
+
 module.exports = {
   WORK_CONTEXT_FIELDS,
   WorkContextValidationError,
+  matchesWorkContext,
   normalizeWorkContextUpdate,
+  workContextFilterFrom,
   workContextFrom
 };

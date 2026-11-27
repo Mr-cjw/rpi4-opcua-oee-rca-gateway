@@ -5,7 +5,9 @@ const { EventEmitter } = require("node:events");
 const { toMillis } = require("../analytics/oee");
 const { JsonlLog } = require("./jsonl");
 const {
+  matchesWorkContext,
   normalizeWorkContextUpdate,
+  workContextFilterFrom,
   workContextFrom
 } = require("./work-context");
 
@@ -165,9 +167,14 @@ class ProcessContextCollector extends EventEmitter {
 
   getEvents(options = {}) {
     const { from, to } = parseTimeRange(options);
+    const filter = workContextFilterFrom(options);
     let events = this._events.filter((event) => {
       const at = toMillis(event.occurredAt, "event timestamp");
-      return (from === null || at >= from) && (to === null || at <= to);
+      return (
+        (from === null || at >= from) &&
+        (to === null || at <= to) &&
+        matchesWorkContext(event, filter)
+      );
     });
     const limit = Number(options.limit ?? 0);
     if (Number.isInteger(limit) && limit > 0) {

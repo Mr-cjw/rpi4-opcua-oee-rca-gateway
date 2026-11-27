@@ -102,6 +102,27 @@ async function main() {
     assert.equal(beforeFault.eventType, "PROCESS_CONTEXT");
     assert.equal(beforeFault.workOrderId, "WO-GATEWAY-E2E-001");
 
+    const workContext = await getJson(`${runtime.api.address}/v1/work-context`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        workOrderId: "WO-GATEWAY-E2E-002",
+        serialNumber: "SN-GATEWAY-E2E-002",
+        correlationId: "corr-gateway-e2e-002"
+      })
+    });
+    assert.equal(workContext.workOrderId, "WO-GATEWAY-E2E-002");
+    await waitFor(
+      () =>
+        runtime.getLatestContext()?.serialNumber === "SN-GATEWAY-E2E-002" &&
+        runtime.getContextEvents({
+          workOrderId: "WO-GATEWAY-E2E-002",
+          correlationId: "corr-gateway-e2e-002"
+        }).length >= 2,
+      5000,
+      "two context samples with the updated work context"
+    );
+
     server.simulator.triggerDowntime(2, "gateway-e2e");
     server.simulator.triggerTemperatureSpike(2, 95);
     await waitFor(
@@ -114,22 +135,6 @@ async function main() {
     assert.ok(anomaly.metrics.temperatureC >= 70);
     assert.ok(anomaly.alarms.some((alarm) => alarm.code === "DOWNTIME"));
     assert.ok(anomaly.alarms.some((alarm) => alarm.code === "TEMPERATURE_SPIKE"));
-
-    const workContext = await getJson(`${runtime.api.address}/v1/work-context`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        workOrderId: "WO-GATEWAY-E2E-002",
-        serialNumber: "SN-GATEWAY-E2E-002",
-        correlationId: "corr-gateway-e2e-002"
-      })
-    });
-    assert.equal(workContext.workOrderId, "WO-GATEWAY-E2E-002");
-    await waitFor(
-      () => runtime.getLatestContext()?.serialNumber === "SN-GATEWAY-E2E-002",
-      5000,
-      "the updated work context to reach the context API"
-    );
 
     const quality = await getJson(`${runtime.api.address}/v1/quality-events`, {
       method: "POST",
@@ -152,15 +157,21 @@ async function main() {
     assert.equal(quality.event.serialNumber, "SN-GATEWAY-E2E-002");
     assert.equal(quality.event.correlationId, "corr-gateway-e2e-002");
 
-    const oee = await getJson(
-      `${runtime.api.address}/v1/oee?windowMs=300000`
-    );
+    const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
+    oeeUrl.searchParams.set("windowMs", "300000");
+    oeeUrl.searchParams.set("workOrderId", "WO-GATEWAY-E2E-002");
+    oeeUrl.searchParams.set("correlationId", "corr-gateway-e2e-002");
+    const oee = await getJson(oeeUrl);
     for (const key of ["availability", "performance", "quality", "oee"]) {
       assert.ok(oee[key] >= 0 && oee[key] <= 1, `${key} must be between 0 and 1`);
     }
     assert.ok(oee.eventCount >= 2);
     assert.equal(oee.qualitySource, "quality-events");
     assert.equal(oee.qualityEventCount, 1);
+    assert.deepEqual(oee.scope, {
+      workOrderId: "WO-GATEWAY-E2E-002",
+      correlationId: "corr-gateway-e2e-002"
+    });
     assert.ok(oee.quality < 1);
 
     const rca = await getJson(`${runtime.api.address}/v1/rca`, {

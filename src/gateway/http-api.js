@@ -120,6 +120,8 @@ function createGatewayApi(runtime, options = {}) {
       const events = runtime.getContextEvents({
         from: url.searchParams.get("from") || undefined,
         to: url.searchParams.get("to") || undefined,
+        workOrderId: url.searchParams.get("workOrderId") || undefined,
+        correlationId: url.searchParams.get("correlationId") || undefined,
         limit: integerQuery(url.searchParams, "limit")
       });
       sendJson(response, 200, { count: events.length, events });
@@ -140,6 +142,8 @@ function createGatewayApi(runtime, options = {}) {
       const result = runtime.calculateOee({
         from: url.searchParams.get("from") || undefined,
         to: url.searchParams.get("to") || undefined,
+        workOrderId: url.searchParams.get("workOrderId") || undefined,
+        correlationId: url.searchParams.get("correlationId") || undefined,
         windowMs: integerQuery(url.searchParams, "windowMs"),
         ngCount: integerQuery(url.searchParams, "ngCount")
       });
@@ -158,6 +162,8 @@ function createGatewayApi(runtime, options = {}) {
       const events = runtime.getQualityEvents({
         from: url.searchParams.get("from") || undefined,
         to: url.searchParams.get("to") || undefined,
+        workOrderId: url.searchParams.get("workOrderId") || undefined,
+        correlationId: url.searchParams.get("correlationId") || undefined,
         limit: integerQuery(url.searchParams, "limit")
       });
       sendJson(response, 200, { count: events.length, events });

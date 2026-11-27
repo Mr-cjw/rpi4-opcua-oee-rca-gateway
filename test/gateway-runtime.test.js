@@ -364,6 +364,69 @@ test("gateway runtime persists and restores work context", async (t) => {
   second = null;
 });
 
+test("gateway API scopes events, NG input and OEE by work context", async (t) => {
+  const { runtime } = makeRuntime();
+  t.after(async () => runtime.stop());
+  await runtime.start();
+
+  await runtime.updateWorkContext({
+    workOrderId: "WO-SCOPE-A",
+    serialNumber: "SN-SCOPE-A",
+    correlationId: "corr-scope-a"
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 0 }), { occurredAt: iso(0) });
+  runtime.collector.capture(plcSnapshot({ goodCount: 2 }), { occurredAt: iso(1) });
+  runtime.recordQualityEvent({
+    sourceEventId: "QC-SCOPE-A",
+    occurredAt: iso(1),
+    quantity: 1
+  });
+
+  await runtime.updateWorkContext({
+    workOrderId: "WO-SCOPE-B",
+    serialNumber: "SN-SCOPE-B",
+    correlationId: "corr-scope-b"
+  });
+  runtime.collector.capture(plcSnapshot({ goodCount: 4 }), { occurredAt: iso(2) });
+  runtime.collector.capture(plcSnapshot({ goodCount: 6 }), { occurredAt: iso(3) });
+  runtime.recordQualityEvent({
+    sourceEventId: "QC-SCOPE-B",
+    occurredAt: iso(3),
+    quantity: 2
+  });
+
+  const eventsResponse = await fetch(
+    `${runtime.api.address}/v1/events?workOrderId=WO-SCOPE-A&correlationId=corr-scope-a`
+  );
+  assert.equal(eventsResponse.status, 200);
+  const events = await eventsResponse.json();
+  assert.equal(events.count, 2);
+  assert.ok(events.events.every((event) => event.workOrderId === "WO-SCOPE-A"));
+
+  const qualityResponse = await fetch(
+    `${runtime.api.address}/v1/quality-events?correlationId=corr-scope-b`
+  );
+  assert.equal(qualityResponse.status, 200);
+  const quality = await qualityResponse.json();
+  assert.equal(quality.count, 1);
+  assert.equal(quality.events[0].workOrderId, "WO-SCOPE-B");
+
+  const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
+  oeeUrl.searchParams.set("from", iso(0));
+  oeeUrl.searchParams.set("to", iso(3));
+  oeeUrl.searchParams.set("workOrderId", "WO-SCOPE-A");
+  const oeeResponse = await fetch(oeeUrl);
+  assert.equal(oeeResponse.status, 200);
+  const oee = await oeeResponse.json();
+  assert.equal(oee.eventCount, 2);
+  assert.equal(oee.qualityEventCount, 1);
+  assert.equal(oee.qualityEventQuantity, 1);
+  assert.deepEqual(oee.scope, {
+    workOrderId: "WO-SCOPE-A",
+    correlationId: null
+  });
+});
+
 test("gateway runtime stops the OPC UA client and HTTP API", async () => {
   const { runtime, client } = makeRuntime();
   await runtime.start();
