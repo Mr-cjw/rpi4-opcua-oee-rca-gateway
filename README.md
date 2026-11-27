@@ -24,6 +24,11 @@ It provides:
 - Durable quality-event idempotency independent of log rotation
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
 
+The phased plan from the current prototype to a field pilot is documented in
+[`docs/ROADMAP.md`](docs/ROADMAP.md). The immediate priority is OEE correctness:
+shift/planned time, downtime classification, counter continuity, and quality
+reconciliation.
+
 ## Requirements
 
 - Node.js 20 or newer
