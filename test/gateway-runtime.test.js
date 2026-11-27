@@ -230,6 +230,93 @@ test("gateway API enforces a bearer token when configured", async (t) => {
   assert.equal(authorized.status, 200);
 });
 
+test("gateway runtime exposes and applies runtime work context updates", async (t) => {
+  const { runtime } = makeRuntime();
+  t.after(async () => runtime.stop());
+  await runtime.start();
+
+  const initialResponse = await fetch(`${runtime.api.address}/v1/work-context`);
+  assert.equal(initialResponse.status, 200);
+  assert.deepEqual(await initialResponse.json(), {
+    workOrderId: null,
+    serialNumber: null,
+    correlationId: null
+  });
+
+  const updateResponse = await fetch(`${runtime.api.address}/v1/work-context`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      workOrderId: "WO-RUNTIME-NEXT",
+      serialNumber: "SN-RUNTIME-NEXT",
+      correlationId: "corr-runtime-next"
+    })
+  });
+  assert.equal(updateResponse.status, 200);
+  assert.deepEqual(await updateResponse.json(), {
+    workOrderId: "WO-RUNTIME-NEXT",
+    serialNumber: "SN-RUNTIME-NEXT",
+    correlationId: "corr-runtime-next"
+  });
+
+  const event = runtime.collector.capture(plcSnapshot({ goodCount: 1 }), {
+    occurredAt: new Date().toISOString()
+  });
+  assert.equal(event.workOrderId, "WO-RUNTIME-NEXT");
+  assert.equal(event.serialNumber, "SN-RUNTIME-NEXT");
+  assert.equal(event.correlationId, "corr-runtime-next");
+
+  const qualityResponse = await fetch(`${runtime.api.address}/v1/quality-events`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      sourceEventId: "QC-RUNTIME-WORK-CONTEXT",
+      occurredAt: new Date().toISOString()
+    })
+  });
+  assert.equal(qualityResponse.status, 201);
+  const quality = await qualityResponse.json();
+  assert.equal(quality.event.workOrderId, "WO-RUNTIME-NEXT");
+  assert.equal(quality.event.serialNumber, "SN-RUNTIME-NEXT");
+  assert.equal(quality.event.correlationId, "corr-runtime-next");
+
+  const correlationResponse = await fetch(`${runtime.api.address}/v1/correlation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ correlationId: "corr-runtime-legacy" })
+  });
+  assert.equal(correlationResponse.status, 200);
+  assert.deepEqual(await correlationResponse.json(), {
+    correlationId: "corr-runtime-legacy"
+  });
+
+  const clearResponse = await fetch(`${runtime.api.address}/v1/work-context`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ workOrderId: null, serialNumber: "", correlationId: null })
+  });
+  assert.equal(clearResponse.status, 200);
+  assert.deepEqual(await clearResponse.json(), {
+    workOrderId: null,
+    serialNumber: null,
+    correlationId: null
+  });
+  const clearedEvent = runtime.collector.capture(plcSnapshot({ goodCount: 2 }), {
+    occurredAt: new Date().toISOString()
+  });
+  assert.equal(Object.hasOwn(clearedEvent, "workOrderId"), false);
+  assert.equal(Object.hasOwn(clearedEvent, "serialNumber"), false);
+  assert.equal(Object.hasOwn(clearedEvent, "correlationId"), false);
+
+  const invalidResponse = await fetch(`${runtime.api.address}/v1/work-context`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ workOrderId: 42 })
+  });
+  assert.equal(invalidResponse.status, 400);
+  assert.match((await invalidResponse.json()).error, /workOrderId/);
+});
+
 test("gateway runtime stops the OPC UA client and HTTP API", async () => {
   const { runtime, client } = makeRuntime();
   await runtime.start();

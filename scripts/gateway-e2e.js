@@ -114,6 +114,22 @@ async function main() {
     assert.ok(anomaly.alarms.some((alarm) => alarm.code === "DOWNTIME"));
     assert.ok(anomaly.alarms.some((alarm) => alarm.code === "TEMPERATURE_SPIKE"));
 
+    const workContext = await getJson(`${runtime.api.address}/v1/work-context`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        workOrderId: "WO-GATEWAY-E2E-002",
+        serialNumber: "SN-GATEWAY-E2E-002",
+        correlationId: "corr-gateway-e2e-002"
+      })
+    });
+    assert.equal(workContext.workOrderId, "WO-GATEWAY-E2E-002");
+    await waitFor(
+      () => runtime.getLatestContext()?.serialNumber === "SN-GATEWAY-E2E-002",
+      5000,
+      "the updated work context to reach the context API"
+    );
+
     const quality = await getJson(`${runtime.api.address}/v1/quality-events`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -124,9 +140,6 @@ async function main() {
         occurredAt: anomaly.occurredAt,
         lineId: "JX-LINE-01",
         stationId: "JX-LINQIN-STATION-01",
-        workOrderId: "WO-GATEWAY-E2E-001",
-        serialNumber: "SN-GATEWAY-E2E-001",
-        correlationId: "corr-gateway-e2e",
         defectType: "TEMPERATURE_DEFORMATION",
         quantity: 1,
         confidence: 0.96,
@@ -134,6 +147,9 @@ async function main() {
       })
     });
     assert.equal(quality.duplicate, false);
+    assert.equal(quality.event.workOrderId, "WO-GATEWAY-E2E-002");
+    assert.equal(quality.event.serialNumber, "SN-GATEWAY-E2E-002");
+    assert.equal(quality.event.correlationId, "corr-gateway-e2e-002");
 
     const oee = await getJson(
       `${runtime.api.address}/v1/oee?windowMs=300000`

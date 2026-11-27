@@ -111,6 +111,40 @@ test("quality event store rejects unsafe or malformed input", () => {
   );
 });
 
+test("quality event defaults follow runtime work context updates", () => {
+  const { store } = makeStore();
+  store.setWorkContext({
+    workOrderId: "WO-NEXT",
+    serialNumber: "SN-NEXT",
+    correlationId: "corr-next"
+  });
+
+  const inherited = store.record({ sourceEventId: "QC-CONTEXT-1" });
+  assert.equal(inherited.event.workOrderId, "WO-NEXT");
+  assert.equal(inherited.event.serialNumber, "SN-NEXT");
+  assert.equal(inherited.event.correlationId, "corr-next");
+
+  const explicit = store.record({
+    sourceEventId: "QC-CONTEXT-2",
+    workOrderId: "WO-EXPLICIT",
+    serialNumber: "SN-EXPLICIT",
+    correlationId: "corr-explicit"
+  });
+  assert.equal(explicit.event.workOrderId, "WO-EXPLICIT");
+  assert.equal(explicit.event.serialNumber, "SN-EXPLICIT");
+  assert.equal(explicit.event.correlationId, "corr-explicit");
+
+  store.setWorkContext({ workOrderId: null, serialNumber: "", correlationId: null });
+  const cleared = store.record({ sourceEventId: "QC-CONTEXT-3" });
+  assert.equal(Object.hasOwn(cleared.event, "workOrderId"), false);
+  assert.equal(Object.hasOwn(cleared.event, "serialNumber"), false);
+  assert.equal(Object.hasOwn(cleared.event, "correlationId"), false);
+  assert.throws(
+    () => store.setWorkContext({ serialNumber: false }),
+    (error) => error.statusCode === 400 && /serialNumber/.test(error.message)
+  );
+});
+
 test("quality event store filters by occurrence time and sums quantity", () => {
   const { store } = makeStore();
   store.record({ sourceEventId: "QC-1", occurredAt: iso(0), quantity: 2 });

@@ -105,6 +105,17 @@ function createGatewayApi(runtime, options = {}) {
       return;
     }
 
+    if (pathname === "/v1/work-context" && request.method === "GET") {
+      sendJson(response, 200, runtime.getWorkContext());
+      return;
+    }
+
+    if (pathname === "/v1/work-context" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      sendJson(response, 200, runtime.updateWorkContext(body));
+      return;
+    }
+
     if (pathname === "/v1/events" && request.method === "GET") {
       const events = runtime.getContextEvents({
         from: url.searchParams.get("from") || undefined,

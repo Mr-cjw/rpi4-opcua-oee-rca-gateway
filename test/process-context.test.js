@@ -101,6 +101,55 @@ test("process context works when the PLC has no AlarmEvents node", () => {
   assert.equal(event.metrics.alarmSequence, null);
 });
 
+test("process context updates and clears runtime work context", () => {
+  const collector = makeCollector();
+  const emitted = [];
+  collector.on("workContext", (context) => emitted.push(context));
+
+  const updated = collector.setWorkContext({
+    workOrderId: "WO-JX-002",
+    serialNumber: "SN-JX-002",
+    correlationId: "corr-002"
+  });
+  assert.deepEqual(updated, {
+    workOrderId: "WO-JX-002",
+    serialNumber: "SN-JX-002",
+    correlationId: "corr-002"
+  });
+  assert.deepEqual(collector.getWorkContext(), updated);
+  assert.deepEqual(emitted, [updated]);
+
+  const event = collector.capture(snapshot(), {
+    occurredAt: "2026-11-27T00:00:10.000Z"
+  });
+  assert.equal(event.workOrderId, "WO-JX-002");
+  assert.equal(event.serialNumber, "SN-JX-002");
+  assert.equal(event.correlationId, "corr-002");
+
+  const cleared = collector.setWorkContext({
+    workOrderId: null,
+    serialNumber: "",
+    correlationId: undefined
+  });
+  assert.deepEqual(cleared, {
+    workOrderId: null,
+    serialNumber: null,
+    correlationId: null
+  });
+  const clearedEvent = collector.capture(snapshot(), {
+    occurredAt: "2026-11-27T00:00:11.000Z"
+  });
+  assert.equal(Object.hasOwn(clearedEvent, "workOrderId"), false);
+  assert.equal(Object.hasOwn(clearedEvent, "serialNumber"), false);
+  assert.equal(Object.hasOwn(clearedEvent, "correlationId"), false);
+
+  assert.throws(
+    () => collector.setWorkContext({ workOrderId: 42 }),
+    (error) => error.statusCode === 400 && /workOrderId/.test(error.message)
+  );
+  assert.throws(() => collector.setWorkContext([]), /must be an object/);
+});
+
 test("process context filters and limits retained events", () => {
   const collector = makeCollector();
   for (let second = 0; second < 5; second += 1) {

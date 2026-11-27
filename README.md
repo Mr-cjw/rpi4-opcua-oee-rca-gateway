@@ -18,6 +18,7 @@ It provides:
 - Seed control for repeatable test runs
 - A Gateway runtime that records `PROCESS_CONTEXT` events to JSONL
 - Loopback HTTP endpoints for process context, OEE decomposition, and RCA candidates
+- Runtime-updatable work-order, serial-number, and correlation context
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
 
 ## Requirements
@@ -162,6 +163,10 @@ The default bind address is `127.0.0.1:8080`. Set `GATEWAY_API_TOKEN` to require
 ```bash
 curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/v1/context/latest
+curl http://127.0.0.1:8080/v1/work-context
+curl -X POST http://127.0.0.1:8080/v1/work-context \
+  -H 'content-type: application/json' \
+  -d '{"workOrderId":"WO-JX-001","serialNumber":"SN-JX-001","correlationId":"corr-jx-001"}'
 curl 'http://127.0.0.1:8080/v1/events?limit=20'
 curl 'http://127.0.0.1:8080/v1/oee?windowMs=300000&ngCount=3'
 curl -X POST http://127.0.0.1:8080/v1/quality-events \
@@ -172,6 +177,21 @@ curl -X POST http://127.0.0.1:8080/v1/rca \
   -H 'content-type: application/json' \
   -d '{"qualityEventId":"qevt-...","windowMs":300000}'
 ```
+
+### Runtime work context
+
+`GET /v1/work-context` returns the current work order, serial number, and
+correlation ID. `POST /v1/work-context` updates any subset of those fields:
+
+- omitted fields keep their current values;
+- `null`, `undefined`, or an empty string clears a field;
+- any other non-string value returns `400`.
+
+New `PROCESS_CONTEXT` samples use the updated values on the next capture.
+Quality events that omit work-order, serial-number, or correlation fields also
+inherit the current runtime values; explicit quality-event values take
+precedence for that event. `POST /v1/correlation` remains available as a
+compatibility shortcut for updating only the correlation ID.
 
 ### NG quality-event ingestion
 
@@ -278,9 +298,9 @@ Gateway only reads points; it does not write PLC controls.
 |---|---:|---|
 | `GATEWAY_LINE_ID` | `LINE-01` | Line identifier written into context events |
 | `GATEWAY_STATION_ID` | `STATION-01` | Station identifier written into context events |
-| `GATEWAY_WORK_ORDER_ID` | empty | Optional current work order |
-| `GATEWAY_SERIAL_NUMBER` | empty | Optional current serial number |
-| `GATEWAY_CORRELATION_ID` | empty | Optional correlation ID for the current work order |
+| `GATEWAY_WORK_ORDER_ID` | empty | Initial current work order; runtime-updatable |
+| `GATEWAY_SERIAL_NUMBER` | empty | Initial current serial number; runtime-updatable |
+| `GATEWAY_CORRELATION_ID` | empty | Initial correlation ID; runtime-updatable |
 | `OPCUA_DEVICE_STATUS_NODE` | `ns=1;s=MockPLC.DeviceStatus` | Device status NodeId |
 | `OPCUA_CURRENT_OUTPUT_NODE` | `ns=1;s=MockPLC.CurrentOutput` | Current output NodeId |
 | `OPCUA_GOOD_COUNT_NODE` | `ns=1;s=MockPLC.GoodCount` | Good count NodeId |

@@ -4,6 +4,10 @@ const { EventEmitter } = require("node:events");
 const { randomUUID } = require("node:crypto");
 const { toMillis } = require("../analytics/oee");
 const { JsonlLog } = require("./jsonl");
+const {
+  normalizeWorkContextUpdate,
+  workContextFrom
+} = require("./work-context");
 
 const DEFAULT_RETENTION_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_EVENTS = 10000;
@@ -76,8 +80,9 @@ class QualityEventStore extends EventEmitter {
     this.options = {
       lineId: options.lineId || "LINE-01",
       stationId: options.stationId || "STATION-01",
-      workOrderId: options.workOrderId || "",
-      serialNumber: options.serialNumber || "",
+      workOrderId: options.workOrderId || null,
+      serialNumber: options.serialNumber || null,
+      correlationId: options.correlationId || null,
       retentionMs: options.retentionMs ?? DEFAULT_RETENTION_MS,
       maxEvents: options.maxEvents ?? DEFAULT_MAX_EVENTS,
       eventLogPath: options.eventLogPath || options.logPath || null,
@@ -102,6 +107,17 @@ class QualityEventStore extends EventEmitter {
 
   get count() {
     return this._events.length;
+  }
+
+  getWorkContext() {
+    return workContextFrom(this.options);
+  }
+
+  setWorkContext(update) {
+    Object.assign(this.options, normalizeWorkContextUpdate(update));
+    const context = this.getWorkContext();
+    this.emit("workContext", context);
+    return context;
   }
 
   record(input) {
@@ -157,7 +173,8 @@ class QualityEventStore extends EventEmitter {
       metadata: normalizeMetadata(input.metadata)
     };
 
-    const correlationId = optionalString(input.correlationId, "correlationId");
+    const correlationId =
+      optionalString(input.correlationId, "correlationId") || this.options.correlationId;
     const workOrderId = optionalString(input.workOrderId, "workOrderId") || this.options.workOrderId;
     const serialNumber =
       optionalString(input.serialNumber, "serialNumber") || this.options.serialNumber;

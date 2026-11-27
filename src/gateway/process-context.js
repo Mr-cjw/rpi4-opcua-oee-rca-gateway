@@ -4,6 +4,10 @@ const { randomUUID } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 const { toMillis } = require("../analytics/oee");
 const { JsonlLog } = require("./jsonl");
+const {
+  normalizeWorkContextUpdate,
+  workContextFrom
+} = require("./work-context");
 
 const DEFAULT_SAMPLE_INTERVAL_MS = 1000;
 const DEFAULT_RETENTION_MS = 60 * 60 * 1000;
@@ -138,8 +142,19 @@ class ProcessContextCollector extends EventEmitter {
     return this._alarmHistory.length;
   }
 
+  getWorkContext() {
+    return workContextFrom(this.options);
+  }
+
+  setWorkContext(update) {
+    Object.assign(this.options, normalizeWorkContextUpdate(update));
+    const context = this.getWorkContext();
+    this.emit("workContext", context);
+    return context;
+  }
+
   setCorrelationId(correlationId) {
-    this.options.correlationId = correlationId || null;
+    return this.setWorkContext({ correlationId }).correlationId;
   }
 
   getLatest() {

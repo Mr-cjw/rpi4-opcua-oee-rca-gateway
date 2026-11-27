@@ -118,8 +118,7 @@ class GatewayRuntime extends EventEmitter {
       identity: {
         lineId: this.config.identity.lineId,
         stationId: this.config.identity.stationId,
-        workOrderId: this.config.identity.workOrderId || null,
-        serialNumber: this.config.identity.serialNumber || null
+        ...this.getWorkContext()
       },
       context: {
         eventCount: this.collector.eventCount,
@@ -144,9 +143,20 @@ class GatewayRuntime extends EventEmitter {
     return this.collector.getAlarmHistory(options);
   }
 
+  getWorkContext() {
+    return this.collector.getWorkContext();
+  }
+
+  updateWorkContext(update) {
+    const context = this.collector.setWorkContext(update);
+    if (typeof this.qualityEvents.setWorkContext === "function") {
+      this.qualityEvents.setWorkContext(context);
+    }
+    return context;
+  }
+
   setCorrelationId(correlationId) {
-    this.collector.setCorrelationId(correlationId);
-    return this.collector.options.correlationId;
+    return this.updateWorkContext({ correlationId }).correlationId;
   }
 
   async _loadPersistedState() {
