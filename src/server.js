@@ -3,11 +3,13 @@
 const path = require("node:path");
 const {
   DataType,
+  DataValue,
   MessageSecurityMode,
   OPCUACertificateManager,
   OPCUAServer,
   SecurityPolicy,
-  StatusCodes
+  StatusCodes,
+  Variant
 } = require("node-opcua");
 const { MockPlcSimulator } = require("./simulator");
 const { loadConfig } = require("./config");
@@ -269,8 +271,32 @@ function addNodeSet(server, simulator) {
   };
 }
 
-function updateVariable(node, dataType, value) {
-  node.setValueFromSource(variableValue(dataType, value), StatusCodes.Good);
+function updateVariable(
+  node,
+  dataType,
+  value,
+  {
+    statusCode = StatusCodes.Good,
+    sourceTimestamp = new Date(),
+    serverTimestamp = null
+  } = {}
+) {
+  if (serverTimestamp) {
+    node._internal_set_dataValue(
+      new DataValue({
+        value: new Variant(variableValue(dataType, value)),
+        statusCode,
+        sourceTimestamp,
+        serverTimestamp
+      })
+    );
+    return;
+  }
+  node.setValueFromSource(
+    variableValue(dataType, value),
+    statusCode,
+    sourceTimestamp
+  );
 }
 
 function createMockPlcServer(options = loadConfig()) {
@@ -323,6 +349,65 @@ function createMockPlcServer(options = loadConfig()) {
   let stopped = false;
   let onAlarm = null;
   let onSample = null;
+  let updateSnapshot = null;
+  const injectedFaults = {
+    statuses: new Map(),
+    frozen: new Set(),
+    sourceTimestampOffsetMs: 0
+  };
+
+  function requireVariable(name) {
+    const node = nodeSet?.nodes?.[name];
+    if (!node) {
+      throw new Error(`Unknown Mock PLC variable: ${name}`);
+    }
+    return node;
+  }
+
+  function requireFaultInjectionReady() {
+    if (!started || !nodeSet || typeof updateSnapshot !== "function") {
+      throw new Error("Mock PLC fault injection requires a started server");
+    }
+  }
+
+  function injectVariableStatus(name, statusCode) {
+    requireFaultInjectionReady();
+    requireVariable(name);
+    if (statusCode === null || statusCode === undefined) {
+      injectedFaults.statuses.delete(name);
+    } else {
+      injectedFaults.statuses.set(name, statusCode);
+    }
+    updateSnapshot();
+  }
+
+  function freezeVariable(name, frozen = true) {
+    requireFaultInjectionReady();
+    requireVariable(name);
+    if (frozen) {
+      injectedFaults.frozen.add(name);
+    } else {
+      injectedFaults.frozen.delete(name);
+      updateSnapshot();
+    }
+  }
+
+  function setSourceTimestampOffsetMs(offsetMs) {
+    requireFaultInjectionReady();
+    if (!Number.isFinite(offsetMs)) {
+      throw new Error("sourceTimestampOffsetMs must be a finite number");
+    }
+    injectedFaults.sourceTimestampOffsetMs = offsetMs;
+    updateSnapshot();
+  }
+
+  function clearInjectedFaults() {
+    requireFaultInjectionReady();
+    injectedFaults.statuses.clear();
+    injectedFaults.frozen.clear();
+    injectedFaults.sourceTimestampOffsetMs = 0;
+    updateSnapshot();
+  }
 
   async function start() {
     try {
@@ -425,21 +510,27 @@ function createMockPlcServer(options = loadConfig()) {
       await server.start();
       started = true;
 
-      const updateSnapshot = () => {
+      updateSnapshot = () => {
         const snapshot = simulator.snapshot();
-        updateVariable(nodeSet.nodes.deviceStatus, DataType.String, snapshot.deviceStatus);
-        updateVariable(nodeSet.nodes.currentOutput, DataType.Double, snapshot.currentOutput);
-        updateVariable(nodeSet.nodes.goodCount, DataType.UInt32, snapshot.goodCount);
-        updateVariable(
-          nodeSet.nodes.totalProducedCount,
-          DataType.UInt32,
-          snapshot.totalProducedCount
-        );
-        updateVariable(
-          nodeSet.nodes.temperatureSensor,
-          DataType.Double,
-          snapshot.temperatureC
-        );
+        const now = Date.now();
+        const sourceTimestamp = new Date(now + injectedFaults.sourceTimestampOffsetMs);
+        const serverTimestamp = new Date(now);
+        const update = (name, dataType, value) => {
+          if (injectedFaults.frozen.has(name)) {
+            return;
+          }
+          updateVariable(nodeSet.nodes[name], dataType, value, {
+            statusCode: injectedFaults.statuses.get(name) ?? StatusCodes.Good,
+            sourceTimestamp,
+            serverTimestamp
+          });
+        };
+
+        update("deviceStatus", DataType.String, snapshot.deviceStatus);
+        update("currentOutput", DataType.Double, snapshot.currentOutput);
+        update("goodCount", DataType.UInt32, snapshot.goodCount);
+        update("totalProducedCount", DataType.UInt32, snapshot.totalProducedCount);
+        update("temperatureSensor", DataType.Double, snapshot.temperatureC);
       };
 
       timer = setInterval(() => {
@@ -508,6 +599,10 @@ function createMockPlcServer(options = loadConfig()) {
   return {
     server,
     simulator,
+    injectVariableStatus,
+    freezeVariable,
+    setSourceTimestampOffsetMs,
+    clearInjectedFaults,
     start,
     stop
   };

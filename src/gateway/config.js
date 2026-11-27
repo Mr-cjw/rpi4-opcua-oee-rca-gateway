@@ -13,6 +13,12 @@ const {
   DEFAULT_STALE_WARNING_MS
 } = require("./plc-diagnostics");
 
+const DATA_CHANGE_TRIGGERS = Object.freeze([
+  "StatusValueTimestamp",
+  "StatusValue",
+  "Status"
+]);
+
 function integerFromEnv(env, name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
   const raw = env[name];
   if (raw === undefined || raw === "") {
@@ -52,6 +58,20 @@ function booleanFromEnv(env, name, fallback) {
     return false;
   }
   throw new Error(`${name} must be a boolean; received "${raw}"`);
+}
+
+function enumFromEnv(env, name, fallback, allowed) {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+  const value = allowed.find(
+    (candidate) => candidate.toLowerCase() === raw.trim().toLowerCase()
+  );
+  if (!value) {
+    throw new Error(`${name} must be one of ${allowed.join(", ")}; received "${raw}"`);
+  }
+  return value;
 }
 
 function jsonlPathFromEnv(env, name, defaultFile) {
@@ -254,6 +274,12 @@ function loadGatewayConfig(env = process.env) {
       randomisationFactor: 0.2
     }),
     subscription: Object.freeze({
+      dataChangeTrigger: enumFromEnv(
+        env,
+        "OPCUA_DATA_CHANGE_TRIGGER",
+        "StatusValueTimestamp",
+        DATA_CHANGE_TRIGGERS
+      ),
       publishingIntervalMs: integerFromEnv(env, "OPCUA_PUBLISHING_INTERVAL_MS", 250, {
         min: 50,
         max: 60000

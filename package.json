@@ -21,6 +21,7 @@
     "storage:evaluate": "node scripts/evaluate-storage.js",
     "e2e": "node scripts/run-e2e.js",
     "e2e:gateway": "node scripts/gateway-e2e.js",
+    "e2e:diagnostics": "node scripts/gateway-diagnostics-e2e.js",
     "soak": "node scripts/soak.js",
     "gateway": "node src/gateway/index.js"
   },

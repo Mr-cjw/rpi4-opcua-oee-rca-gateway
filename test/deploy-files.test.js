@@ -43,6 +43,7 @@ test("gateway environment template includes persistence and API safeguards", asy
     "GATEWAY_DOCTOR_TIMEOUT_MS",
     "GATEWAY_PLC_STALE_WARNING_MS",
     "GATEWAY_PLC_CLOCK_SKEW_WARNING_MS",
+    "OPCUA_DATA_CHANGE_TRIGGER",
     "PROCESS_CONTEXT_LOG",
     "PROCESS_CONTEXT_LOG_FSYNC",
     "PROCESS_CONTEXT_LOG_MAX_BYTES",

@@ -4,7 +4,10 @@ const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const {
   AttributeIds,
+  DataChangeFilter,
+  DataChangeTrigger,
   DataType,
+  DeadbandType,
   OPCUACertificateManager,
   OPCUAClient,
   TimestampsToReturn,
@@ -64,6 +67,18 @@ function monitorItem(subscription, itemToMonitor, parameters) {
       TimestampsToReturn.Both,
       (error, monitoredItem) => (error ? reject(error) : resolve(monitoredItem))
     );
+  });
+}
+
+function dataChangeFilter(triggerName) {
+  const trigger = DataChangeTrigger[triggerName];
+  if (trigger === undefined) {
+    throw new Error(`Unsupported OPC UA data-change trigger: ${triggerName}`);
+  }
+  return new DataChangeFilter({
+    trigger,
+    deadbandType: DeadbandType.None,
+    deadbandValue: 0
   });
 }
 
@@ -150,6 +165,7 @@ class OpcUaGatewayClient extends EventEmitter {
         randomisationFactor: 0.2
       },
       subscription: {
+        dataChangeTrigger: "StatusValueTimestamp",
         publishingIntervalMs: 250,
         samplingIntervalMs: 250,
         queueSize: 20,
@@ -166,6 +182,7 @@ class OpcUaGatewayClient extends EventEmitter {
       ...(options.connection || {})
     };
     this.options.subscription = {
+      dataChangeTrigger: "StatusValueTimestamp",
       publishingIntervalMs: 250,
       samplingIntervalMs: 250,
       queueSize: 20,
@@ -382,6 +399,7 @@ class OpcUaGatewayClient extends EventEmitter {
         subscription,
         { nodeId: definition.nodeId, attributeId: AttributeIds.Value },
         {
+          filter: dataChangeFilter(this.options.subscription.dataChangeTrigger),
           samplingInterval: this.options.subscription.samplingIntervalMs,
           queueSize: this.options.subscription.queueSize,
           discardOldest: true

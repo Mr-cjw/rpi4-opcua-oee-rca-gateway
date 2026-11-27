@@ -323,16 +323,17 @@ subscription, and a connection with no observed values are warnings. A disabled
 `OPCUA_EVENT_NODE` is not a warning because native events were intentionally
 omitted.
 
-The stale check is a notification timeout: it measures time since the last
-fresh value notification, not whether a counter happened to change. Unchanged
-values may not be emitted by an OPC UA data-change subscription, so a tag that
-is intentionally static can eventually report `stale_value`; tune
-`GATEWAY_PLC_STALE_WARNING_MS` only after validating the tag's update cadence.
-The optional `alarmEvents` JSON snapshot is exempt because it normally remains
-unchanged until an alarm changes. Source/server skew and future-source checks
-use `GATEWAY_PLC_CLOCK_SKEW_WARNING_MS`. Use `npm run doctor` before deployment
-and `/healthz.plc` after deployment for the complementary read-time and live
-checks.
+The stale check measures time since the last fresh value notification.
+`OPCUA_DATA_CHANGE_TRIGGER` defaults to `StatusValueTimestamp`, so a PLC that
+advances the source timestamp on every scan keeps unchanged but healthy tags
+fresh. If the PLC does not advance source timestamps, or the trigger is lowered
+to `StatusValue` to reduce traffic, a tag that is intentionally static can
+eventually report `stale_value`; tune `GATEWAY_PLC_STALE_WARNING_MS` only after
+validating the tag's update cadence. The optional `alarmEvents` JSON snapshot is
+exempt because it normally remains unchanged until an alarm changes.
+Source/server skew and future-source checks use
+`GATEWAY_PLC_CLOCK_SKEW_WARNING_MS`. Use `npm run doctor` before deployment and
+`/healthz.plc` after deployment for the complementary read-time and live checks.
 
 ### State backup and restore
 
@@ -715,6 +716,7 @@ atomic temporary files, not only for the current file sizes.
 | `OPCUA_CLIENT_NAME` | `RCA-Gateway-OPCUA-Client` | Application name |
 | `OPCUA_CLIENT_PKI_ROOT` | `<cwd>/.pki` | Client certificate directory |
 | `OPCUA_SESSION_TIMEOUT_MS` | `60000` | Requested session timeout |
+| `OPCUA_DATA_CHANGE_TRIGGER` | `StatusValueTimestamp` | Subscription trigger: `StatusValueTimestamp`, `StatusValue`, or `Status` |
 | `OPCUA_PUBLISHING_INTERVAL_MS` | `250` | Subscription publish interval |
 | `OPCUA_SAMPLING_INTERVAL_MS` | `250` | Monitored-item sampling interval |
 | `OPCUA_QUEUE_SIZE` | `20` | Per-variable queue depth |
@@ -1081,6 +1083,14 @@ responses:
 
 ```bash
 npm run e2e:gateway
+```
+
+Run the injected PLC diagnostics path. This verifies Bad and Uncertain status
+handling, stale-tag detection, future/source-server clock skew, process-context
+pause/resume, and automatic recovery after a PLC restart:
+
+```bash
+npm run e2e:diagnostics
 ```
 
 Validate the shared JSON contracts and local documentation links:

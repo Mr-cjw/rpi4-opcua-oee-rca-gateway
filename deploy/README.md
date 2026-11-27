@@ -107,11 +107,13 @@ Recommended alerting baseline:
 For `bad_status` or `uncertain_status`, check the PLC point, NodeId, access
 permissions, and vendor diagnostics before restarting the Gateway. For
 `stale_value`, compare `plc_value_age_seconds` and the source timestamp with the
-PLC scan/change cadence; a static tag can be reported stale because data-change
-subscriptions may suppress unchanged values. `alarmEvents` is exempt from stale
-checking. Do not increase `GATEWAY_PLC_STALE_WARNING_MS` without confirming that
-the tag is expected to remain quiet. For clock issues, synchronize both the Pi
-and PLC clocks and verify the configured skew threshold.
+PLC scan/change cadence. Keep `OPCUA_DATA_CHANGE_TRIGGER=StatusValueTimestamp`
+when the PLC advances source timestamps on each scan. If you change it to
+`StatusValue` to reduce traffic, unchanged static tags may legitimately report
+stale. `alarmEvents` is exempt from stale checking. Do not increase
+`GATEWAY_PLC_STALE_WARNING_MS` without confirming that the tag is expected to
+remain quiet. For clock issues, synchronize both the Pi and PLC clocks and verify
+the configured skew threshold.
 
 ## Operational notes
 
@@ -134,6 +136,8 @@ and PLC clocks and verify the configured skew threshold.
 - A critical `plc` diagnostic means the latest PLC snapshot may be incomplete.
   Do not treat OEE/RCA output as production truth until the connection recovers
   and `rpi4_gateway_plc_diagnostics_healthy` returns to `1`.
+- Run `npm run e2e:diagnostics` after changing the OPC UA trigger, stale/skew
+  thresholds, or subscription timing; it exercises the injected PLC fault path.
 - Keep at least one recent verified state backup off the Raspberry Pi. A
   backup stored on the same failing SD card or SSD does not protect accepted
   quality events after hardware loss.

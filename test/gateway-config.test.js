@@ -172,16 +172,23 @@ test("gateway config validates live PLC diagnostic thresholds", () => {
   const defaults = loadGatewayConfig({});
   assert.equal(defaults.plcDiagnostics.staleWarningMs, 300000);
   assert.equal(defaults.plcDiagnostics.clockSkewWarningMs, 30000);
+  assert.equal(defaults.subscription.dataChangeTrigger, "StatusValueTimestamp");
 
   const config = loadGatewayConfig({
     GATEWAY_PLC_STALE_WARNING_MS: "120000",
-    GATEWAY_PLC_CLOCK_SKEW_WARNING_MS: "5000"
+    GATEWAY_PLC_CLOCK_SKEW_WARNING_MS: "5000",
+    OPCUA_DATA_CHANGE_TRIGGER: "statusvalue"
   });
   assert.equal(config.plcDiagnostics.staleWarningMs, 120000);
   assert.equal(config.plcDiagnostics.clockSkewWarningMs, 5000);
+  assert.equal(config.subscription.dataChangeTrigger, "StatusValue");
   assert.throws(
     () => loadGatewayConfig({ GATEWAY_PLC_STALE_WARNING_MS: "999" }),
     /GATEWAY_PLC_STALE_WARNING_MS/
+  );
+  assert.throws(
+    () => loadGatewayConfig({ OPCUA_DATA_CHANGE_TRIGGER: "invalid" }),
+    /OPCUA_DATA_CHANGE_TRIGGER/
   );
 });
 

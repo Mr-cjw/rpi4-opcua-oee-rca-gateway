@@ -71,6 +71,9 @@ jobs:
       - name: Run Gateway E2E
         run: npm run e2e:gateway
 
+      - name: Run PLC diagnostics E2E
+        run: npm run e2e:diagnostics
+
       - name: Run soak smoke
         env:
           SOAK_DURATION_MS: 20000

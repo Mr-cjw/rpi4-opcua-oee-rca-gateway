@@ -175,6 +175,10 @@ Deliverables:
   skew, reconnect gaps, and native-event subscription failures/recoveries;
   expose them through `/healthz.plc` and Prometheus metrics. Non-Good values are
   excluded from process snapshots so incomplete context is visible.
+- Completed 2026-11-27: injected full-path diagnostics E2E covers Bad/Uncertain
+  status, stale tags, future/source-server clock skew, process-context
+  pause/resume, and recovery after a PLC restart/reconnect. The default
+  `StatusValueTimestamp` trigger keeps unchanged scanned tags fresh.
 - Support OPC UA Sign and Sign&Encrypt with client certificates, certificate
   rotation, and external credential injection.
 - Synchronize the Pi clock and record source/server timestamps for analytics.
@@ -257,9 +261,8 @@ The next implementation-sized units are:
 1. Finish the M2 storage boundary with physical power-cut validation on
    Raspberry Pi hardware and the gated SQLite importer/backend if the documented
    adoption gates are met.
-2. Add injected full-path E2E coverage for stale, Bad, and clock-skew scenarios,
-   finish M3 security/clock synchronization, and execute the 72-hour soak on
-   Raspberry Pi hardware.
+2. Finish M3 security/clock synchronization and run the long-duration injected
+   fault matrix alongside the 72-hour soak on Raspberry Pi hardware.
 3. Add release packaging, upgrade, and rollback procedures.
 
 M1 is complete, and the live PLC diagnostics software is complete. Prioritize
