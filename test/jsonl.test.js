@@ -54,3 +54,21 @@ test("JSONL log can disable rotation", async (t) => {
   assert.deepEqual(records, [1, 2, 3]);
   assert.deepEqual(await fs.readdir(directory), ["events.jsonl"]);
 });
+
+test("JSONL log isolates a partial trailing record after a crash", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "jsonl-partial-"));
+  const logPath = path.join(directory, "events.jsonl");
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  await fs.writeFile(logPath, '{"value":1}\n{"value":', "utf8");
+
+  const log = new JsonlLog(logPath);
+  log.append({ value: 2 });
+  await log.flush({ throwOnError: true });
+
+  const records = [];
+  const result = await log.read((record) => records.push(record.value));
+  assert.deepEqual(records, [1, 2]);
+  assert.equal(result.corrupt, 1);
+  assert.equal(log.getStatus().recoveredPartialLines, 1);
+  assert.equal(log.getStatus().status, "ok");
+});

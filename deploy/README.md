@@ -104,6 +104,10 @@ after restoring an older snapshot.
 - Keep at least one recent verified state backup off the Raspberry Pi. A
   backup stored on the same failing SD card or SSD does not protect accepted
   quality events after hardware loss.
+- After a forced kill or power loss, check the log for
+  `Isolated a partial JSONL record before appending`. Complete records replay
+  normally; the interrupted record is skipped and a resulting event-sequence
+  gap remains visible in `/healthz` and Prometheus.
 - `OEE_NOMINAL_OUTPUT_PER_MIN` or `OEE_IDEAL_CYCLE_TIME_MS`, planned time, and
   quality-event connectivity must be validated before quoting OEE as a
   production metric. When `OEE_PRODUCT_CYCLE_TIMES` is used, validate every

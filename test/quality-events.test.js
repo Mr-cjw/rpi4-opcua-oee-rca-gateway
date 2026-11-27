@@ -355,6 +355,7 @@ test("quality idempotency expires at its configured horizon", async (t) => {
   assert.equal(replayed.duplicate, false);
   assert.notEqual(replayed.event.qualityEventId, original.event.qualityEventId);
   assert.equal(second.store.count, 1);
+  await second.store.flush();
 });
 
 test("quality event store prunes old events but keeps idempotency keys", () => {

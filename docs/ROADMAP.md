@@ -131,8 +131,11 @@ Progress:
 - Completed 2026-11-27: per-stream event sequence watermarks with duplicate,
   gap, missing-event, and out-of-order diagnostics in `/healthz` and Prometheus;
   legacy JSONL without sequence fields remains replayable.
-- Remaining: SQLite WAL evaluation, migration fixtures, power-loss/forced-kill
-  recovery tests, and multi-day retention validation.
+- Completed 2026-11-27: forced-kill recovery test for a large quality JSONL
+  append, plus automatic isolation of a crash-truncated final line so the next
+  valid record is not concatenated into the corrupt fragment.
+- Remaining: SQLite WAL evaluation, migration fixtures, explicit power-loss
+  simulation, and multi-day retention validation.
 
 Acceptance:
 
@@ -237,7 +240,7 @@ Acceptance:
 The next implementation-sized units are:
 
 1. Finish the M2 storage boundary with a SQLite WAL evaluation, migration
-   fixtures, and power-loss/forced-kill recovery tests.
+   fixtures, and explicit power-loss simulation.
 2. Add live health/metrics detection for stale values, Bad status, clock skew,
    reconnect gaps, and subscription recovery.
 3. Execute the 72-hour soak on Raspberry Pi hardware and add release packaging,

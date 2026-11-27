@@ -24,6 +24,8 @@ class JsonlLog {
     this._lastError = null;
     this._lastFailureAt = null;
     this._lastSuccessAt = null;
+    this._needsNewlineRecovery = true;
+    this._recoveredPartialLines = 0;
   }
 
   get enabled() {
@@ -51,6 +53,10 @@ class JsonlLog {
       .then(async () => {
         await fsp.mkdir(path.dirname(this.filePath), { recursive: true });
         await this._rotateIfNeeded(lineBytes);
+        if (this._needsNewlineRecovery) {
+          await this._ensureTrailingNewline();
+          this._needsNewlineRecovery = false;
+        }
         await fsp.appendFile(this.filePath, line, "utf8");
         this._size += lineBytes;
         this._markSuccess(lineBytes);
@@ -88,6 +94,7 @@ class JsonlLog {
       consecutiveFailures: this._consecutiveFailures,
       totalFailures: this._totalFailures,
       totalWrites: this._totalWrites,
+      recoveredPartialLines: this._recoveredPartialLines,
       lastError: this._lastError?.message || null,
       lastFailureAt: this._lastFailureAt,
       lastSuccessAt: this._lastSuccessAt
@@ -195,6 +202,41 @@ class JsonlLog {
     }
   }
 
+  async _ensureTrailingNewline() {
+    let stats;
+    try {
+      stats = await fsp.stat(this.filePath);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        this._size = 0;
+        return;
+      }
+      throw error;
+    }
+    this._size = stats.size;
+    if (stats.size === 0) {
+      return;
+    }
+
+    const handle = await fsp.open(this.filePath, "r");
+    try {
+      const lastByte = Buffer.alloc(1);
+      await handle.read(lastByte, 0, 1, stats.size - 1);
+      if (lastByte[0] === 0x0a) {
+        return;
+      }
+    } finally {
+      await handle.close();
+    }
+
+    await fsp.appendFile(this.filePath, "\n", "utf8");
+    this._size += 1;
+    this._recoveredPartialLines += 1;
+    this._log("warn", "Isolated a partial JSONL record before appending", {
+      path: this.filePath
+    });
+  }
+
   _markSuccess(bytes) {
     this._consecutiveFailures = 0;
     this._lastError = null;
@@ -208,6 +250,7 @@ class JsonlLog {
     this._totalFailures += 1;
     this._lastError = error;
     this._lastFailureAt = new Date().toISOString();
+    this._needsNewlineRecovery = true;
     this._notify(this.onStorageError, error, { path: this.filePath });
   }
 

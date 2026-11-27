@@ -335,6 +335,14 @@ Duplicate sequences and lower out-of-order sequences are counted separately.
 The first retained record establishes the stream baseline, so history already
 rotated away before the oldest retained file is not reported as a gap.
 
+After a forced kill or power loss during an append, replay keeps every complete
+JSONL record and skips a crash-truncated final line. Before the next write, the
+Gateway appends a separator newline when needed, logs
+`Isolated a partial JSONL record before appending`, and increments
+`recoveredPartialLines` in the storage status. The interrupted write's sequence
+is not reused, so inspect that warning together with the visible sequence gap;
+recovery is fail-visible rather than lossless.
+
 `GET /healthz` exposes `sequences.processContext` and `sequences.quality`, each
 with the current watermark, total gaps, estimated missing events, duplicate and
 out-of-order counts, retained gap ranges, and `status`. Sequence warnings are
@@ -641,6 +649,10 @@ work-context state. Alert below the warning threshold and treat a critical
 threshold as a maintenance window: quality ingestion will return `503` once the
 event log can no longer be appended. Keep enough headroom for JSONL rotation and
 atomic temporary files, not only for the current file sizes.
+
+- Treat `recoveredPartialLines > 0` or a partial-record warning as an
+  unclean-shutdown marker: verify the latest state backup, confirm the interrupted
+  event is absent, and investigate any sequence gap before resuming production.
 
 ### Gateway client configuration
 
