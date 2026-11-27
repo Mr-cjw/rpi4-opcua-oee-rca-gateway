@@ -134,8 +134,14 @@ Progress:
 - Completed 2026-11-27: forced-kill recovery test for a large quality JSONL
   append, plus automatic isolation of a crash-truncated final line so the next
   valid record is not concatenated into the corrupt fragment.
-- Remaining: SQLite WAL evaluation, migration fixtures, explicit power-loss
-  simulation, and multi-day retention validation.
+- Completed 2026-11-27: reproducible JSONL/SQLite WAL benchmark and storage
+  decision; SQLite is a conditional next backend, while JSONL remains the
+  default until runtime, importer, backup, and Pi power-loss gates are met.
+- Completed 2026-11-27: checked-in legacy JSONL migration fixtures covering
+  rotated segments, records without `sequence`, and idempotency entries whose
+  source events have left the retained event window.
+- Remaining: explicit power-loss write guarantees, multi-day retention/disk
+  budget validation, and the gated SQLite importer/backend if adoption proceeds.
 
 Acceptance:
 
@@ -239,8 +245,9 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Finish the M2 storage boundary with a SQLite WAL evaluation, migration
-   fixtures, and explicit power-loss simulation.
+1. Finish the M2 storage boundary with explicit power-loss write guarantees,
+   multi-day retention validation, and the gated SQLite importer/backend if the
+   documented adoption gates are met.
 2. Add live health/metrics detection for stale values, Bad status, clock skew,
    reconnect gaps, and subscription recovery.
 3. Execute the 72-hour soak on Raspberry Pi hardware and add release packaging,

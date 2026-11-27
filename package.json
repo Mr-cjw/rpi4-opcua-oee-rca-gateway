@@ -18,6 +18,7 @@
     "state:backup": "node scripts/gateway-state.js backup",
     "state:verify": "node scripts/gateway-state.js verify",
     "state:restore": "node scripts/gateway-state.js restore",
+    "storage:evaluate": "node scripts/evaluate-storage.js",
     "e2e": "node scripts/run-e2e.js",
     "e2e:gateway": "node scripts/gateway-e2e.js",
     "soak": "node scripts/soak.js",

@@ -69,11 +69,12 @@ test("gateway environment template includes persistence and API safeguards", asy
   assert.match(env, /^GATEWAY_WORK_CONTEXT_FILE=\/var\/lib\/rpi4-gateway\//m);
 });
 
-test("package scripts expose state backup verification and restore commands", async () => {
+test("package scripts expose state backup, restore, and storage evaluation commands", async () => {
   const packageJson = JSON.parse(
     await fs.readFile(path.join(ROOT, "package.json"), "utf8")
   );
   assert.equal(packageJson.scripts["state:backup"], "node scripts/gateway-state.js backup");
   assert.equal(packageJson.scripts["state:verify"], "node scripts/gateway-state.js verify");
   assert.equal(packageJson.scripts["state:restore"], "node scripts/gateway-state.js restore");
+  assert.equal(packageJson.scripts["storage:evaluate"], "node scripts/evaluate-storage.js");
 });

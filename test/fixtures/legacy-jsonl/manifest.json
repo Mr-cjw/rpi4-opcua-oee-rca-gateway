@@ -1,0 +1,8 @@
+{
+  "fixtureVersion": "legacy-jsonl-2026-11",
+  "lineId": "JX-LINE-01",
+  "stationId": "JX-LINQIN-STATION-01",
+  "processEvents": 3,
+  "qualityEvents": 3,
+  "idempotencyEntries": 3
+}

@@ -638,7 +638,10 @@ Both process-context and quality-event JSONL logs are replayed at startup,
 including retained rotated segments. Logs rotate by size with three backups by
 default, so disk use is bounded by `(MAX_FILES + 1) x MAX_BYTES` for each
 stream. This is a bounded operational log, not a long-term historian; move to
-SQLite or a time-series store before a real pilot. The small runtime
+SQLite or a time-series store before a real pilot. The SQLite WAL evaluation,
+conditional decision, and adoption gates are recorded in
+[`docs/STORAGE-EVALUATION.md`](docs/STORAGE-EVALUATION.md). JSONL remains the
+default until those gates are met. The small runtime
 work-context state file is replaced atomically on every update and is safe to
 back up independently. The quality-idempotency ledger is also replaced
 atomically and should be backed up with the quality JSONL when duplicate
@@ -1043,6 +1046,16 @@ npm run check:docs
 `check:contracts` generates real process-context and NG events, then validates
 them with the JSON Schemas in `contracts/`. `check:docs` verifies that relative
 Markdown links resolve to files in the repository.
+
+Evaluate the current JSONL and SQLite WAL storage paths with synthetic records:
+
+```bash
+npm run storage:evaluate
+```
+
+Set `STORAGE_EVAL_RECORDS` to change the sample count. The comparison is a
+development-host benchmark; repeat it on the target Raspberry Pi before a storage
+backend decision.
 
 Run the repeatable soak harness with the built-in Mock PLC. It keeps the
 Gateway running while exercising HTTP reads, quality ingestion, work-context

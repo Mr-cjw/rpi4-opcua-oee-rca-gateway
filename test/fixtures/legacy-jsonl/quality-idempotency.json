@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0",
+  "savedAt": "2026-11-27T00:00:04.000Z",
+  "entries": [
+    {"schemaVersion":"1.0","qualityEventId":"qevt-legacy-0","sourceEventId":"QC-LEGACY-0","eventType":"NG_ORDER","result":"NG","occurredAt":"2026-11-27T00:00:00.000Z","lineId":"JX-LINE-01","stationId":"JX-LINQIN-STATION-01","workOrderId":"WO-LEGACY","serialNumber":"SN-LEGACY-0","productId":"SKU-LEGACY","quantity":1,"recordedAt":"2026-11-27T00:00:00.000Z","metadata":{}},
+    {"schemaVersion":"1.0","qualityEventId":"qevt-legacy-1","sourceEventId":"QC-LEGACY-1","eventType":"NG_ORDER","result":"NG","occurredAt":"2026-11-27T00:00:01.000Z","lineId":"JX-LINE-01","stationId":"JX-LINQIN-STATION-01","workOrderId":"WO-LEGACY","serialNumber":"SN-LEGACY-1","productId":"SKU-LEGACY","quantity":1,"recordedAt":"2026-11-27T00:00:01.000Z","metadata":{}},
+    {"schemaVersion":"1.0","qualityEventId":"qevt-legacy-2","sourceEventId":"QC-LEGACY-2","eventType":"NG_ORDER","result":"NG","occurredAt":"2026-11-27T00:00:02.000Z","lineId":"JX-LINE-01","stationId":"JX-LINQIN-STATION-01","workOrderId":"WO-LEGACY","serialNumber":"SN-LEGACY-2","productId":"SKU-LEGACY","quantity":2,"recordedAt":"2026-11-27T00:00:02.000Z","metadata":{}}
+  ]
+}

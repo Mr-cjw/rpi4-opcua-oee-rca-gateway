@@ -231,3 +231,4 @@ coverage/
 .pki/
 data/
 *.jsonl
+!test/fixtures/legacy-jsonl/*.jsonl
