@@ -1,0 +1,28 @@
+[Unit]
+Description=RPi4 OPC UA Process Context, OEE and RCA Gateway
+Documentation=file:/opt/rpi4-opcua-oee-rca-gateway/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rpi4-gateway
+Group=rpi4-gateway
+WorkingDirectory=/opt/rpi4-opcua-oee-rca-gateway
+EnvironmentFile=/etc/rpi4-gateway.env
+ExecStart=/usr/bin/node src/gateway/index.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGTERM
+StateDirectory=rpi4-gateway
+StateDirectoryMode=0750
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/rpi4-opcua-oee-rca-gateway/data
+
+[Install]
+WantedBy=multi-user.target

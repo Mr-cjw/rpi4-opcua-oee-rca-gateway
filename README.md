@@ -707,6 +707,18 @@ OPCUA_ENDPOINT=opc.tcp://192.168.1.50:4840/UA/MockPLC npm run smoke
 
 ## Raspberry Pi systemd Example
 
+For the Gateway runtime, use the hardened unit and environment template under
+[`deploy/`](deploy/README.md):
+
+```bash
+deploy/rpi4-gateway.service
+deploy/rpi4-gateway.env.example
+```
+
+That unit runs `src/gateway/index.js`, keeps state under
+`/var/lib/rpi4-gateway`, and binds the HTTP API to loopback by default. The
+example below is for the standalone Mock PLC service.
+
 Adjust paths and the advertised IP before installing:
 
 ```ini
