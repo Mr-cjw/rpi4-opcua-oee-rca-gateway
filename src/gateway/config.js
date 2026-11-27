@@ -54,6 +54,18 @@ function statePathFromEnv(env, name, defaultFile) {
   return path.resolve(raw || path.join(process.cwd(), "data", defaultFile));
 }
 
+function alarmCodesFromEnv(env, name) {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return Object.freeze([]);
+  }
+  const codes = raw
+    .split(",")
+    .map((code) => code.trim().toUpperCase())
+    .filter(Boolean);
+  return Object.freeze([...new Set(codes)]);
+}
+
 function nodeIdFromEnv(env, name, fallback, { optional = false } = {}) {
   const raw = env[name];
   if (raw === "off" || raw === "none" || raw === "disabled") {
@@ -87,6 +99,19 @@ function loadGatewayConfig(env = process.env) {
     shiftSchedule = parseShiftSchedule(shiftWindows);
   } catch (error) {
     throw new Error(`OEE_SHIFT_WINDOWS: ${error.message}`);
+  }
+  const plannedDowntimeAlarmCodes = alarmCodesFromEnv(
+    env,
+    "OEE_PLANNED_DOWNTIME_ALARM_CODES"
+  );
+  const changeoverAlarmCodes = alarmCodesFromEnv(env, "OEE_CHANGEOVER_ALARM_CODES");
+  const overlappingCode = plannedDowntimeAlarmCodes.find((code) =>
+    changeoverAlarmCodes.includes(code)
+  );
+  if (overlappingCode) {
+    throw new Error(
+      `OEE_PLANNED_DOWNTIME_ALARM_CODES and OEE_CHANGEOVER_ALARM_CODES overlap on "${overlappingCode}"`
+    );
   }
 
   const variables = [
@@ -230,6 +255,10 @@ function loadGatewayConfig(env = process.env) {
         timeZone,
         windows: shiftWindows,
         schedule: shiftSchedule
+      }),
+      downtimeClassification: Object.freeze({
+        plannedAlarmCodes: plannedDowntimeAlarmCodes,
+        changeoverAlarmCodes
       }),
       oeeWindowMs: integerFromEnv(env, "OEE_WINDOW_MS", 300000, {
         min: 1000,

@@ -24,6 +24,7 @@ It provides:
 - Durable quality-event idempotency independent of log rotation
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
 - Time-zone-aware shift windows for planned production time
+- Classified stoppage and OEE loss breakdown
 
 The phased plan from the current prototype to a field pilot is documented in
 [`docs/ROADMAP.md`](docs/ROADMAP.md). The immediate priority is OEE correctness:
@@ -261,7 +262,7 @@ the retention settings below.
 The API intentionally exposes every input instead of only showing a single
 headline number:
 
-- Availability = `RUNNING` planned intervals / planned intervals;
+- Availability = `RUNNING` intervals / available planned intervals after planned downtime and changeover;
 - Performance = production-count delta / theoretical units at nominal output;
 - Quality = good-count delta / production-count delta;
 - OEE = Availability x Performance x Quality.
@@ -283,6 +284,24 @@ continues into the next local day. OEE responses expose `plannedSeconds`,
 the non-running portion of planned time. Running outside plan is excluded from
 Availability and produces a warning, while counters still reflect the observed
 sample window.
+
+Stoppage classification uses the active alarm codes on each process-context
+sample:
+
+- outside the shift schedule: `plannedStopSeconds`;
+- inside planned time with a code from `OEE_PLANNED_DOWNTIME_ALARM_CODES`:
+  `plannedDowntimeSeconds`;
+- inside planned time with a code from `OEE_CHANGEOVER_ALARM_CODES`:
+  `changeoverSeconds`;
+- inside planned time with `DeviceStatus=DOWN` and no configured planned code:
+  `unplannedStopSeconds`;
+- inside planned time with any other non-running status: `unknownStopSeconds`.
+
+Changeover matching takes precedence over planned downtime, and both are
+excluded from the Availability denominator. `downtimeSources` states where each
+classification came from. `lossBreakdown` combines those time losses with
+`speedLossUnits` and `qualityLossUnits`; the latter uses counter scrap when the
+total counter is valid and `ngCount` in proxy mode.
 
 When every sample in the window has a valid `totalProducedCount`,
 `counterMode` is `total-produced`: Performance uses the
@@ -395,6 +414,8 @@ Gateway only reads points; it does not write PLC controls.
 | `OEE_NOMINAL_OUTPUT_PER_MIN` | `120` | Theoretical output for Performance |
 | `OEE_TIMEZONE` | system time zone | IANA time zone for shift and planned-time calculations |
 | `OEE_SHIFT_WINDOWS` | `00:00-24:00` | Daily shift windows; `[DAYS:]HH:MM-HH:MM` separated by semicolons |
+| `OEE_PLANNED_DOWNTIME_ALARM_CODES` | empty | Comma-separated active alarm codes classified as planned downtime |
+| `OEE_CHANGEOVER_ALARM_CODES` | empty | Comma-separated active alarm codes classified as changeover |
 | `OEE_WINDOW_MS` | `300000` | Default OEE query window |
 | `RCA_WINDOW_MS` | `300000` | Default RCA +/- window |
 | `RCA_TEMPERATURE_THRESHOLD_C` | `70` | Temperature anomaly threshold |

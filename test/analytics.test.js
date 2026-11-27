@@ -67,6 +67,9 @@ test("OEE uses total production counter deltas when available", () => {
   assert.equal(result.goodDelta, 18);
   assert.equal(result.totalDelta, 20);
   assert.equal(result.counterScrapDelta, 2);
+  assert.equal(result.lossBreakdown.speedLossUnits, 0);
+  assert.equal(result.lossBreakdown.qualityLossUnits, 2);
+  assert.equal(result.lossBreakdown.qualityLossSource, "total-counter-scrap");
   assert.deepEqual(result.warnings, []);
 });
 
@@ -190,7 +193,48 @@ test("OEE counts a simulated downtime against availability and freezes GoodCount
   assert.equal(result.oee, 0.32);
   assert.equal(result.runningSeconds, 8);
   assert.equal(result.downtimeSeconds, 2);
+  assert.equal(result.plannedProductionSeconds, 10);
+  assert.equal(result.unplannedStopSeconds, 2);
+  assert.equal(result.lossBreakdown.availabilityLossSeconds, 2);
   assert.equal(result.goodDelta, 8);
+});
+
+test("OEE classifies planned downtime, changeover, unplanned and unknown stops", () => {
+  const samples = [
+    sample(0, { deviceStatus: "RUNNING", goodCount: 0 }),
+    sample(2, { deviceStatus: "DOWN", goodCount: 2 }),
+    sample(4, { deviceStatus: "DOWN", goodCount: 2 }),
+    sample(6, { deviceStatus: "DOWN", goodCount: 2 }),
+    sample(8, { deviceStatus: "UNKNOWN", goodCount: 2 }),
+    sample(10, { deviceStatus: "RUNNING", goodCount: 2 })
+  ];
+  samples[1].alarms = [{ code: "planned_maint" }];
+  samples[2].alarms = [{ code: "CHANGEOVER" }];
+
+  const result = calculateOee(samples, {
+    nominalOutputPerMinute: 120,
+    ngCount: 0,
+    downtimeClassification: {
+      plannedAlarmCodes: ["PLANNED_MAINT"],
+      changeoverAlarmCodes: ["CHANGEOVER"]
+    }
+  });
+
+  assert.equal(result.availability, 0.333333);
+  assert.equal(result.performance, 0.5);
+  assert.equal(result.quality, 1);
+  assert.equal(result.plannedProductionSeconds, 6);
+  assert.equal(result.plannedDowntimeSeconds, 2);
+  assert.equal(result.changeoverSeconds, 2);
+  assert.equal(result.unplannedStopSeconds, 2);
+  assert.equal(result.unknownStopSeconds, 2);
+  assert.equal(result.downtimeSeconds, 8);
+  assert.equal(result.lossBreakdown.availabilityLossSeconds, 4);
+  assert.equal(result.lossBreakdown.speedLossUnits, 2);
+  assert.equal(result.lossBreakdown.qualityLossUnits, 0);
+  assert.equal(result.downtimeSources.plannedDowntime, "active-alarm-code");
+  assert.equal(result.downtimeSources.changeover, "active-alarm-code");
+  assert.ok(result.warnings.some((warning) => warning.includes("Unknown device status")));
 });
 
 test("OEE warns when NG count is omitted and does not invent quality data", () => {

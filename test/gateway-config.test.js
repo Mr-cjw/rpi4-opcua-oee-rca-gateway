@@ -78,6 +78,33 @@ test("gateway config validates planned-time shifts and time zone", () => {
   );
 });
 
+test("gateway config parses and validates downtime alarm classification", () => {
+  const defaults = loadGatewayConfig({});
+  assert.deepEqual(defaults.analytics.downtimeClassification.plannedAlarmCodes, []);
+  assert.deepEqual(defaults.analytics.downtimeClassification.changeoverAlarmCodes, []);
+
+  const configured = loadGatewayConfig({
+    OEE_PLANNED_DOWNTIME_ALARM_CODES: "planned_maint, maintenance",
+    OEE_CHANGEOVER_ALARM_CODES: "changeover"
+  });
+  assert.deepEqual(configured.analytics.downtimeClassification.plannedAlarmCodes, [
+    "PLANNED_MAINT",
+    "MAINTENANCE"
+  ]);
+  assert.deepEqual(configured.analytics.downtimeClassification.changeoverAlarmCodes, [
+    "CHANGEOVER"
+  ]);
+
+  assert.throws(
+    () =>
+      loadGatewayConfig({
+        OEE_PLANNED_DOWNTIME_ALARM_CODES: "CHANGEOVER",
+        OEE_CHANGEOVER_ALARM_CODES: "CHANGEOVER"
+      }),
+    /overlap/
+  );
+});
+
 test("gateway config refuses to disable a required PLC point", () => {
   assert.throws(
     () => loadGatewayConfig({ OPCUA_DEVICE_STATUS_NODE: "off" }),

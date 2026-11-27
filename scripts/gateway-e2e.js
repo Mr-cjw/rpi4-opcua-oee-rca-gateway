@@ -202,6 +202,8 @@ async function main() {
     assert.equal(oee.plannedSeconds, oee.observedSeconds);
     assert.equal(oee.plannedStopSeconds, 0);
     assert.equal(oee.plannedTime.windows, "00:00-24:00");
+    assert.ok(oee.lossBreakdown.unplannedStopSeconds > 0);
+    assert.ok(oee.lossBreakdown.speedLossUnits >= 0);
     assert.equal(oee.qualitySource, "quality-events");
     assert.equal(oee.qualityEventCount, 1);
     assert.deepEqual(oee.scope, {

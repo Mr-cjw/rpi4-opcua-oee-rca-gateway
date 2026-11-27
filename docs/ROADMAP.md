@@ -59,6 +59,9 @@ Progress:
   overnight windows, planned-time clipping, and `plannedSeconds` /
   `plannedStopSeconds` / `outsidePlanRunningSeconds` OEE outputs. The default
   remains 24-hour planned time for backward compatibility.
+- Completed 2026-11-27: active-alarm-code classification for planned downtime
+  and changeover, device-status classification for unplanned/unknown stops, and
+  availability, speed, and quality loss breakdowns.
 
 Deliverables:
 

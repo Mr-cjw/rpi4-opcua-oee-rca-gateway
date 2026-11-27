@@ -46,6 +46,8 @@ test("gateway environment template includes persistence and API safeguards", asy
     "OEE_NOMINAL_OUTPUT_PER_MIN",
     "OEE_TIMEZONE",
     "OEE_SHIFT_WINDOWS",
+    "OEE_PLANNED_DOWNTIME_ALARM_CODES",
+    "OEE_CHANGEOVER_ALARM_CODES",
     "RCA_TEMPERATURE_THRESHOLD_C"
   ]) {
     assert.match(env, new RegExp(`^${name}=`, "m"));

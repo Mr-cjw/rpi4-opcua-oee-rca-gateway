@@ -213,6 +213,8 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(oee.plannedStopSeconds, 0);
   assert.equal(oee.outsidePlanRunningSeconds, 0);
   assert.equal(oee.plannedTime.windows, "00:00-24:00");
+  assert.equal(oee.lossBreakdown.plannedStopSeconds, 0);
+  assert.equal(oee.lossBreakdown.unplannedStopSeconds, 0);
   assert.equal(oee.qualitySource, "quality-events");
   assert.equal(oee.qualityEventCount, 1);
   assert.equal(oee.qualityEventQuantity, 2);

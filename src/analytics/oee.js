@@ -40,6 +40,30 @@ function sampleTime(sample) {
   return toMillis(sample?.occurredAt ?? sample?.timestamp ?? sample?.at, "sample timestamp");
 }
 
+function normalizeAlarmCodes(sample) {
+  const alarms = Array.isArray(sample?.alarms) ? sample.alarms : [];
+  const codes = new Set();
+  for (const alarm of alarms) {
+    const code = alarm?.code ?? alarm?.alarmCode;
+    if (typeof code === "string" && code.trim() !== "") {
+      codes.add(code.trim().toUpperCase());
+    }
+  }
+  return codes;
+}
+
+function findMatchingAlarmCode(row, configuredCodes) {
+  if (configuredCodes.size === 0) {
+    return null;
+  }
+  for (const code of row.alarmCodes) {
+    if (configuredCodes.has(code)) {
+      return code;
+    }
+  }
+  return null;
+}
+
 function normalizeSamples(samples) {
   if (!Array.isArray(samples)) {
     throw new Error("samples must be an array");
@@ -73,6 +97,7 @@ function normalizeSamples(samples) {
         goodCount,
         totalProducedCount,
         invalidTotalProducedCount,
+        alarmCodes: normalizeAlarmCodes(sample),
         deviceStatus,
         sample
       };
@@ -148,6 +173,23 @@ function calculateOee(samples, options = {}) {
     timeZone: shiftCalendar.timeZone,
     windows: shiftCalendar.scheduleText
   };
+  const plannedAlarmCodes = new Set(
+    (options.downtimeClassification?.plannedAlarmCodes || []).map((code) =>
+      String(code).trim().toUpperCase()
+    )
+  );
+  const changeoverAlarmCodes = new Set(
+    (options.downtimeClassification?.changeoverAlarmCodes || []).map((code) =>
+      String(code).trim().toUpperCase()
+    )
+  );
+  const downtimeSources = {
+    plannedStop: "shift-schedule",
+    plannedDowntime: plannedAlarmCodes.size ? "active-alarm-code" : "disabled",
+    changeover: changeoverAlarmCodes.size ? "active-alarm-code" : "disabled",
+    unplannedStop: "device-status",
+    unknownStop: "device-status"
+  };
   const nominalOutputPerMinute = Number(
     options.nominalOutputPerMinute ?? DEFAULT_NOMINAL_OUTPUT_PER_MINUTE
   );
@@ -183,9 +225,14 @@ function calculateOee(samples, options = {}) {
       oee: 0,
       observedSeconds: 0,
       plannedSeconds: 0,
+      plannedProductionSeconds: 0,
       runningSeconds: 0,
       downtimeSeconds: 0,
       plannedStopSeconds: 0,
+      plannedDowntimeSeconds: 0,
+      changeoverSeconds: 0,
+      unplannedStopSeconds: 0,
+      unknownStopSeconds: 0,
       outsidePlanRunningSeconds: 0,
       goodDelta: 0,
       theoreticalGood: 0,
@@ -195,6 +242,20 @@ function calculateOee(samples, options = {}) {
       ngCount,
       nominalOutputPerMinute,
       plannedTime,
+      downtimeSources,
+      lossBreakdown: {
+        availabilityLossSeconds: 0,
+        plannedStopSeconds: 0,
+        plannedDowntimeSeconds: 0,
+        changeoverSeconds: 0,
+        unplannedStopSeconds: 0,
+        unknownStopSeconds: 0,
+        outsidePlanRunningSeconds: 0,
+        speedLossUnits: 0,
+        qualityLossUnits: 0,
+        speedLossSource: "unavailable",
+        qualityLossSource: "unavailable"
+      },
       inputs: {
         sampleCount: rows.length,
         firstSampleAt: rows[0]?.sample?.occurredAt ?? null,
@@ -202,12 +263,14 @@ function calculateOee(samples, options = {}) {
         counterMode,
         counterScope: "first-to-last sample in observed window",
         plannedTime,
+        downtimeSources,
         qualityBasis
       },
       warnings: ["At least two samples are required to calculate OEE."],
       basis: {
         plannedTime: "intersection of sampled window and configured shift windows",
-        availability: "RUNNING planned intervals / planned intervals",
+        availability:
+          "RUNNING planned intervals / available planned intervals after planned downtime and changeover",
         performance: performanceBasis,
         quality: qualityBasis
       }
@@ -220,7 +283,10 @@ function calculateOee(samples, options = {}) {
   let plannedMs = 0;
   let runningMs = 0;
   let outsidePlanRunningMs = 0;
-  let unknownStatusMs = 0;
+  let plannedDowntimeMs = 0;
+  let changeoverMs = 0;
+  let unplannedStopMs = 0;
+  let unknownStopMs = 0;
 
   for (let index = 1; index < rows.length; index += 1) {
     const previous = rows[index - 1];
@@ -234,8 +300,21 @@ function calculateOee(samples, options = {}) {
     if (previous.deviceStatus === "RUNNING") {
       runningMs += intervalPlannedMs;
       outsidePlanRunningMs += intervalMs - intervalPlannedMs;
-    } else if (previous.deviceStatus !== "DOWN") {
-      unknownStatusMs += intervalPlannedMs;
+    } else if (intervalPlannedMs > 0) {
+      const changeoverCode = findMatchingAlarmCode(previous, changeoverAlarmCodes);
+      const plannedDowntimeCode = findMatchingAlarmCode(
+        previous,
+        plannedAlarmCodes
+      );
+      if (changeoverCode) {
+        changeoverMs += intervalPlannedMs;
+      } else if (plannedDowntimeCode) {
+        plannedDowntimeMs += intervalPlannedMs;
+      } else if (previous.deviceStatus === "DOWN") {
+        unplannedStopMs += intervalPlannedMs;
+      } else {
+        unknownStopMs += intervalPlannedMs;
+      }
     }
   }
 
@@ -243,7 +322,7 @@ function calculateOee(samples, options = {}) {
   if (last.goodCount < first.goodCount) {
     warnings.push("goodCount moved backwards; the delta is treated as zero.");
   }
-  if (unknownStatusMs > 0) {
+  if (unknownStopMs > 0) {
     warnings.push("Unknown device statuses are treated as non-running time.");
   }
   if (outsidePlanRunningMs > 0) {
@@ -254,8 +333,14 @@ function calculateOee(samples, options = {}) {
 
   const observedSeconds = observedMs / 1000;
   const plannedSeconds = plannedMs / 1000;
+  const plannedProductionMs = Math.max(
+    0,
+    plannedMs - plannedDowntimeMs - changeoverMs
+  );
+  const plannedProductionSeconds = plannedProductionMs / 1000;
   const runningSeconds = runningMs / 1000;
-  const availability = plannedMs > 0 ? clamp(runningMs / plannedMs, 0, 1) : 0;
+  const availability =
+    plannedProductionMs > 0 ? clamp(runningMs / plannedProductionMs, 0, 1) : 0;
   const theoreticalGood = nominalOutputPerMinute * (runningSeconds / 60);
   const counter = resolveCounterMode(rows, goodDelta, ngCount, warnings);
   const performanceNumerator =
@@ -274,9 +359,39 @@ function calculateOee(samples, options = {}) {
     counter.counterMode === "total-produced"
       ? "totalProducedCount delta / theoretical produced units at nominal output"
       : "goodCount delta / theoretical good units at nominal output";
+  const availabilityLossMs = unplannedStopMs + unknownStopMs;
+  const speedLossUnits = Math.max(0, theoreticalGood - performanceNumerator);
+  const qualityLossUnits =
+    counter.counterMode === "total-produced" ? counter.counterScrapDelta : ngCount;
+  const lossBreakdown = {
+    availabilityLossSeconds: round(availabilityLossMs / 1000, 3),
+    plannedStopSeconds: round(Math.max(0, observedSeconds - plannedSeconds), 3),
+    plannedDowntimeSeconds: round(plannedDowntimeMs / 1000, 3),
+    changeoverSeconds: round(changeoverMs / 1000, 3),
+    unplannedStopSeconds: round(unplannedStopMs / 1000, 3),
+    unknownStopSeconds: round(unknownStopMs / 1000, 3),
+    outsidePlanRunningSeconds: round(outsidePlanRunningMs / 1000, 3),
+    speedLossUnits: round(speedLossUnits, 3),
+    qualityLossUnits: round(qualityLossUnits, 3),
+    speedLossSource:
+      counter.counterMode === "total-produced"
+        ? "total-counter-gap"
+        : "good-counter-gap",
+    qualityLossSource:
+      counter.counterMode === "total-produced"
+        ? "total-counter-scrap"
+        : options.ngCount === undefined
+          ? "ngCount-not-supplied"
+          : "ngCount"
+  };
 
   if (plannedMs === 0) {
     warnings.push("No planned production time overlaps the observed sample window.");
+  }
+  if (plannedMs > 0 && plannedProductionMs === 0) {
+    warnings.push(
+      "No available planned production time remains after planned downtime and changeover."
+    );
   }
   if (options.ngCount === undefined && counter.counterMode === "good-count-proxy") {
     warnings.push(
@@ -291,9 +406,17 @@ function calculateOee(samples, options = {}) {
     oee: round(oee),
     observedSeconds: round(observedSeconds, 3),
     plannedSeconds: round(plannedSeconds, 3),
+    plannedProductionSeconds: round(plannedProductionSeconds, 3),
     runningSeconds: round(runningSeconds, 3),
-    downtimeSeconds: round(Math.max(0, plannedSeconds - runningSeconds), 3),
+    downtimeSeconds: round(
+      (plannedDowntimeMs + changeoverMs + unplannedStopMs + unknownStopMs) / 1000,
+      3
+    ),
     plannedStopSeconds: round(Math.max(0, observedSeconds - plannedSeconds), 3),
+    plannedDowntimeSeconds: round(plannedDowntimeMs / 1000, 3),
+    changeoverSeconds: round(changeoverMs / 1000, 3),
+    unplannedStopSeconds: round(unplannedStopMs / 1000, 3),
+    unknownStopSeconds: round(unknownStopMs / 1000, 3),
     outsidePlanRunningSeconds: round(outsidePlanRunningMs / 1000, 3),
     goodDelta,
     theoreticalGood: round(theoreticalGood, 3),
@@ -303,6 +426,8 @@ function calculateOee(samples, options = {}) {
     ngCount,
     nominalOutputPerMinute,
     plannedTime,
+    downtimeSources,
+    lossBreakdown,
     inputs: {
       sampleCount: rows.length,
       firstSampleAt: new Date(first.at).toISOString(),
@@ -311,14 +436,18 @@ function calculateOee(samples, options = {}) {
       counterScope: "first-to-last sample in observed window",
       totalDelta: counter.totalDelta,
       plannedTime,
+      downtimeSources,
       qualityBasis
     },
     warnings,
     basis: {
       plannedTime: "intersection of sampled window and configured shift windows",
-      availability: "RUNNING planned intervals / planned intervals",
+      availability:
+        "RUNNING planned intervals / available planned intervals after planned downtime and changeover",
       performance: performanceBasis,
-      quality: qualityBasis
+      quality: qualityBasis,
+      lossBreakdown:
+        "planned stops, planned downtime, changeover, unplanned/unknown stops, speed loss, and quality loss"
     }
   };
 }
