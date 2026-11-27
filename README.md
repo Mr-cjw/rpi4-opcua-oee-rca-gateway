@@ -18,6 +18,7 @@ It provides:
 - Seed control for repeatable test runs
 - A Gateway runtime that records `PROCESS_CONTEXT` events to JSONL
 - Loopback HTTP endpoints for process context, OEE decomposition, and RCA candidates
+- Configurable read-only PLC NodeIds with optional native-event/alarm sources
 
 ## Requirements
 
@@ -244,6 +245,32 @@ Example response shape:
 }
 ```
 
+### Real PLC node mapping
+
+The Gateway does not require the Mock PLC address space. Map the four required
+read-only points with full OPC UA NodeIds:
+
+```bash
+OPCUA_ENDPOINT=opc.tcp://192.168.1.50:4840 \
+OPCUA_DEVICE_STATUS_NODE='ns=2;s=Line1.RunState' \
+OPCUA_CURRENT_OUTPUT_NODE='ns=2;s=Line1.Output' \
+OPCUA_GOOD_COUNT_NODE='ns=2;s=Line1.GoodCount' \
+OPCUA_TEMPERATURE_NODE='ns=2;s=Line1.Temperature' \
+OPCUA_ALARM_EVENTS_NODE=off \
+OPCUA_EVENT_NODE=off \
+npm run gateway
+```
+
+`OPCUA_ALARM_EVENTS_NODE` and `OPCUA_EVENT_NODE` are optional and can be set to
+`off` when a real PLC has no equivalent JSON alarm snapshot or MockPLC event
+type. If native event subscription fails, the client logs a warning and keeps
+the value subscription alive. In that mode RCA still uses sampled downtime and
+temperature thresholds, but it will not have native PLC alarm messages.
+
+The required values must be convertible to a status string and to numbers, and
+`DeviceStatus` should remain `RUNNING`/`DOWN` (or be mapped upstream). The
+Gateway only reads points; it does not write PLC controls.
+
 ### Gateway runtime configuration
 
 | Variable | Default | Description |
@@ -253,6 +280,12 @@ Example response shape:
 | `GATEWAY_WORK_ORDER_ID` | empty | Optional current work order |
 | `GATEWAY_SERIAL_NUMBER` | empty | Optional current serial number |
 | `GATEWAY_CORRELATION_ID` | empty | Optional correlation ID for the current work order |
+| `OPCUA_DEVICE_STATUS_NODE` | `ns=1;s=MockPLC.DeviceStatus` | Device status NodeId |
+| `OPCUA_CURRENT_OUTPUT_NODE` | `ns=1;s=MockPLC.CurrentOutput` | Current output NodeId |
+| `OPCUA_GOOD_COUNT_NODE` | `ns=1;s=MockPLC.GoodCount` | Good count NodeId |
+| `OPCUA_TEMPERATURE_NODE` | `ns=1;s=MockPLC.TemperatureSensor` | Temperature NodeId |
+| `OPCUA_ALARM_EVENTS_NODE` | `ns=1;s=MockPLC.AlarmEvents` | Optional alarm JSON NodeId; `off` disables |
+| `OPCUA_EVENT_NODE` | `ns=1;s=MockPLC` | Optional native event NodeId; `off` disables |
 | `PROCESS_CONTEXT_SAMPLE_INTERVAL_MS` | `1000` | Context sampling interval |
 | `PROCESS_CONTEXT_RETENTION_MS` | `3600000` | In-memory retention window |
 | `PROCESS_CONTEXT_MAX_EVENTS` | `10000` | Maximum retained events/alarms |

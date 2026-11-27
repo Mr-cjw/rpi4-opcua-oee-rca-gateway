@@ -39,11 +39,65 @@ function eventLogPathFromEnv(env) {
   return path.resolve(raw || path.join(process.cwd(), "data", "process-context.jsonl"));
 }
 
+function nodeIdFromEnv(env, name, fallback, { optional = false } = {}) {
+  const raw = env[name];
+  if (raw === "off" || raw === "none" || raw === "disabled") {
+    if (optional) {
+      return null;
+    }
+    throw new Error(`${name} cannot be disabled`);
+  }
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+  return raw.trim();
+}
+
 function loadGatewayConfig(env = process.env) {
   const username = env.OPCUA_USERNAME || "";
   const password = env.OPCUA_PASSWORD || "";
   if (Boolean(username) !== Boolean(password)) {
     throw new Error("OPCUA_USERNAME and OPCUA_PASSWORD must be configured together");
+  }
+
+  const variables = [
+    {
+      name: "deviceStatus",
+      nodeId: nodeIdFromEnv(
+        env,
+        "OPCUA_DEVICE_STATUS_NODE",
+        "ns=1;s=MockPLC.DeviceStatus"
+      )
+    },
+    {
+      name: "currentOutput",
+      nodeId: nodeIdFromEnv(
+        env,
+        "OPCUA_CURRENT_OUTPUT_NODE",
+        "ns=1;s=MockPLC.CurrentOutput"
+      )
+    },
+    {
+      name: "goodCount",
+      nodeId: nodeIdFromEnv(env, "OPCUA_GOOD_COUNT_NODE", "ns=1;s=MockPLC.GoodCount")
+    },
+    {
+      name: "temperatureSensor",
+      nodeId: nodeIdFromEnv(
+        env,
+        "OPCUA_TEMPERATURE_NODE",
+        "ns=1;s=MockPLC.TemperatureSensor"
+      )
+    }
+  ];
+  const alarmEventsNodeId = nodeIdFromEnv(
+    env,
+    "OPCUA_ALARM_EVENTS_NODE",
+    "ns=1;s=MockPLC.AlarmEvents",
+    { optional: true }
+  );
+  if (alarmEventsNodeId) {
+    variables.push({ name: "alarmEvents", nodeId: alarmEventsNodeId });
   }
 
   return Object.freeze({
@@ -85,6 +139,10 @@ function loadGatewayConfig(env = process.env) {
         min: 1,
         max: 100000
       })
+    }),
+    variables: Object.freeze(variables),
+    eventNodeId: nodeIdFromEnv(env, "OPCUA_EVENT_NODE", "ns=1;s=MockPLC", {
+      optional: true
     }),
     identity: Object.freeze({
       lineId: env.GATEWAY_LINE_ID || "LINE-01",

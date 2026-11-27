@@ -90,6 +90,17 @@ test("process context rejects incomplete snapshots", () => {
   assert.equal(collector.eventCount, 0);
 });
 
+test("process context works when the PLC has no AlarmEvents node", () => {
+  const collector = makeCollector();
+  const event = collector.capture(snapshot({ alarmEvents: undefined }), {
+    occurredAt: "2026-11-27T00:00:10.000Z"
+  });
+
+  assert.ok(event);
+  assert.deepEqual(event.alarms, []);
+  assert.equal(event.metrics.alarmSequence, null);
+});
+
 test("process context filters and limits retained events", () => {
   const collector = makeCollector();
   for (let second = 0; second < 5; second += 1) {

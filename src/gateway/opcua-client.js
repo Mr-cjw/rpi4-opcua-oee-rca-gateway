@@ -373,21 +373,30 @@ class OpcUaGatewayClient extends EventEmitter {
       });
     }
 
-    const eventFilter = constructEventFilter(EVENT_FIELDS, ofType("BaseEventType"));
-    const eventItem = await monitorItem(
-      subscription,
-      { nodeId: this.options.eventNodeId, attributeId: AttributeIds.EventNotifier },
-      {
-        samplingInterval: 0,
-        queueSize: this.options.subscription.eventQueueSize,
-        discardOldest: false,
-        filter: eventFilter
+    if (this.options.eventNodeId) {
+      try {
+        const eventFilter = constructEventFilter(EVENT_FIELDS, ofType("BaseEventType"));
+        const eventItem = await monitorItem(
+          subscription,
+          { nodeId: this.options.eventNodeId, attributeId: AttributeIds.EventNotifier },
+          {
+            samplingInterval: 0,
+            queueSize: this.options.subscription.eventQueueSize,
+            discardOldest: false,
+            filter: eventFilter
+          }
+        );
+        this._monitoredItems.push(eventItem);
+        eventItem.on("changed", (eventFields) => {
+          this._handleOpcUaEvent(eventFields);
+        });
+      } catch (error) {
+        this._log("warn", "Unable to subscribe to OPC UA events; continuing with values", {
+          eventNodeId: this.options.eventNodeId,
+          error: error.message
+        });
       }
-    );
-    this._monitoredItems.push(eventItem);
-    eventItem.on("changed", (eventFields) => {
-      this._handleOpcUaEvent(eventFields);
-    });
+    }
 
     await this._readInitialValues(session);
 
