@@ -1,6 +1,9 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
 const {
   QualityEventStore,
@@ -133,4 +136,36 @@ test("quality event store prunes old events and their idempotency keys", () => {
   assert.equal(store.count, 1);
   const replayed = store.record({ sourceEventId: "QC-OLD", occurredAt: iso(120) });
   assert.equal(replayed.duplicate, false);
+});
+
+test("quality event store replays JSONL and keeps idempotency across restarts", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "quality-events-replay-"));
+  const logPath = path.join(directory, "quality-events.jsonl");
+  const first = makeStore({ eventLogPath: logPath });
+  t.after(async () => {
+    await first.store.flush();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  first.store.record({ sourceEventId: "QC-1", occurredAt: iso(1), quantity: 2 });
+  first.store.record({ sourceEventId: "QC-2", occurredAt: iso(2), quantity: 3 });
+  await first.store.flush();
+
+  const lines = (await fs.readFile(logPath, "utf8")).trim().split("\n");
+  await fs.appendFile(logPath, `${lines[0]}\nnot-json\n`, "utf8");
+
+  const second = makeStore({ eventLogPath: logPath });
+  const result = await second.store.load();
+  assert.equal(result.loaded, 2);
+  assert.equal(result.skipped, 2);
+  assert.equal(result.retained, 2);
+  assert.equal(second.store.count, 2);
+  assert.equal(second.store.quantity(), 5);
+
+  const duplicate = second.store.record({ sourceEventId: "QC-1", occurredAt: iso(3) });
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.event.sourceEventId, "QC-1");
+
+  const again = await second.store.load();
+  assert.equal(again.alreadyLoaded, true);
 });

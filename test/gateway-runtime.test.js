@@ -2,6 +2,9 @@
 
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
 const { loadGatewayConfig } = require("../src/gateway/config");
 const { ProcessContextCollector } = require("../src/gateway/process-context");
@@ -52,6 +55,7 @@ function makeRuntime(extraEnv = {}) {
   const config = loadGatewayConfig({
     OPCUA_ENDPOINT: "opc.tcp://127.0.0.1:1/UA/MockPLC",
     PROCESS_CONTEXT_LOG: "off",
+    QUALITY_EVENT_LOG: "off",
     GATEWAY_HTTP_PORT: "0",
     GATEWAY_LINE_ID: "JX-LINE-01",
     GATEWAY_STATION_ID: "JX-LINQIN-STATION-01",
@@ -233,4 +237,48 @@ test("gateway runtime stops the OPC UA client and HTTP API", async () => {
   await runtime.stop();
   assert.equal(client.stopped, true);
   assert.equal(runtime.getStatus().opcuaConnected, false);
+});
+
+test("gateway runtime replays context and quality events after restart", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "gateway-replay-"));
+  const env = {
+    PROCESS_CONTEXT_LOG: path.join(directory, "process-context.jsonl"),
+    QUALITY_EVENT_LOG: path.join(directory, "quality-events.jsonl")
+  };
+  t.after(async () => {
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  const first = makeRuntime(env);
+  await first.runtime.start();
+  captureWindow(first.runtime.collector);
+  const quality = first.runtime.recordQualityEvent({
+    sourceEventId: "QC-REPLAY-001",
+    occurredAt: iso(10),
+    quantity: 2,
+    correlationId: "corr-replay-001"
+  });
+  assert.equal(quality.duplicate, false);
+  await first.runtime.stop();
+
+  const second = makeRuntime(env);
+  try {
+    await second.runtime.start();
+    assert.equal(second.runtime.getStatus().quality.eventCount, 1);
+
+    const oee = second.runtime.calculateOee({ from: iso(0), to: iso(10) });
+    assert.equal(oee.eventCount, 11);
+    assert.equal(oee.qualitySource, "quality-events");
+    assert.equal(oee.qualityEventCount, 1);
+    assert.equal(oee.quality, 0.9);
+
+    const rca = second.runtime.analyzeRca({
+      qualityEventId: quality.event.qualityEventId,
+      windowMs: 10_000
+    });
+    assert.equal(rca.conclusion, "TEMPERATURE_SPIKE");
+    assert.equal(rca.correlationId, "corr-replay-001");
+  } finally {
+    await second.runtime.stop();
+  }
 });

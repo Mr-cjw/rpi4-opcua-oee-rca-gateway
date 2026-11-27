@@ -3,6 +3,7 @@
 const { EventEmitter } = require("node:events");
 const { randomUUID } = require("node:crypto");
 const { toMillis } = require("../analytics/oee");
+const { JsonlLog } = require("./jsonl");
 
 const DEFAULT_RETENTION_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_EVENTS = 10000;
@@ -79,8 +80,10 @@ class QualityEventStore extends EventEmitter {
       serialNumber: options.serialNumber || "",
       retentionMs: options.retentionMs ?? DEFAULT_RETENTION_MS,
       maxEvents: options.maxEvents ?? DEFAULT_MAX_EVENTS,
+      eventLogPath: options.eventLogPath || options.logPath || null,
       clock: options.clock || (() => Date.now()),
-      createId: options.createId || (() => `qevt-${randomUUID()}`)
+      createId: options.createId || (() => `qevt-${randomUUID()}`),
+      logger: options.logger || null
     };
     if (!Number.isInteger(this.options.retentionMs) || this.options.retentionMs <= 0) {
       throw new Error("quality event retentionMs must be a positive integer");
@@ -91,6 +94,10 @@ class QualityEventStore extends EventEmitter {
 
     this._events = [];
     this._bySourceEventId = new Map();
+    this._logStore = new JsonlLog(this.options.eventLogPath, {
+      logger: this.options.logger
+    });
+    this._loaded = false;
   }
 
   get count() {
@@ -183,6 +190,7 @@ class QualityEventStore extends EventEmitter {
     this._events.push(event);
     this._bySourceEventId.set(sourceEventId, event);
     this._prune();
+    this._logStore.append(event);
     this.emit("event", event);
     return { event, duplicate: false };
   }
@@ -206,6 +214,76 @@ class QualityEventStore extends EventEmitter {
 
   quantity(options = {}) {
     return this.list(options).reduce((total, event) => total + event.quantity, 0);
+  }
+
+  async load() {
+    if (this._loaded) {
+      return { loaded: 0, skipped: 0, retained: this._events.length, alreadyLoaded: true };
+    }
+    this._loaded = true;
+    let loaded = 0;
+    let skipped = 0;
+    const seen = new Set();
+    const readResult = await this._logStore.read((event) => {
+      if (!this._isValidStoredEvent(event) || seen.has(event.sourceEventId)) {
+        skipped += 1;
+        return;
+      }
+      seen.add(event.sourceEventId);
+      this._events.push(event);
+      loaded += 1;
+    });
+    this._events.sort(
+      (left, right) =>
+        toMillis(left.recordedAt, "recordedAt") -
+        toMillis(right.recordedAt, "recordedAt")
+    );
+    this._prune();
+    this._bySourceEventId = new Map(
+      this._events.map((event) => [event.sourceEventId, event])
+    );
+    return {
+      loaded,
+      skipped: skipped + readResult.corrupt,
+      retained: this._events.length,
+      alreadyLoaded: false
+    };
+  }
+
+  async flush() {
+    await this._logStore.flush();
+  }
+
+  _isValidStoredEvent(event) {
+    if (!event || typeof event !== "object" || Array.isArray(event)) {
+      return false;
+    }
+    if (
+      event.schemaVersion !== "1.0" ||
+      event.result !== "NG" ||
+      typeof event.qualityEventId !== "string" ||
+      event.qualityEventId === "" ||
+      typeof event.sourceEventId !== "string" ||
+      event.sourceEventId === "" ||
+      typeof event.eventType !== "string" ||
+      event.eventType === "" ||
+      event.lineId !== this.options.lineId ||
+      event.stationId !== this.options.stationId ||
+      !Number.isInteger(event.quantity) ||
+      event.quantity <= 0 ||
+      !event.metadata ||
+      typeof event.metadata !== "object" ||
+      Array.isArray(event.metadata)
+    ) {
+      return false;
+    }
+    try {
+      toMillis(event.occurredAt, "occurredAt");
+      toMillis(event.recordedAt, "recordedAt");
+    } catch {
+      return false;
+    }
+    return true;
   }
 
   _prune() {

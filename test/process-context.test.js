@@ -154,3 +154,52 @@ test("process context records alarms once and persists JSONL", async (t) => {
   assert.equal(JSON.parse(lines[0]).eventType, "PROCESS_CONTEXT");
   assert.equal(collector.alarmCount, 1);
 });
+
+test("process context replays retained JSONL and skips corrupt or foreign lines", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "process-context-replay-"));
+  const logPath = path.join(directory, "events.jsonl");
+  const first = makeCollector({ eventLogPath: logPath });
+  t.after(async () => {
+    await first.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  first.capture(snapshot({ goodCount: { value: 1 } }), {
+    occurredAt: "2026-11-27T00:00:01.000Z"
+  });
+  first.capture(snapshot({ goodCount: { value: 2 } }), {
+    occurredAt: "2026-11-27T00:00:02.000Z"
+  });
+  await first.flush();
+
+  const foreign = {
+    schemaVersion: "1.0",
+    eventId: "foreign-1",
+    source: "rpi4-gateway",
+    eventType: "PROCESS_CONTEXT",
+    occurredAt: "2026-11-27T00:00:03.000Z",
+    lineId: "OTHER-LINE",
+    stationId: "JX-LINQIN-STATION-01",
+    metrics: {
+      deviceStatus: "RUNNING",
+      currentOutput: 120,
+      goodCount: 3,
+      temperatureC: 24,
+      alarmSequence: null
+    },
+    alarms: []
+  };
+  await fs.appendFile(logPath, `${JSON.stringify(foreign)}\nnot-json\n`, "utf8");
+
+  const replayed = makeCollector({ eventLogPath: logPath });
+  const result = await replayed.load();
+  assert.equal(result.loaded, 2);
+  assert.equal(result.skipped, 2);
+  assert.equal(result.retained, 2);
+  assert.equal(replayed.getEvents().length, 2);
+  assert.equal(replayed.getLatest().occurredAt, "2026-11-27T00:00:02.000Z");
+
+  const again = await replayed.load();
+  assert.equal(again.alreadyLoaded, true);
+  assert.equal(again.loaded, 0);
+});

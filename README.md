@@ -196,8 +196,9 @@ quantity recorded in the same time window. `/v1/rca` accepts
 
 The event contract is
 [`contracts/quality-event.schema.json`](contracts/quality-event.schema.json).
-Quality events are currently retained in memory; durable quality-event history
-is a follow-up item.
+Quality events are appended to JSONL and replayed on startup, so OEE/RCA keep
+their recent NG feed across a Gateway restart. The replay window is bounded by
+the retention settings below.
 
 ### OEE inputs and limits
 
@@ -296,13 +297,15 @@ Gateway only reads points; it does not write PLC controls.
 | `RCA_TEMPERATURE_THRESHOLD_C` | `70` | Temperature anomaly threshold |
 | `QUALITY_EVENT_RETENTION_MS` | `3600000` | In-memory NG event retention |
 | `QUALITY_EVENT_MAX_EVENTS` | `10000` | Maximum retained NG events |
+| `QUALITY_EVENT_LOG` | `data/quality-events.jsonl` | NG JSONL path; use `off` to disable or `stdout` to stream |
 | `GATEWAY_HTTP_HOST` | `127.0.0.1` | HTTP bind address |
 | `GATEWAY_HTTP_PORT` | `8080` | HTTP port; `0` selects a free port |
 | `GATEWAY_API_TOKEN` | empty | Optional bearer token |
 
-The JSONL output is append-only and is not rotated automatically yet. The
-in-memory event window is bounded; long-term retention should move to SQLite or
-a time-series store before a real pilot.
+Both process-context and quality-event JSONL logs are replayed at startup. They
+are append-only and not rotated automatically yet; the in-memory replay window
+is bounded. Long-term retention should move to SQLite or a time-series store
+before a real pilot.
 
 ### Gateway client configuration
 
@@ -653,10 +656,10 @@ npm test
 The suite covers deterministic simulation, OEE input decomposition, downtime
 impact, RCA candidate/evidence behavior, the versioned process-context event,
 JSONL persistence, NG quality-event ingestion and idempotency, bearer-token
-enforcement, and an end-to-end runtime API. The OPC UA integration test starts
-an isolated mock server, connects through `OpcUaGatewayClient`, verifies variable
-data, injects a downtime, verifies the normalized native alarm event, and then
-cleans up the session and subscription.
+enforcement, restart replay, and an end-to-end runtime API. The OPC UA
+integration test starts an isolated mock server, connects through
+`OpcUaGatewayClient`, verifies variable data, injects a downtime, verifies the
+normalized native alarm event, and then cleans up the session and subscription.
 
 Run a complete server + client smoke test. This command starts its own server on
 port `48401`, verifies reads, variable subscriptions, native OPC UA events,

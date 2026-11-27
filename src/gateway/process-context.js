@@ -2,9 +2,8 @@
 
 const { randomUUID } = require("node:crypto");
 const { EventEmitter } = require("node:events");
-const fs = require("node:fs/promises");
-const path = require("node:path");
 const { toMillis } = require("../analytics/oee");
+const { JsonlLog } = require("./jsonl");
 
 const DEFAULT_SAMPLE_INTERVAL_MS = 1000;
 const DEFAULT_RETENTION_MS = 60 * 60 * 1000;
@@ -100,7 +99,7 @@ class ProcessContextCollector extends EventEmitter {
       sampleIntervalMs: options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS,
       retentionMs: options.retentionMs ?? DEFAULT_RETENTION_MS,
       maxEvents: options.maxEvents ?? DEFAULT_MAX_EVENTS,
-      eventLogPath: options.eventLogPath || null,
+      eventLogPath: options.eventLogPath || options.logPath || null,
       correlationId: options.correlationId || null,
       clock: options.clock || (() => Date.now()),
       createId: options.createId || randomUUID,
@@ -125,7 +124,10 @@ class ProcessContextCollector extends EventEmitter {
     this._client = null;
     this._timer = null;
     this._onAlarm = null;
-    this._writeQueue = Promise.resolve();
+    this._logStore = new JsonlLog(this.options.eventLogPath, {
+      logger: this.options.logger
+    });
+    this._loaded = false;
   }
 
   get eventCount() {
@@ -297,11 +299,43 @@ class ProcessContextCollector extends EventEmitter {
     }
     this._client = null;
     this._onAlarm = null;
-    await this._writeQueue;
+    await this.flush();
   }
 
   async flush() {
-    await this._writeQueue;
+    await this._logStore.flush();
+  }
+
+  async load() {
+    if (this._loaded) {
+      return { loaded: 0, skipped: 0, retained: this._events.length, alreadyLoaded: true };
+    }
+    this._loaded = true;
+    let loaded = 0;
+    let skipped = 0;
+    const seen = new Set(this._events.map((event) => event.eventId));
+    const readResult = await this._logStore.read((event) => {
+      if (!this._isValidStoredEvent(event) || seen.has(event.eventId)) {
+        skipped += 1;
+        return;
+      }
+      this._events.push(event);
+      seen.add(event.eventId);
+      loaded += 1;
+    });
+    this._events.sort(
+      (left, right) =>
+        toMillis(left.occurredAt, "event timestamp") -
+        toMillis(right.occurredAt, "event timestamp")
+    );
+    this._prune();
+    this._latest = this._events[this._events.length - 1] || null;
+    return {
+      loaded,
+      skipped: skipped + readResult.corrupt,
+      retained: this._events.length,
+      alreadyLoaded: false
+    };
   }
 
   _prune() {
@@ -322,27 +356,37 @@ class ProcessContextCollector extends EventEmitter {
   }
 
   _appendEvent(event) {
-    if (!this.options.eventLogPath) {
-      return;
-    }
-    const line = `${JSON.stringify(event)}\n`;
-    if (this.options.eventLogPath === "stdout") {
-      process.stdout.write(line);
-      return;
-    }
+    this._logStore.append(event);
+  }
 
-    const logPath = this.options.eventLogPath;
-    this._writeQueue = this._writeQueue
-      .then(async () => {
-        await fs.mkdir(path.dirname(logPath), { recursive: true });
-        await fs.appendFile(logPath, line, "utf8");
-      })
-      .catch((error) => {
-        this._log("error", "Unable to append process context event", {
-          path: logPath,
-          error: error.message
-        });
-      });
+  _isValidStoredEvent(event) {
+    if (!event || typeof event !== "object" || Array.isArray(event)) {
+      return false;
+    }
+    if (
+      event.schemaVersion !== "1.0" ||
+      event.eventType !== "PROCESS_CONTEXT" ||
+      typeof event.eventId !== "string" ||
+      event.eventId === "" ||
+      event.lineId !== this.options.lineId ||
+      event.stationId !== this.options.stationId ||
+      !Array.isArray(event.alarms) ||
+      !event.metrics ||
+      typeof event.metrics !== "object"
+    ) {
+      return false;
+    }
+    try {
+      toMillis(event.occurredAt, "event timestamp");
+    } catch {
+      return false;
+    }
+    return (
+      event.metrics.deviceStatus !== undefined &&
+      Number.isFinite(Number(event.metrics.currentOutput)) &&
+      Number.isFinite(Number(event.metrics.goodCount)) &&
+      Number.isFinite(Number(event.metrics.temperatureC))
+    );
   }
 
   _log(level, message, data = {}) {

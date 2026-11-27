@@ -39,13 +39,16 @@ class GatewayRuntime extends EventEmitter {
       new ProcessContextCollector({
         ...config.identity,
         ...config.context,
+        eventLogPath: config.context.logPath,
         logger: this.logger
       });
     this.qualityEvents =
       dependencies.qualityEvents ||
       new QualityEventStore({
         ...config.identity,
-        ...config.quality
+        ...config.quality,
+        eventLogPath: config.quality.logPath,
+        logger: this.logger
       });
     this.api = dependencies.api || null;
     this.startedAt = null;
@@ -62,6 +65,7 @@ class GatewayRuntime extends EventEmitter {
     }
 
     this.startedAt = new Date().toISOString();
+    await this._loadPersistedState();
     if (!this.api) {
       this.api = createGatewayApi(this, {
         ...this.config.api,
@@ -94,6 +98,7 @@ class GatewayRuntime extends EventEmitter {
         await this.api.close();
       }
       await this.collector.stop();
+      await this.qualityEvents.flush();
       await this.client.stop();
       this._started = false;
     } finally {
@@ -142,6 +147,32 @@ class GatewayRuntime extends EventEmitter {
   setCorrelationId(correlationId) {
     this.collector.setCorrelationId(correlationId);
     return this.collector.options.correlationId;
+  }
+
+  async _loadPersistedState() {
+    const results = {};
+    for (const [name, store] of [
+      ["context", this.collector],
+      ["quality", this.qualityEvents]
+    ]) {
+      try {
+        results[name] = await store.load();
+      } catch (error) {
+        results[name] = { error: error.message };
+        this._log("warn", `Unable to load persisted ${name} events`, {
+          error: error.message
+        });
+      }
+    }
+    if (results.context?.loaded || results.quality?.loaded) {
+      this._log("info", "Replayed persisted gateway state", {
+        contextLoaded: results.context?.loaded || 0,
+        contextSkipped: results.context?.skipped || 0,
+        qualityLoaded: results.quality?.loaded || 0,
+        qualitySkipped: results.quality?.skipped || 0
+      });
+    }
+    return results;
   }
 
   recordQualityEvent(input) {
@@ -240,6 +271,19 @@ class GatewayRuntime extends EventEmitter {
       result.correlationId = qualityEvent.correlationId || null;
     }
     return result;
+  }
+
+  _log(level, message, data = {}) {
+    const method = this.logger?.[level] || this.logger?.info;
+    if (typeof method === "function") {
+      method.call(this.logger, {
+        timestamp: new Date().toISOString(),
+        level,
+        module: "gateway-runtime",
+        message,
+        ...data
+      });
+    }
   }
 }
 

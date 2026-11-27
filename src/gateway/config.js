@@ -28,15 +28,15 @@ function numberFromEnv(env, name, fallback, { min = -Infinity, max = Infinity } 
   return value;
 }
 
-function eventLogPathFromEnv(env) {
-  const raw = env.PROCESS_CONTEXT_LOG;
+function jsonlPathFromEnv(env, name, defaultFile) {
+  const raw = env[name];
   if (raw === "off" || raw === "none") {
     return null;
   }
   if (raw === "stdout") {
     return "stdout";
   }
-  return path.resolve(raw || path.join(process.cwd(), "data", "process-context.jsonl"));
+  return path.resolve(raw || path.join(process.cwd(), "data", defaultFile));
 }
 
 function nodeIdFromEnv(env, name, fallback, { optional = false } = {}) {
@@ -164,7 +164,7 @@ function loadGatewayConfig(env = process.env) {
         min: 2,
         max: 1000000
       }),
-      logPath: eventLogPathFromEnv(env)
+      logPath: jsonlPathFromEnv(env, "PROCESS_CONTEXT_LOG", "process-context.jsonl")
     }),
     analytics: Object.freeze({
       nominalOutputPerMinute: numberFromEnv(env, "OEE_NOMINAL_OUTPUT_PER_MIN", 120, {
@@ -192,7 +192,8 @@ function loadGatewayConfig(env = process.env) {
       maxEvents: integerFromEnv(env, "QUALITY_EVENT_MAX_EVENTS", 10000, {
         min: 2,
         max: 1000000
-      })
+      }),
+      logPath: jsonlPathFromEnv(env, "QUALITY_EVENT_LOG", "quality-events.jsonl")
     }),
     api: Object.freeze({
       host: env.GATEWAY_HTTP_HOST || "127.0.0.1",
