@@ -144,6 +144,30 @@ test("gateway config parses per-product cycle times", () => {
   );
 });
 
+test("gateway config validates doctor sampling and timeout settings", () => {
+  const config = loadGatewayConfig({
+    GATEWAY_DOCTOR_SAMPLE_MS: "5000",
+    GATEWAY_DOCTOR_TIMEOUT_MS: "20000",
+    GATEWAY_DOCTOR_CLOCK_SKEW_WARNING_MS: "45000",
+    GATEWAY_DOCTOR_STALE_WARNING_MS: "600000"
+  });
+
+  assert.deepEqual(config.doctor, {
+    sampleMs: 5000,
+    connectTimeoutMs: 20000,
+    clockSkewWarningMs: 45000,
+    staleValueWarningMs: 600000
+  });
+  assert.throws(
+    () => loadGatewayConfig({ GATEWAY_DOCTOR_SAMPLE_MS: "-1" }),
+    /GATEWAY_DOCTOR_SAMPLE_MS/
+  );
+  assert.throws(
+    () => loadGatewayConfig({ GATEWAY_DOCTOR_TIMEOUT_MS: "0" }),
+    /GATEWAY_DOCTOR_TIMEOUT_MS/
+  );
+});
+
 test("gateway config refuses to disable a required PLC point", () => {
   assert.throws(
     () => loadGatewayConfig({ OPCUA_DEVICE_STATUS_NODE: "off" }),

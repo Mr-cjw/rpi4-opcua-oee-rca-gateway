@@ -41,6 +41,7 @@ correctness gap in an earlier phase.
 - OEE with availability, performance, quality, total-counter mode, proxy fallback, and per-SKU cycle times.
 - Time-window RCA for downtime and temperature anomalies, scoped by work context.
 - Local HTTP API, bearer token option, Prometheus metrics, systemd deployment, and E2E tests.
+- A read-only OPC UA commissioning doctor for NodeIds, types, status, timestamps, counters, and events.
 
 ## Milestones
 
@@ -131,8 +132,9 @@ preflight validation, stale-value handling, secured OPC UA, and clock diagnostic
 Deliverables:
 
 - Add named station profiles/environment templates for real PLC mappings.
-- Add a commissioning/doctor command that validates endpoint reachability,
-  NodeIds, data types, status codes, timestamps, and expected counter invariants.
+- Completed 2026-11-27: commissioning/doctor command validates endpoint
+  reachability, NodeIds, data types, status codes, timestamps, event notifier,
+  and expected counter invariants with pass/warn/fail and JSON output.
 - Detect stale values, Bad status, clock skew, reconnect gaps, and subscription
   recovery events; expose them in health and metrics.
 - Support OPC UA Sign and Sign&Encrypt with client certificates, certificate
@@ -209,11 +211,13 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Add a real-PLC `doctor`/commissioning validation path.
-2. Add CI and a repeatable soak-test harness.
-3. Begin the M2 storage boundary and disk-pressure behavior.
+1. Add CI and a repeatable soak-test harness.
+2. Begin the M2 storage boundary and disk-pressure behavior.
+3. Add live health/metrics detection for stale values, Bad status, clock skew,
+   reconnect gaps, and subscription recovery.
 
-The remaining M1 units should be completed before adding new outward integrations.
+M1 is complete. Prioritize M2 durability and M3 live PLC diagnostics before
+adding new outward integrations.
 
 ## Release Gates
 

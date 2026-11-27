@@ -35,6 +35,8 @@ test("gateway environment template includes persistence and API safeguards", asy
     "GATEWAY_WORK_CONTEXT_FILE",
     "GATEWAY_HTTP_HOST",
     "GATEWAY_API_TOKEN",
+    "GATEWAY_DOCTOR_SAMPLE_MS",
+    "GATEWAY_DOCTOR_TIMEOUT_MS",
     "PROCESS_CONTEXT_LOG",
     "PROCESS_CONTEXT_LOG_MAX_BYTES",
     "PROCESS_CONTEXT_LOG_MAX_FILES",

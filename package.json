@@ -12,6 +12,7 @@
     "start": "node src/index.js",
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke-test.js",
+    "doctor": "node scripts/gateway-doctor.js",
     "e2e": "node scripts/run-e2e.js",
     "e2e:gateway": "node scripts/gateway-e2e.js",
     "gateway": "node src/gateway/index.js"

@@ -449,6 +449,37 @@ The required values must be convertible to a status string and to numbers, and
 `DeviceStatus` should remain `RUNNING`/`DOWN` (or be mapped upstream). The
 Gateway only reads points; it does not write PLC controls.
 
+### Real PLC commissioning doctor
+
+Run the read-only doctor before starting the Gateway against a new PLC mapping:
+
+```bash
+npm run doctor
+npm run doctor -- --json
+npm run doctor -- --strict
+```
+
+The doctor uses the same endpoint, security, certificate, and authentication
+settings as the Gateway. It verifies that every configured value NodeId is
+readable with a Good status, checks the expected data type and non-empty value,
+reads the optional `EventNotifier` attribute, and samples the tags twice to
+validate counter invariants. A failing counter check includes a decrease
+(`COUNTER_DECREASED`), non-numeric or negative values, or
+`goodCount > totalProducedCount`.
+
+Timestamp checks warn when source or server timestamps are missing or in the
+future, when source/server timestamps disagree beyond the configured skew
+threshold, and when a changing tag's source timestamp is stale. A disabled
+`EventNotifier` and an omitted total counter are warnings: native events are
+unavailable in the first case, and OEE falls back to the good-count proxy in the
+second. These checks do not replace validation of the PLC's own counter reset
+and unit semantics.
+
+The command exits `0` for pass or warn, `1` for any failed check, and `2` for a
+configuration or command-line error. `--strict` also returns `1` for warnings.
+`--json` emits the full report for ticketing or commissioning records. The
+report never includes the OPC UA password or private-key material.
+
 ### Gateway runtime configuration
 
 | Variable | Default | Description |
@@ -494,6 +525,10 @@ Gateway only reads points; it does not write PLC controls.
 | `GATEWAY_HTTP_HOST` | `127.0.0.1` | HTTP bind address |
 | `GATEWAY_HTTP_PORT` | `8080` | HTTP port; `0` selects a free port |
 | `GATEWAY_API_TOKEN` | empty | Optional bearer token |
+| `GATEWAY_DOCTOR_SAMPLE_MS` | `3000` | Delay between the two doctor counter samples; `0` skips the second sample |
+| `GATEWAY_DOCTOR_TIMEOUT_MS` | `15000` | Doctor connect/session timeout |
+| `GATEWAY_DOCTOR_CLOCK_SKEW_WARNING_MS` | `30000` | Doctor warning threshold for future or source/server timestamp skew |
+| `GATEWAY_DOCTOR_STALE_WARNING_MS` | `300000` | Doctor warning threshold for stale source timestamps |
 
 Both process-context and quality-event JSONL logs are replayed at startup,
 including retained rotated segments. Logs rotate by size with three backups by
@@ -864,6 +899,8 @@ enforcement, restart replay, and an end-to-end runtime API. The OPC UA
 integration test starts an isolated mock server, connects through
 `OpcUaGatewayClient`, verifies variable data, injects a downtime, verifies the
 normalized native alarm event, and then cleans up the session and subscription.
+The doctor tests cover counter/type failures, timestamp warnings, and a live
+connection against the Mock PLC.
 
 Run a complete server + client smoke test. This command starts its own server on
 port `48401`, verifies reads, variable subscriptions, native OPC UA events,

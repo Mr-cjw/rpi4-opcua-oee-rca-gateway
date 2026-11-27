@@ -20,6 +20,16 @@ sudo systemctl status rpi4-gateway.service --no-pager
 curl http://127.0.0.1:8080/healthz
 ```
 
+Before starting or restarting a real-PLC deployment, run the commissioning
+doctor with the production environment file loaded:
+
+```bash
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; npm run doctor'
+```
+
+Use `npm run doctor -- --json` to archive the report or `--strict` in change
+control when warnings must block commissioning. The doctor only reads the PLC.
+
 The service uses `StateDirectory=rpi4-gateway`, so `/var/lib/rpi4-gateway` is
 created with the service user's ownership. JSONL logs and the OPC UA client PKI
 directory live there. Runtime work order/SN/correlation/product updates are
@@ -35,6 +45,8 @@ directory is also writable for development runs.
 - Use a secured OPC UA endpoint for a real PLC. `None` security is for isolated
   mock/testing only.
 - The Gateway only reads PLC points. It does not write controls.
+- Run `npm run doctor` after every NodeId, credential, certificate, or PLC
+  firmware change. A failed result should block production cutover.
 - JSONL logs are replayed at startup and rotate by size. The default maximum is
   10 MiB per file with three retained backups; tune
   `PROCESS_CONTEXT_LOG_MAX_*` and `QUALITY_EVENT_LOG_MAX_*` to the available SD

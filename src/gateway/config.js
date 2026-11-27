@@ -306,6 +306,28 @@ function loadGatewayConfig(env = process.env) {
         max: 200
       })
     }),
+    doctor: Object.freeze({
+      sampleMs: integerFromEnv(env, "GATEWAY_DOCTOR_SAMPLE_MS", 3000, {
+        min: 0,
+        max: 60000
+      }),
+      connectTimeoutMs: integerFromEnv(env, "GATEWAY_DOCTOR_TIMEOUT_MS", 15000, {
+        min: 1000,
+        max: 120000
+      }),
+      clockSkewWarningMs: integerFromEnv(
+        env,
+        "GATEWAY_DOCTOR_CLOCK_SKEW_WARNING_MS",
+        30000,
+        { min: 0, max: 86400000 }
+      ),
+      staleValueWarningMs: integerFromEnv(
+        env,
+        "GATEWAY_DOCTOR_STALE_WARNING_MS",
+        300000,
+        { min: 1000, max: 30 * 24 * 60 * 60 * 1000 }
+      )
+    }),
     quality: Object.freeze({
       retentionMs: integerFromEnv(env, "QUALITY_EVENT_RETENTION_MS", 3600000, {
         min: 60000,

@@ -674,5 +674,8 @@ module.exports = {
   DEFAULT_EVENT_NODE_ID,
   DEFAULT_VARIABLES,
   EVENT_FIELDS,
-  OpcUaGatewayClient
+  OpcUaGatewayClient,
+  dataTypeName,
+  isoOrNull,
+  normalizeVariant
 };
