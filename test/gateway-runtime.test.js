@@ -108,6 +108,18 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(health.opcuaConnected, true);
   assert.equal(health.identity.lineId, "JX-LINE-01");
 
+  const metricsResponse = await fetch(`${runtime.api.address}/metrics`);
+  assert.equal(metricsResponse.status, 200);
+  assert.match(metricsResponse.headers.get("content-type"), /^text\/plain/);
+  const metrics = await metricsResponse.text();
+  assert.match(metrics, /^rpi4_gateway_up 1$/m);
+  assert.match(metrics, /^rpi4_gateway_opcua_connected 1$/m);
+  const processContextMetric = metrics.match(
+    /^rpi4_gateway_process_context_events (\d+)$/m
+  );
+  assert.ok(processContextMetric && Number(processContextMetric[1]) >= 11);
+  assert.match(metrics, /^rpi4_gateway_quality_events 0$/m);
+
   const latestResponse = await fetch(`${runtime.api.address}/v1/context/latest`);
   assert.equal(latestResponse.status, 200);
   const latest = await latestResponse.json();
@@ -227,6 +239,8 @@ test("gateway API enforces a bearer token when configured", async (t) => {
 
   const unauthorized = await fetch(`${runtime.api.address}/v1/context/latest`);
   assert.equal(unauthorized.status, 401);
+  const unauthorizedMetrics = await fetch(`${runtime.api.address}/metrics`);
+  assert.equal(unauthorizedMetrics.status, 401);
 
   const health = await fetch(`${runtime.api.address}/healthz`);
   assert.equal(health.status, 200);
@@ -235,6 +249,10 @@ test("gateway API enforces a bearer token when configured", async (t) => {
     headers: { authorization: "Bearer test-token" }
   });
   assert.equal(authorized.status, 200);
+  const authorizedMetrics = await fetch(`${runtime.api.address}/metrics`, {
+    headers: { authorization: "Bearer test-token" }
+  });
+  assert.equal(authorizedMetrics.status, 200);
 });
 
 test("gateway runtime exposes and applies runtime work context updates", async (t) => {
@@ -286,6 +304,10 @@ test("gateway runtime exposes and applies runtime work context updates", async (
   assert.equal(quality.event.workOrderId, "WO-RUNTIME-NEXT");
   assert.equal(quality.event.serialNumber, "SN-RUNTIME-NEXT");
   assert.equal(quality.event.correlationId, "corr-runtime-next");
+  const metrics = await (await fetch(`${runtime.api.address}/metrics`)).text();
+  assert.match(metrics, /work_order_id="WO-RUNTIME-NEXT"/);
+  assert.match(metrics, /serial_number="SN-RUNTIME-NEXT"/);
+  assert.match(metrics, /correlation_id="corr-runtime-next"/);
 
   const correlationResponse = await fetch(`${runtime.api.address}/v1/correlation`, {
     method: "POST",

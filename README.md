@@ -18,6 +18,7 @@ It provides:
 - Seed control for repeatable test runs
 - A Gateway runtime that records `PROCESS_CONTEXT` events to JSONL
 - Loopback HTTP endpoints for process context, OEE decomposition, and RCA candidates
+- Optional bearer-protected Prometheus metrics
 - Runtime-updatable work-order, serial-number, and correlation context
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
 
@@ -162,6 +163,7 @@ The default bind address is `127.0.0.1:8080`. Set `GATEWAY_API_TOKEN` to require
 
 ```bash
 curl http://127.0.0.1:8080/healthz
+curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8080/metrics
 curl http://127.0.0.1:8080/v1/context/latest
 curl http://127.0.0.1:8080/v1/work-context
 curl -X POST http://127.0.0.1:8080/v1/work-context \
@@ -178,6 +180,11 @@ curl -X POST http://127.0.0.1:8080/v1/rca \
   -H 'content-type: application/json' \
   -d '{"qualityEventId":"qevt-...","windowMs":300000,"workOrderId":"WO-JX-001"}'
 ```
+
+`GET /metrics` exposes Prometheus text metrics for process uptime, OPC UA
+connectivity, retained context/alarm/quality counts, latest context timestamp,
+and the current line/work context. It uses the same `GATEWAY_API_TOKEN` check as
+the `/v1/*` endpoints; only `/healthz` is unauthenticated.
 
 `/v1/events`, `/v1/alarms`, `/v1/quality-events`, and `/v1/oee` accept optional
 `workOrderId` and `correlationId` query parameters. `/v1/rca` accepts the same

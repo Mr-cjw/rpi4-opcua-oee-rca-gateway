@@ -23,6 +23,62 @@ function sendJson(response, statusCode, payload) {
   response.end(body);
 }
 
+function sendText(response, statusCode, body, contentType) {
+  response.writeHead(statusCode, {
+    "content-type": `${contentType}; charset=utf-8`,
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff"
+  });
+  response.end(body);
+}
+
+function prometheusLabel(value) {
+  return String(value ?? "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("\n", "\\n")
+    .replaceAll('"', '\\"');
+}
+
+function metricsPayload(runtime) {
+  const status = runtime.getStatus();
+  const latestAt = status.context.latestOccurredAt
+    ? Date.parse(status.context.latestOccurredAt) / 1000
+    : 0;
+  const identity = status.identity;
+  return [
+    "# HELP rpi4_gateway_up Gateway process is running.",
+    "# TYPE rpi4_gateway_up gauge",
+    "rpi4_gateway_up 1",
+    "# HELP rpi4_gateway_opcua_connected Whether the OPC UA session is connected.",
+    "# TYPE rpi4_gateway_opcua_connected gauge",
+    `rpi4_gateway_opcua_connected ${status.opcuaConnected ? 1 : 0}`,
+    "# HELP rpi4_gateway_uptime_seconds Gateway process uptime.",
+    "# TYPE rpi4_gateway_uptime_seconds gauge",
+    `rpi4_gateway_uptime_seconds ${status.uptimeSeconds}`,
+    "# HELP rpi4_gateway_process_context_events Retained process-context events.",
+    "# TYPE rpi4_gateway_process_context_events gauge",
+    `rpi4_gateway_process_context_events ${status.context.eventCount}`,
+    "# HELP rpi4_gateway_alarm_history_events Retained alarm-history entries.",
+    "# TYPE rpi4_gateway_alarm_history_events gauge",
+    `rpi4_gateway_alarm_history_events ${status.context.alarmCount}`,
+    "# HELP rpi4_gateway_quality_events Retained NG quality events.",
+    "# TYPE rpi4_gateway_quality_events gauge",
+    `rpi4_gateway_quality_events ${status.quality.eventCount}`,
+    "# HELP rpi4_gateway_last_context_timestamp_seconds Latest context timestamp.",
+    "# TYPE rpi4_gateway_last_context_timestamp_seconds gauge",
+    `rpi4_gateway_last_context_timestamp_seconds ${latestAt}`,
+    "# HELP rpi4_gateway_work_order_info Current line and work context.",
+    "# TYPE rpi4_gateway_work_order_info gauge",
+    `rpi4_gateway_work_order_info{line_id="${prometheusLabel(identity.lineId)}",` +
+      `station_id="${prometheusLabel(identity.stationId)}",` +
+      `work_order_id="${prometheusLabel(identity.workOrderId)}",` +
+      `serial_number="${prometheusLabel(identity.serialNumber)}",` +
+      `correlation_id="${prometheusLabel(identity.correlationId)}"} 1`,
+    ""
+  ].join("\n");
+}
+
 function secureTokenMatches(provided, expected) {
   const left = Buffer.from(provided);
   const right = Buffer.from(expected);
@@ -93,6 +149,11 @@ function createGatewayApi(runtime, options = {}) {
         sendJson(response, 401, { error: "unauthorized" });
         return;
       }
+    }
+
+    if (pathname === "/metrics" && request.method === "GET") {
+      sendText(response, 200, metricsPayload(runtime), "text/plain; version=0.0.4");
+      return;
     }
 
     if (pathname === "/v1/context/latest" && request.method === "GET") {
