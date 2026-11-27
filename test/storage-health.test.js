@@ -215,3 +215,49 @@ test("quality idempotency failure degrades health without rejecting a persisted 
   const records = (await fs.readFile(eventLogPath, "utf8")).trim().split("\n");
   assert.equal(records.length, 1);
 });
+
+test("a failed durable quality write is visible as a later sequence gap", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "quality-sequence-gap-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const store = new QualityEventStore({
+    lineId: "LINE-01",
+    stationId: "STATION-01",
+    retentionMs: 60_000,
+    maxEvents: 10,
+    eventLogPath: path.join(directory, "quality-events.jsonl"),
+    idempotencyPath: null,
+    clock: () => NOW,
+    createId: (() => {
+      let id = 0;
+      return () => `qevt-sequence-${++id}`;
+    })()
+  });
+
+  await store.recordDurably({
+    sourceEventId: "QC-SEQUENCE-1",
+    occurredAt: new Date(NOW).toISOString()
+  });
+  const append = store._logStore.append.bind(store._logStore);
+  store._logStore.append = () =>
+    Promise.resolve({ ok: false, enabled: true, error: new Error("simulated ENOSPC") });
+  await assert.rejects(
+    store.recordDurably({
+      sourceEventId: "QC-SEQUENCE-2",
+      occurredAt: new Date(NOW).toISOString()
+    }),
+    (error) => error.statusCode === 503
+  );
+  store._logStore.append = append;
+  const third = await store.recordDurably({
+    sourceEventId: "QC-SEQUENCE-3",
+    occurredAt: new Date(NOW).toISOString()
+  });
+  await store.flush();
+
+  assert.equal(third.event.sequence, 3);
+  const status = store.getSequenceStatus();
+  assert.equal(status.currentSequence, 3);
+  assert.equal(status.gapsTotal, 1);
+  assert.equal(status.missingEvents, 1);
+  assert.deepEqual(status.gapRanges, [{ from: 2, to: 2 }]);
+});

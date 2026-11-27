@@ -53,6 +53,7 @@ test("quality event store creates a versioned, idempotent NG event", () => {
 
   assert.equal(first.duplicate, false);
   assert.equal(first.event.schemaVersion, "1.0");
+  assert.equal(first.event.sequence, 1);
   assert.equal(first.event.qualityEventId, "qevt-1");
   assert.equal(first.event.result, "NG");
   assert.equal(first.event.eventType, "NG_ORDER");
@@ -79,6 +80,44 @@ test("quality event store creates a versioned, idempotent NG event", () => {
   assert.equal(duplicate.retained, true);
   assert.equal(duplicate.event.qualityEventId, first.event.qualityEventId);
   assert.equal(store.count, 1);
+});
+
+test("quality event sequences survive restart and expose load-time gaps", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "quality-sequence-"));
+  const logPath = path.join(directory, "quality-events.jsonl");
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+
+  const first = makeStore({ eventLogPath: logPath });
+  const firstEvent = first.store.record({ sourceEventId: "QC-SEQ-1", occurredAt: iso(1) });
+  const secondEvent = first.store.record({ sourceEventId: "QC-SEQ-2", occurredAt: iso(2) });
+  assert.equal(firstEvent.event.sequence, 1);
+  assert.equal(secondEvent.event.sequence, 2);
+  await first.store.flush();
+
+  await fs.appendFile(
+    logPath,
+    `${JSON.stringify({
+      ...secondEvent.event,
+      qualityEventId: "qevt-sequence-5",
+      sourceEventId: "QC-SEQ-5",
+      sequence: 5
+    })}\n`,
+    "utf8"
+  );
+
+  const second = makeStore({ eventLogPath: logPath });
+  const loaded = await second.store.load();
+  assert.equal(loaded.loaded, 3);
+  const status = second.store.getSequenceStatus();
+  assert.equal(status.currentSequence, 5);
+  assert.equal(status.gapsTotal, 1);
+  assert.equal(status.missingEvents, 2);
+  assert.deepEqual(status.gapRanges, [{ from: 3, to: 4 }]);
+
+  const next = second.store.record({ sourceEventId: "QC-SEQ-6", occurredAt: iso(6) });
+  assert.equal(next.event.sequence, 6);
+  await second.store.flush();
+  assert.equal(second.store.getSequenceStatus().currentSequence, 6);
 });
 
 test("quality event store rejects unsafe or malformed input", () => {

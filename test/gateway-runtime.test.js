@@ -252,6 +252,37 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(missingRcaResponse.status, 404);
 });
 
+test("gateway health and metrics expose event sequence watermarks", async (t) => {
+  const { runtime } = makeRuntime();
+  t.after(async () => runtime.stop());
+  await runtime.start();
+  captureWindow(runtime.collector);
+
+  const qualityResponse = await fetch(`${runtime.api.address}/v1/quality-events`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sourceEventId: "QC-SEQUENCE-1", occurredAt: iso(10) })
+  });
+  assert.equal(qualityResponse.status, 201);
+
+  const health = await (await fetch(`${runtime.api.address}/healthz`)).json();
+  assert.equal(health.sequences.processContext.status, "ok");
+  assert.ok(health.sequences.processContext.currentSequence >= 11);
+  assert.equal(health.sequences.quality.status, "ok");
+  assert.equal(health.sequences.quality.currentSequence, 1);
+
+  const metrics = await (await fetch(`${runtime.api.address}/metrics`)).text();
+  assert.match(
+    metrics,
+    /^rpi4_gateway_event_sequence_current\{stream="quality"\} 1$/m
+  );
+  assert.match(
+    metrics,
+    /^rpi4_gateway_event_sequence_healthy\{stream="process-context"\} 1$/m
+  );
+  assert.match(metrics, /^rpi4_gateway_event_sequence_healthy\{stream="quality"\} 1$/m);
+});
+
 test("gateway runtime reports total-production OEE counter mode", async (t) => {
   const { runtime } = makeRuntime();
   t.after(async () => runtime.stop());

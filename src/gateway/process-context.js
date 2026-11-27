@@ -3,6 +3,7 @@
 const { randomUUID } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 const { toMillis } = require("../analytics/oee");
+const { EventSequenceTracker } = require("./event-sequence");
 const { JsonlLog } = require("./jsonl");
 const {
   WORK_CONTEXT_FIELDS,
@@ -136,6 +137,11 @@ class ProcessContextCollector extends EventEmitter {
     this._client = null;
     this._timer = null;
     this._onAlarm = null;
+    this._nextSequence = 1;
+    this._sequenceTracker = new EventSequenceTracker({
+      stream: "process-context",
+      clock: this.options.clock
+    });
     this._logStore = new JsonlLog(this.options.eventLogPath, {
       logger: this.options.logger,
       maxBytes: this.options.eventLogMaxBytes,
@@ -254,12 +260,15 @@ class ProcessContextCollector extends EventEmitter {
       options.occurredAt === undefined
         ? new Date(this.options.clock()).toISOString()
         : toIsoTimestamp(options.occurredAt, new Date(this.options.clock()));
+    const sequence = this._nextSequence;
+    this._nextSequence += 1;
     const metricAlarmSequence = Number.isInteger(Number(alarmSnapshot?.sequence))
       ? Number(alarmSnapshot.sequence)
       : null;
     const event = {
       schemaVersion: "1.0",
       eventId: this.options.createId(),
+      sequence,
       source: this.options.source,
       eventType: "PROCESS_CONTEXT",
       occurredAt,
@@ -288,7 +297,7 @@ class ProcessContextCollector extends EventEmitter {
     this._latest = event;
     this._events.push(event);
     this._prune();
-    this._appendEvent(event);
+    this._observeSequenceAfterWrite(event.sequence, this._appendEvent(event));
     this.emit("event", event);
     return event;
   }
@@ -366,6 +375,10 @@ class ProcessContextCollector extends EventEmitter {
     return this._logStore.getStatus();
   }
 
+  getSequenceStatus() {
+    return this._sequenceTracker.getStatus();
+  }
+
   async load() {
     if (this._loaded) {
       return { loaded: 0, skipped: 0, retained: this._events.length, alreadyLoaded: true };
@@ -375,7 +388,14 @@ class ProcessContextCollector extends EventEmitter {
     let skipped = 0;
     const seen = new Set(this._events.map((event) => event.eventId));
     const readResult = await this._logStore.read((event) => {
-      if (!this._isValidStoredEvent(event) || seen.has(event.eventId)) {
+      if (!this._isValidStoredEvent(event)) {
+        skipped += 1;
+        return;
+      }
+      if (Number.isInteger(event.sequence)) {
+        this._sequenceTracker.observe(event.sequence);
+      }
+      if (seen.has(event.eventId)) {
         skipped += 1;
         return;
       }
@@ -383,6 +403,10 @@ class ProcessContextCollector extends EventEmitter {
       seen.add(event.eventId);
       loaded += 1;
     });
+    this._nextSequence = Math.max(
+      this._nextSequence,
+      this._sequenceTracker.getStatus().currentSequence + 1
+    );
     this._events.sort(
       (left, right) =>
         toMillis(left.occurredAt, "event timestamp") -
@@ -416,7 +440,17 @@ class ProcessContextCollector extends EventEmitter {
   }
 
   _appendEvent(event) {
-    this._logStore.append(event);
+    return this._logStore.append(event);
+  }
+
+  _observeSequenceAfterWrite(sequence, logWrite) {
+    Promise.resolve(logWrite)
+      .then((result) => {
+        if (result?.ok) {
+          this._sequenceTracker.observe(sequence);
+        }
+      })
+      .catch(() => undefined);
   }
 
   _isValidStoredEvent(event) {
@@ -428,6 +462,8 @@ class ProcessContextCollector extends EventEmitter {
       event.eventType !== "PROCESS_CONTEXT" ||
       typeof event.eventId !== "string" ||
       event.eventId === "" ||
+      (event.sequence !== undefined &&
+        (!Number.isInteger(event.sequence) || event.sequence <= 0)) ||
       event.lineId !== this.options.lineId ||
       event.stationId !== this.options.stationId ||
       !Array.isArray(event.alarms) ||

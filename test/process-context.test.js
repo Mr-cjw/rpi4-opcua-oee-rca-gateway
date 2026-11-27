@@ -60,6 +60,7 @@ test("process context builds the shared event contract", () => {
   });
 
   assert.equal(event.schemaVersion, "1.0");
+  assert.equal(event.sequence, 1);
   assert.equal(event.eventType, "PROCESS_CONTEXT");
   assert.equal(event.source, "rpi4-gateway");
   assert.equal(event.correlationId, "corr-001");
@@ -84,6 +85,42 @@ test("process context builds the shared event contract", () => {
     assert.ok(Object.prototype.hasOwnProperty.call(event, field), `missing contract field ${field}`);
   }
   assert.equal(event.schemaVersion, processContextSchema.properties.schemaVersion.const);
+});
+
+test("process context sequences survive replay and expose load-time gaps", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "process-sequence-"));
+  const logPath = path.join(directory, "events.jsonl");
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+
+  const template = makeCollector().capture(snapshot(), {
+    occurredAt: "2026-11-27T00:00:10.000Z"
+  });
+  await fs.writeFile(
+    logPath,
+    [
+      { ...template, eventId: "sequence-1", sequence: 1 },
+      { ...template, eventId: "sequence-4", sequence: 4 }
+    ]
+      .map((event) => JSON.stringify(event))
+      .join("\n") + "\n",
+    "utf8"
+  );
+
+  const collector = makeCollector({ eventLogPath: logPath });
+  const result = await collector.load();
+  assert.equal(result.loaded, 2);
+  const loadedStatus = collector.getSequenceStatus();
+  assert.equal(loadedStatus.currentSequence, 4);
+  assert.equal(loadedStatus.gapsTotal, 1);
+  assert.equal(loadedStatus.missingEvents, 2);
+  assert.deepEqual(loadedStatus.gapRanges, [{ from: 2, to: 3 }]);
+
+  const next = collector.capture(snapshot(), {
+    occurredAt: "2026-11-27T00:00:11.000Z"
+  });
+  assert.equal(next.sequence, 5);
+  await collector.flush();
+  assert.equal(collector.getSequenceStatus().currentSequence, 5);
 });
 
 test("process context rejects incomplete snapshots", () => {

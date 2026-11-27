@@ -57,6 +57,19 @@ function metricsPayload(runtime) {
       `rpi4_gateway_storage_write_errors_total{component="${prometheusLabel(component)}"} ${componentStatus.totalFailures}`
     ]
   );
+  const sequenceLines = Object.entries(status.sequences || {}).flatMap(
+    ([stream, sequenceStatus]) => {
+      const label = prometheusLabel(sequenceStatus.stream || stream);
+      return [
+        `rpi4_gateway_event_sequence_current{stream="${label}"} ${sequenceStatus.currentSequence}`,
+        `rpi4_gateway_event_sequence_gaps_total{stream="${label}"} ${sequenceStatus.gapsTotal}`,
+        `rpi4_gateway_event_sequence_missing_events_total{stream="${label}"} ${sequenceStatus.missingEvents}`,
+        `rpi4_gateway_event_sequence_duplicates_total{stream="${label}"} ${sequenceStatus.duplicatesTotal}`,
+        `rpi4_gateway_event_sequence_out_of_order_total{stream="${label}"} ${sequenceStatus.outOfOrderTotal}`,
+        `rpi4_gateway_event_sequence_healthy{stream="${label}"} ${sequenceStatus.status === "ok" ? 1 : 0}`
+      ];
+    }
+  );
   return [
     "# HELP rpi4_gateway_up Gateway process is running.",
     "# TYPE rpi4_gateway_up gauge",
@@ -92,6 +105,19 @@ function metricsPayload(runtime) {
     "# TYPE rpi4_gateway_storage_disk_usage_ratio gauge",
     `rpi4_gateway_storage_disk_usage_ratio ${Number.isFinite(storage.disk?.usageRatio) ? storage.disk.usageRatio : 0}`,
     ...storageComponentLines,
+    "# HELP rpi4_gateway_event_sequence_current Latest observed event sequence per stream.",
+    "# TYPE rpi4_gateway_event_sequence_current gauge",
+    "# HELP rpi4_gateway_event_sequence_gaps_total Detected sequence gaps per stream.",
+    "# TYPE rpi4_gateway_event_sequence_gaps_total counter",
+    "# HELP rpi4_gateway_event_sequence_missing_events_total Estimated events implied by sequence gaps.",
+    "# TYPE rpi4_gateway_event_sequence_missing_events_total counter",
+    "# HELP rpi4_gateway_event_sequence_duplicates_total Duplicate sequences observed per stream.",
+    "# TYPE rpi4_gateway_event_sequence_duplicates_total counter",
+    "# HELP rpi4_gateway_event_sequence_out_of_order_total Out-of-order sequences observed per stream.",
+    "# TYPE rpi4_gateway_event_sequence_out_of_order_total counter",
+    "# HELP rpi4_gateway_event_sequence_healthy Whether a stream has no sequence integrity warnings.",
+    "# TYPE rpi4_gateway_event_sequence_healthy gauge",
+    ...sequenceLines,
     "# HELP rpi4_gateway_work_order_info Current line and work context.",
     "# TYPE rpi4_gateway_work_order_info gauge",
     `rpi4_gateway_work_order_info{line_id="${prometheusLabel(identity.lineId)}",` +

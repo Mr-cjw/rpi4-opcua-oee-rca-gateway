@@ -128,8 +128,11 @@ Progress:
 - Completed 2026-11-27: checksummed state backup/export/verify/restore tooling
   with a manifest, preflight validation, file-mode preservation, and atomic
   per-file restore; deployment runbook updated for quiesced backups.
-- Remaining: event sequence/watermark checks, SQLite WAL evaluation, and
-  migration fixtures.
+- Completed 2026-11-27: per-stream event sequence watermarks with duplicate,
+  gap, missing-event, and out-of-order diagnostics in `/healthz` and Prometheus;
+  legacy JSONL without sequence fields remains replayable.
+- Remaining: SQLite WAL evaluation, migration fixtures, power-loss/forced-kill
+  recovery tests, and multi-day retention validation.
 
 Acceptance:
 
@@ -233,8 +236,8 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Finish the M2 storage boundary with event sequence/watermark checks, a
-   SQLite WAL evaluation, and migration fixtures.
+1. Finish the M2 storage boundary with a SQLite WAL evaluation, migration
+   fixtures, and power-loss/forced-kill recovery tests.
 2. Add live health/metrics detection for stale values, Bad status, clock skew,
    reconnect gaps, and subscription recovery.
 3. Execute the 72-hour soak on Raspberry Pi hardware and add release packaging,

@@ -3,6 +3,7 @@
 const { EventEmitter } = require("node:events");
 const { randomUUID } = require("node:crypto");
 const { toMillis } = require("../analytics/oee");
+const { EventSequenceTracker } = require("./event-sequence");
 const { JsonlLog } = require("./jsonl");
 const { QualityIdempotencyStore } = require("./quality-idempotency");
 const { StorageWriteError } = require("./storage-health");
@@ -102,7 +103,8 @@ function compactQualityEvent(event) {
     "defectType",
     "imageId",
     "source",
-    "confidence"
+    "confidence",
+    "sequence"
   ]) {
     if (event[field] !== undefined) {
       compact[field] = event[field];
@@ -177,6 +179,11 @@ class QualityEventStore extends EventEmitter {
     this._lastIdempotencyFailureAt = null;
     this._lastIdempotencySuccessAt = null;
     this._pendingDurability = new Map();
+    this._nextSequence = 1;
+    this._sequenceTracker = new EventSequenceTracker({
+      stream: "quality",
+      clock: this.options.clock
+    });
     this._loaded = false;
   }
 
@@ -247,6 +254,7 @@ class QualityEventStore extends EventEmitter {
     const event = {
       schemaVersion: "1.0",
       qualityEventId: this.options.createId(),
+      sequence: this._nextSequence,
       sourceEventId,
       eventType: optionalString(input.eventType, "eventType") || "NG_ORDER",
       result: "NG",
@@ -294,6 +302,7 @@ class QualityEventStore extends EventEmitter {
       event.confidence = confidence;
     }
 
+    this._nextSequence += 1;
     this._events.push(event);
     this._bySourceEventId.set(sourceEventId, {
       event: compactQualityEvent(event),
@@ -301,6 +310,7 @@ class QualityEventStore extends EventEmitter {
     });
     this._prune();
     const logWrite = this._logStore.append(event);
+    this._observeSequenceAfterWrite(event.sequence, logWrite);
     if (!deferIdempotency) {
       this._scheduleIdempotencyPersist();
     }
@@ -400,7 +410,14 @@ class QualityEventStore extends EventEmitter {
     let skipped = 0;
     const seen = new Set();
     const readResult = await this._logStore.read((event) => {
-      if (!this._isValidStoredEvent(event) || seen.has(event.sourceEventId)) {
+      if (!this._isValidStoredEvent(event)) {
+        skipped += 1;
+        return;
+      }
+      if (Number.isInteger(event.sequence)) {
+        this._sequenceTracker.observe(event.sequence);
+      }
+      if (seen.has(event.sourceEventId)) {
         skipped += 1;
         return;
       }
@@ -408,6 +425,10 @@ class QualityEventStore extends EventEmitter {
       this._events.push(event);
       loaded += 1;
     });
+    this._nextSequence = Math.max(
+      this._nextSequence,
+      this._sequenceTracker.getStatus().currentSequence + 1
+    );
     this._events.sort(
       (left, right) =>
         toMillis(left.recordedAt, "recordedAt") -
@@ -461,6 +482,10 @@ class QualityEventStore extends EventEmitter {
     };
   }
 
+  getSequenceStatus() {
+    return this._sequenceTracker.getStatus();
+  }
+
   _isValidStoredEvent(event) {
     if (!event || typeof event !== "object" || Array.isArray(event)) {
       return false;
@@ -470,6 +495,8 @@ class QualityEventStore extends EventEmitter {
       event.result !== "NG" ||
       typeof event.qualityEventId !== "string" ||
       event.qualityEventId === "" ||
+      (event.sequence !== undefined &&
+        (!Number.isInteger(event.sequence) || event.sequence <= 0)) ||
       typeof event.sourceEventId !== "string" ||
       event.sourceEventId === "" ||
       typeof event.eventType !== "string" ||
@@ -526,6 +553,9 @@ class QualityEventStore extends EventEmitter {
         skipped += 1;
         continue;
       }
+      if (Number.isInteger(raw.sequence)) {
+        this._nextSequence = Math.max(this._nextSequence, raw.sequence + 1);
+      }
       entries.push(raw);
     }
     entries.sort(
@@ -557,6 +587,16 @@ class QualityEventStore extends EventEmitter {
       const oldest = this._bySourceEventId.keys().next().value;
       this._bySourceEventId.delete(oldest);
     }
+  }
+
+  _observeSequenceAfterWrite(sequence, logWrite) {
+    Promise.resolve(logWrite)
+      .then((result) => {
+        if (result?.ok) {
+          this._sequenceTracker.observe(sequence);
+        }
+      })
+      .catch(() => undefined);
   }
 
   _scheduleIdempotencyPersist() {

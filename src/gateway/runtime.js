@@ -161,6 +161,10 @@ class GatewayRuntime extends EventEmitter {
       quality: {
         eventCount: this.qualityEvents.count
       },
+      sequences: {
+        processContext: this.collector.getSequenceStatus(),
+        quality: this.qualityEvents.getSequenceStatus()
+      },
       storage
     };
   }

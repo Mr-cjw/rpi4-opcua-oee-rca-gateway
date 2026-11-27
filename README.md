@@ -23,6 +23,7 @@ It provides:
 - Runtime-updatable work-order, serial-number, correlation, and product context
 - Durable quality-event idempotency independent of log rotation
 - Disk-pressure health checks and fail-closed NG quality ingestion
+- Per-stream event sequence watermarks with gap, duplicate, and ordering checks
 - Checksummed Gateway state backup, verification, and restore tooling
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
 - Time-zone-aware shift windows for planned production time
@@ -205,6 +206,14 @@ the current line/work context, and storage health. Storage metrics include
 `GATEWAY_API_TOKEN` check as the `/v1/*` endpoints; only `/healthz` is
 unauthenticated.
 
+Per-stream sequence metrics are also exported as
+`rpi4_gateway_event_sequence_current`,
+`rpi4_gateway_event_sequence_gaps_total`,
+`rpi4_gateway_event_sequence_missing_events_total`,
+`rpi4_gateway_event_sequence_duplicates_total`,
+`rpi4_gateway_event_sequence_out_of_order_total`, and
+`rpi4_gateway_event_sequence_healthy`, with a `stream` label.
+
 `/v1/events`, `/v1/alarms`, `/v1/quality-events`, and `/v1/oee` accept optional
 `workOrderId`, `correlationId`, and `productId` query parameters. `/v1/rca`
 accepts the same fields in its JSON body. Filters are applied before
@@ -309,6 +318,29 @@ OPC UA PKI material is deliberately excluded from the state backup and should
 be backed up separately under the certificate-management procedure. Copy the
 completed backup off the Raspberry Pi; a backup on the same failed SD card or
 SSD is not a recovery plan.
+
+### Event sequence integrity
+
+New process-context and quality events carry an optional positive integer
+`sequence`. The Gateway continues from the highest sequence found in retained
+JSONL and the quality idempotency ledger, so sequences remain monotonic across
+normal restarts and log rotation. Events written by older Gateway versions
+without `sequence` remain replayable.
+
+Sequence advancement and durability are intentionally observable as separate
+facts. When a JSONL append fails, the request still fails closed and the event is
+rolled back from memory, but that sequence is not reused. The next successfully
+persisted event therefore exposes a gap instead of hiding the failed ingestion.
+Duplicate sequences and lower out-of-order sequences are counted separately.
+The first retained record establishes the stream baseline, so history already
+rotated away before the oldest retained file is not reported as a gap.
+
+`GET /healthz` exposes `sequences.processContext` and `sequences.quality`, each
+with the current watermark, total gaps, estimated missing events, duplicate and
+out-of-order counts, retained gap ranges, and `status`. Sequence warnings are
+reported separately from PLC/storage health; alert on
+`rpi4_gateway_event_sequence_healthy == 0`. This checks the Gateway event stream;
+`sourceEventId` remains the authoritative quality idempotency key.
 
 When `/v1/oee` is called without an explicit `ngCount`, the Gateway sums the NG
 quantity recorded in the same time window. `/v1/rca` accepts
