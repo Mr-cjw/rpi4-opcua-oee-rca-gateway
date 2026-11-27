@@ -663,3 +663,56 @@ test("gateway runtime replays context and quality events after restart", async (
     await second.runtime.stop();
   }
 });
+
+test("gateway runtime preserves counter reset detection across restart", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "gateway-counter-reset-"));
+  const env = {
+    PROCESS_CONTEXT_LOG: path.join(directory, "process-context.jsonl"),
+    QUALITY_EVENT_LOG: "off",
+    QUALITY_EVENT_IDEMPOTENCY_FILE: "off"
+  };
+  t.after(async () => {
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  const first = makeRuntime(env);
+  await first.runtime.start();
+  first.runtime.collector.capture(
+    plcSnapshot({ goodCount: 100, totalProducedCount: 200 }),
+    { occurredAt: iso(0) }
+  );
+  first.runtime.collector.capture(
+    plcSnapshot({ goodCount: 102, totalProducedCount: 204 }),
+    { occurredAt: iso(1) }
+  );
+  await first.runtime.stop();
+
+  const second = makeRuntime(env);
+  try {
+    await second.runtime.start();
+    second.runtime.collector.capture(
+      plcSnapshot({ goodCount: 0, totalProducedCount: 0 }),
+      { occurredAt: iso(2) }
+    );
+    second.runtime.collector.capture(
+      plcSnapshot({ goodCount: 2, totalProducedCount: 4 }),
+      { occurredAt: iso(3) }
+    );
+
+    const oee = second.runtime.calculateOee({
+      from: iso(0),
+      to: iso(3),
+      ngCount: 0
+    });
+    assert.equal(oee.eventCount, 4);
+    assert.equal(oee.counterMode, "total-produced-reset-adjusted");
+    assert.equal(oee.goodDelta, 4);
+    assert.equal(oee.totalDelta, 8);
+    assert.equal(oee.quality, 0.5);
+    assert.equal(oee.counterContinuity.status, "reset-adjusted");
+    assert.equal(oee.counterContinuity.resetCount, 2);
+    assert.ok(oee.warnings.some((warning) => warning.includes("reset/rollback")));
+  } finally {
+    await second.runtime.stop();
+  }
+});

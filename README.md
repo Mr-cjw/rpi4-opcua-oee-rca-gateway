@@ -311,19 +311,31 @@ same total delta. Responses also include `totalDelta` and
 `ngCount`, `qualitySource`, `qualityEventCount`, and `qualityEventQuantity`
 remain available for comparison with the quality feed.
 
+Counter continuity is reported separately in `counterContinuity`. If either
+counter decreases between adjacent samples, the Gateway treats the decrease as
+a reset / rollback and starts a new observed counter epoch. It sums only
+non-negative increments inside each epoch, so [100, 102, 0, 2] contributes 4
+instead of a negative or zero delta. In this case `counterMode` becomes
+`total-produced-reset-adjusted` or `good-count-proxy-reset-adjusted`, and
+`counterContinuity.resets` records the counter, time, sample index, and values
+around each reset. The increment hidden between the last pre-reset sample and
+the first post-reset sample cannot be recovered, so the reset-adjusted delta is
+a lower bound. Reset detection uses the retained process-context event history
+and is replayed after a Gateway restart; if that history does not span the
+reset, the reset cannot be inferred.
+
 Legacy or mixed samples without a valid total counter keep the previous
 `good-count-proxy` behavior:
 
 - Performance = `goodCount` delta / theoretical good units at nominal output;
 - Quality = `goodCount` delta / (`goodCount` delta + recorded NG quantity).
 
-Explicit downtime classification, changeover handling, product-mix ideal cycle
-time, and speed-loss attribution still need to be added before using this as a
-formal production OEE figure. If `ngCount` is omitted, the API uses recorded
-quality events; if none exist in the window it returns a warning because the
-quality feed may not be connected. If a total counter rolls back, falls below
-`goodCount`, or is missing from only part of the window, the API falls back to
-`good-count-proxy` and returns an explicit warning.
+Product-mix ideal cycle time and speed-loss attribution still need to be added
+before using this as a formal production OEE figure. If `ngCount` is omitted,
+the API uses recorded quality events; if none exist in the window it returns a
+warning because the quality feed may not be connected. If the total counter is
+missing from only part of the window or is below `goodCount`, the API falls
+back to the good-count proxy and returns an explicit warning.
 
 ### RCA boundary
 

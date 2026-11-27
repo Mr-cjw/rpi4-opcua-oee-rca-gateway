@@ -73,19 +73,71 @@ test("OEE uses total production counter deltas when available", () => {
   assert.deepEqual(result.warnings, []);
 });
 
-test("OEE falls back when total production counters are incomplete or inconsistent", () => {
-  const rollbackSamples = [0, 2, 1, 4].map((totalProducedCount, second) =>
-    sample(second, {
-      goodCount: second,
-      totalProducedCount
-    })
+test("OEE detects counter reset epochs and preserves observed production", () => {
+  const result = calculateOee(
+    [
+      sample(0, { goodCount: 100, totalProducedCount: 200 }),
+      sample(1, { goodCount: 102, totalProducedCount: 204 }),
+      sample(2, { goodCount: 0, totalProducedCount: 0 }),
+      sample(3, { goodCount: 2, totalProducedCount: 4 }),
+      sample(4, { goodCount: 4, totalProducedCount: 8 })
+    ],
+    { nominalOutputPerMinute: 120, ngCount: 0 }
   );
-  const rollback = calculateOee(rollbackSamples, {
-    nominalOutputPerMinute: 120,
-    ngCount: 0
-  });
-  assert.equal(rollback.counterMode, "good-count-proxy");
-  assert.ok(rollback.warnings.some((warning) => warning.includes("moved backwards")));
+
+  assert.equal(result.counterMode, "total-produced-reset-adjusted");
+  assert.equal(result.goodDelta, 6);
+  assert.equal(result.totalDelta, 12);
+  assert.equal(result.counterScrapDelta, 6);
+  assert.equal(result.quality, 0.5);
+  assert.equal(result.counterContinuity.status, "reset-adjusted");
+  assert.equal(result.counterContinuity.epochs, 2);
+  assert.equal(result.counterContinuity.resetCount, 2);
+  assert.equal(result.counterContinuity.goodCount.delta, 6);
+  assert.equal(result.counterContinuity.totalProducedCount.delta, 12);
+  assert.equal(
+    result.counterContinuity.deltaBasis,
+    "sum-of-observed-increments-within-counter-epochs"
+  );
+  assert.deepEqual(
+    result.counterContinuity.resets.map((reset) => ({
+      counter: reset.counter,
+      sampleIndex: reset.sampleIndex,
+      previousValue: reset.previousValue,
+      value: reset.value
+    })),
+    [
+      { counter: "goodCount", sampleIndex: 2, previousValue: 102, value: 0 },
+      { counter: "totalProducedCount", sampleIndex: 2, previousValue: 204, value: 0 }
+    ]
+  );
+  assert.ok(result.warnings.some((warning) => warning.includes("reset/rollback")));
+  assert.equal(
+    result.inputs.counterScope,
+    "sum of adjacent increments within observed counter epochs"
+  );
+});
+
+test("OEE uses a reset-adjusted good-count proxy without a total counter", () => {
+  const result = calculateOee(
+    [
+      sample(0, { goodCount: 10 }),
+      sample(1, { goodCount: 12 }),
+      sample(2, { goodCount: 0 }),
+      sample(3, { goodCount: 2 })
+    ],
+    { nominalOutputPerMinute: 120, ngCount: 0 }
+  );
+
+  assert.equal(result.counterMode, "good-count-proxy-reset-adjusted");
+  assert.equal(result.goodDelta, 4);
+  assert.equal(result.counterContinuity.status, "reset-adjusted");
+  assert.equal(result.counterContinuity.goodCount.resetCount, 1);
+  assert.equal(result.counterContinuity.totalProducedCount.status, "not-present");
+  assert.ok(result.warnings.some((warning) => warning.includes("goodCount reset/rollback")));
+});
+
+test("OEE falls back when total production counters are incomplete or inconsistent", () => {
 
   const mixedSamples = [
     sample(0, { goodCount: 0, totalProducedCount: 0 }),

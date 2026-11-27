@@ -64,6 +64,111 @@ function findMatchingAlarmCode(row, configuredCodes) {
   return null;
 }
 
+function analyzeCounterSeries(rows, field, invalidFlag) {
+  const resets = [];
+  let delta = 0;
+  let epochs = 0;
+  let previous = null;
+  let present = false;
+  let invalid = false;
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (invalidFlag && row[invalidFlag]) {
+      invalid = true;
+    }
+    const value = row[field];
+    if (value === null) {
+      continue;
+    }
+    present = true;
+    if (!Number.isFinite(value) || value < 0) {
+      invalid = true;
+      continue;
+    }
+    if (previous === null) {
+      epochs = 1;
+      previous = { value, at: row.at };
+      continue;
+    }
+    if (value < previous.value) {
+      epochs += 1;
+      resets.push({
+        counter: field,
+        epoch: epochs,
+        sampleIndex: index,
+        sampleAt: new Date(row.at).toISOString(),
+        previousSampleAt: new Date(previous.at).toISOString(),
+        previousValue: previous.value,
+        value
+      });
+    } else {
+      delta += value - previous.value;
+    }
+    previous = { value, at: row.at };
+  }
+
+  let status = "continuous";
+  if (!present && !invalid) {
+    status = "not-present";
+  } else if (invalid) {
+    status = "incomplete";
+  } else if (rows.length < 2) {
+    status = "insufficient";
+  } else if (resets.length > 0) {
+    status = "reset-adjusted";
+  }
+
+  return {
+    status,
+    epochs,
+    resetCount: resets.length,
+    delta: present && !invalid ? round(delta) : null,
+    resets
+  };
+}
+
+function buildCounterContinuity(rows) {
+  const goodCount = analyzeCounterSeries(rows, "goodCount");
+  const totalProducedCount = analyzeCounterSeries(
+    rows,
+    "totalProducedCount",
+    "invalidTotalProducedCount"
+  );
+  const resets = [...goodCount.resets, ...totalProducedCount.resets].sort(
+    (left, right) =>
+      left.sampleIndex - right.sampleIndex || left.counter.localeCompare(right.counter)
+  );
+  let status = "continuous";
+  if (rows.length < 2) {
+    status = "insufficient";
+  } else if (resets.length > 0) {
+    status = "reset-adjusted";
+  }
+  return {
+    status,
+    resetCount: resets.length,
+    epochs: Math.max(goodCount.epochs, totalProducedCount.epochs),
+    deltaBasis:
+      resets.length > 0
+        ? "sum-of-observed-increments-within-counter-epochs"
+        : "last-minus-first",
+    goodCount: {
+      status: goodCount.status,
+      epochs: goodCount.epochs,
+      resetCount: goodCount.resetCount,
+      delta: goodCount.delta
+    },
+    totalProducedCount: {
+      status: totalProducedCount.status,
+      epochs: totalProducedCount.epochs,
+      resetCount: totalProducedCount.resetCount,
+      delta: totalProducedCount.delta
+    },
+    resets
+  };
+}
+
 function normalizeSamples(samples) {
   if (!Array.isArray(samples)) {
     throw new Error("samples must be an array");
@@ -105,9 +210,12 @@ function normalizeSamples(samples) {
     .sort((left, right) => left.at - right.at);
 }
 
-function resolveCounterMode(rows, goodDelta, ngCount, warnings) {
+function resolveCounterMode(rows, goodDelta, ngCount, warnings, counterContinuity) {
   const proxy = {
-    counterMode: "good-count-proxy",
+    counterMode:
+      counterContinuity.goodCount.resetCount > 0
+        ? "good-count-proxy-reset-adjusted"
+        : "good-count-proxy",
     totalDelta: null,
     counterScrapDelta: null
   };
@@ -124,16 +232,6 @@ function resolveCounterMode(rows, goodDelta, ngCount, warnings) {
     return proxy;
   }
 
-  const rollbackIndex = rows.findIndex(
-    (row, index) => index > 0 && row.totalProducedCount < rows[index - 1].totalProducedCount
-  );
-  if (rollbackIndex >= 0) {
-    warnings.push(
-      `totalProducedCount moved backwards at sample ${rollbackIndex}; falling back to the goodCount proxy.`
-    );
-    return proxy;
-  }
-
   const belowGoodIndex = rows.findIndex(
     (row) => row.totalProducedCount < row.goodCount
   );
@@ -144,7 +242,7 @@ function resolveCounterMode(rows, goodDelta, ngCount, warnings) {
     return proxy;
   }
 
-  const totalDelta = rows[rows.length - 1].totalProducedCount - rows[0].totalProducedCount;
+  const totalDelta = counterContinuity.totalProducedCount.delta;
   if (totalDelta < goodDelta) {
     warnings.push(
       "totalProducedCount delta is below goodCount delta; falling back to the goodCount proxy."
@@ -157,7 +255,10 @@ function resolveCounterMode(rows, goodDelta, ngCount, warnings) {
     );
   }
   return {
-    counterMode: "total-produced",
+    counterMode:
+      counterContinuity.totalProducedCount.resetCount > 0
+        ? "total-produced-reset-adjusted"
+        : "total-produced",
     totalDelta: round(totalDelta),
     counterScrapDelta: round(Math.max(0, totalDelta - goodDelta))
   };
@@ -165,6 +266,7 @@ function resolveCounterMode(rows, goodDelta, ngCount, warnings) {
 
 function calculateOee(samples, options = {}) {
   const rows = normalizeSamples(samples);
+  const counterContinuity = buildCounterContinuity(rows);
   const shiftCalendar = createShiftCalendar(
     options.plannedTime?.schedule,
     options.plannedTime?.timeZone || defaultTimeZone()
@@ -239,6 +341,7 @@ function calculateOee(samples, options = {}) {
       totalDelta: counterMode === "total-produced" ? 0 : null,
       counterScrapDelta: null,
       counterMode,
+      counterContinuity,
       ngCount,
       nominalOutputPerMinute,
       plannedTime,
@@ -262,6 +365,7 @@ function calculateOee(samples, options = {}) {
         lastSampleAt: rows[0]?.sample?.occurredAt ?? null,
         counterMode,
         counterScope: "first-to-last sample in observed window",
+        counterContinuity,
         plannedTime,
         downtimeSources,
         qualityBasis
@@ -318,10 +422,12 @@ function calculateOee(samples, options = {}) {
     }
   }
 
-  const goodDelta = last.goodCount >= first.goodCount ? last.goodCount - first.goodCount : 0;
-  if (last.goodCount < first.goodCount) {
-    warnings.push("goodCount moved backwards; the delta is treated as zero.");
+  for (const reset of counterContinuity.resets) {
+    warnings.push(
+      `${reset.counter} reset/rollback detected at sample ${reset.sampleIndex} (${reset.previousValue} -> ${reset.value}); production is summed across ${counterContinuity.epochs} observed counter epochs and increments hidden at the reset are not estimated.`
+    );
   }
+  const goodDelta = counterContinuity.goodCount.delta ?? 0;
   if (unknownStopMs > 0) {
     warnings.push("Unknown device statuses are treated as non-running time.");
   }
@@ -342,27 +448,34 @@ function calculateOee(samples, options = {}) {
   const availability =
     plannedProductionMs > 0 ? clamp(runningMs / plannedProductionMs, 0, 1) : 0;
   const theoreticalGood = nominalOutputPerMinute * (runningSeconds / 60);
-  const counter = resolveCounterMode(rows, goodDelta, ngCount, warnings);
+  const counter = resolveCounterMode(
+    rows,
+    goodDelta,
+    ngCount,
+    warnings,
+    counterContinuity
+  );
+  const usesTotalCounter = counter.counterMode.startsWith("total-produced");
   const performanceNumerator =
-    counter.counterMode === "total-produced" ? counter.totalDelta : goodDelta;
+    usesTotalCounter ? counter.totalDelta : goodDelta;
   const performance =
     theoreticalGood > 0 ? clamp(performanceNumerator / theoreticalGood, 0, 1) : 0;
   const qualityDenominator =
-    counter.counterMode === "total-produced" ? counter.totalDelta : goodDelta + ngCount;
+    usesTotalCounter ? counter.totalDelta : goodDelta + ngCount;
   const quality = qualityDenominator > 0 ? clamp(goodDelta / qualityDenominator, 0, 1) : 0;
   const oee = availability * performance * quality;
   const qualityBasis =
-    counter.counterMode === "total-produced"
+    usesTotalCounter
       ? "goodCount delta / totalProducedCount delta"
       : "goodDelta / (goodDelta + ngCount)";
   const performanceBasis =
-    counter.counterMode === "total-produced"
+    usesTotalCounter
       ? "totalProducedCount delta / theoretical produced units at nominal output"
       : "goodCount delta / theoretical good units at nominal output";
   const availabilityLossMs = unplannedStopMs + unknownStopMs;
   const speedLossUnits = Math.max(0, theoreticalGood - performanceNumerator);
   const qualityLossUnits =
-    counter.counterMode === "total-produced" ? counter.counterScrapDelta : ngCount;
+    usesTotalCounter ? counter.counterScrapDelta : ngCount;
   const lossBreakdown = {
     availabilityLossSeconds: round(availabilityLossMs / 1000, 3),
     plannedStopSeconds: round(Math.max(0, observedSeconds - plannedSeconds), 3),
@@ -374,11 +487,11 @@ function calculateOee(samples, options = {}) {
     speedLossUnits: round(speedLossUnits, 3),
     qualityLossUnits: round(qualityLossUnits, 3),
     speedLossSource:
-      counter.counterMode === "total-produced"
+      usesTotalCounter
         ? "total-counter-gap"
         : "good-counter-gap",
     qualityLossSource:
-      counter.counterMode === "total-produced"
+      usesTotalCounter
         ? "total-counter-scrap"
         : options.ngCount === undefined
           ? "ngCount-not-supplied"
@@ -393,7 +506,7 @@ function calculateOee(samples, options = {}) {
       "No available planned production time remains after planned downtime and changeover."
     );
   }
-  if (options.ngCount === undefined && counter.counterMode === "good-count-proxy") {
+  if (options.ngCount === undefined && !usesTotalCounter) {
     warnings.push(
       "ngCount was not supplied; quality assumes zero NG units and may overstate OEE."
     );
@@ -423,6 +536,7 @@ function calculateOee(samples, options = {}) {
     totalDelta: counter.totalDelta,
     counterScrapDelta: counter.counterScrapDelta,
     counterMode: counter.counterMode,
+    counterContinuity,
     ngCount,
     nominalOutputPerMinute,
     plannedTime,
@@ -433,8 +547,12 @@ function calculateOee(samples, options = {}) {
       firstSampleAt: new Date(first.at).toISOString(),
       lastSampleAt: new Date(last.at).toISOString(),
       counterMode: counter.counterMode,
-      counterScope: "first-to-last sample in observed window",
+      counterScope:
+        counterContinuity.resetCount > 0
+          ? "sum of adjacent increments within observed counter epochs"
+          : "first-to-last sample in observed window",
       totalDelta: counter.totalDelta,
+      counterContinuity,
       plannedTime,
       downtimeSources,
       qualityBasis

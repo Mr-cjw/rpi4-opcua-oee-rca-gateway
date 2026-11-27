@@ -62,6 +62,9 @@ Progress:
 - Completed 2026-11-27: active-alarm-code classification for planned downtime
   and changeover, device-status classification for unplanned/unknown stops, and
   availability, speed, and quality loss breakdowns.
+- Completed 2026-11-27: counter reset/epoch detection with reset-adjusted
+  deltas, explicit `counterContinuity` evidence, and replay continuity across
+  Gateway restarts.
 
 Deliverables:
 
@@ -199,14 +202,13 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Add shift/planned-time configuration and OEE window clipping.
-2. Add downtime classification and expose loss breakdown.
-3. Add counter epoch/reset continuity and reconciliation warnings.
-4. Add `dataQuality` plus counter-vs-NG reconciliation fields to the OEE API.
-5. Add a real-PLC `doctor`/commissioning validation path.
-6. Add CI and a repeatable soak-test harness.
+1. Add `dataQuality` plus counter-vs-NG reconciliation fields to the OEE API.
+2. Define product/SKU or ideal-cycle-time inputs for Performance.
+3. Add a real-PLC `doctor`/commissioning validation path.
+4. Add CI and a repeatable soak-test harness.
+5. Begin the M2 storage boundary and disk-pressure behavior.
 
-The first three units should be completed before adding new outward integrations.
+The remaining M1 units should be completed before adding new outward integrations.
 
 ## Release Gates
 
