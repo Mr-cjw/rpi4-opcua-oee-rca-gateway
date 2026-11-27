@@ -129,7 +129,9 @@ class ProcessContextCollector extends EventEmitter {
     this._timer = null;
     this._onAlarm = null;
     this._logStore = new JsonlLog(this.options.eventLogPath, {
-      logger: this.options.logger
+      logger: this.options.logger,
+      maxBytes: this.options.eventLogMaxBytes,
+      maxFiles: this.options.eventLogMaxFiles
     });
     this._loaded = false;
   }

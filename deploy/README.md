@@ -33,8 +33,9 @@ directory live there. Runtime work order/SN/correlation updates are persisted to
 - Use a secured OPC UA endpoint for a real PLC. `None` security is for isolated
   mock/testing only.
 - The Gateway only reads PLC points. It does not write controls.
-- JSONL logs are replayed at startup and are not rotated automatically. Add a
-  logrotate policy or truncate them during planned maintenance after validating
-  retention requirements.
+- JSONL logs are replayed at startup and rotate by size. The default maximum is
+  10 MiB per file with three retained backups; tune
+  `PROCESS_CONTEXT_LOG_MAX_*` and `QUALITY_EVENT_LOG_MAX_*` to the available SD
+  card or SSD budget.
 - `OEE_NOMINAL_OUTPUT_PER_MIN`, planned time, and quality-event connectivity must
   be validated before quoting OEE as a production metric.

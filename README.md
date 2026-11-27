@@ -314,6 +314,8 @@ Gateway only reads points; it does not write PLC controls.
 | `PROCESS_CONTEXT_RETENTION_MS` | `3600000` | In-memory retention window |
 | `PROCESS_CONTEXT_MAX_EVENTS` | `10000` | Maximum retained events/alarms |
 | `PROCESS_CONTEXT_LOG` | `data/process-context.jsonl` | JSONL path; use `off` to disable or `stdout` to stream |
+| `PROCESS_CONTEXT_LOG_MAX_BYTES` | `10485760` | Rotate the active context log after this many bytes |
+| `PROCESS_CONTEXT_LOG_MAX_FILES` | `3` | Number of rotated context-log backups to retain |
 | `OEE_NOMINAL_OUTPUT_PER_MIN` | `120` | Theoretical output for Performance |
 | `OEE_WINDOW_MS` | `300000` | Default OEE query window |
 | `RCA_WINDOW_MS` | `300000` | Default RCA +/- window |
@@ -321,15 +323,19 @@ Gateway only reads points; it does not write PLC controls.
 | `QUALITY_EVENT_RETENTION_MS` | `3600000` | In-memory NG event retention |
 | `QUALITY_EVENT_MAX_EVENTS` | `10000` | Maximum retained NG events |
 | `QUALITY_EVENT_LOG` | `data/quality-events.jsonl` | NG JSONL path; use `off` to disable or `stdout` to stream |
+| `QUALITY_EVENT_LOG_MAX_BYTES` | `10485760` | Rotate the active quality log after this many bytes |
+| `QUALITY_EVENT_LOG_MAX_FILES` | `3` | Number of rotated quality-log backups to retain |
 | `GATEWAY_HTTP_HOST` | `127.0.0.1` | HTTP bind address |
 | `GATEWAY_HTTP_PORT` | `8080` | HTTP port; `0` selects a free port |
 | `GATEWAY_API_TOKEN` | empty | Optional bearer token |
 
-Both process-context and quality-event JSONL logs are replayed at startup. They
-are append-only and not rotated automatically yet; the in-memory replay window
-is bounded. Long-term retention should move to SQLite or a time-series store
-before a real pilot. The small runtime work-context state file is replaced
-atomically on every update and is safe to back up independently.
+Both process-context and quality-event JSONL logs are replayed at startup,
+including retained rotated segments. Logs rotate by size with three backups by
+default, so disk use is bounded by `(MAX_FILES + 1) x MAX_BYTES` for each
+stream. This is a bounded operational log, not a long-term historian; move to
+SQLite or a time-series store before a real pilot. The small runtime
+work-context state file is replaced atomically on every update and is safe to
+back up independently.
 
 ### Gateway client configuration
 

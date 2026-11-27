@@ -100,7 +100,9 @@ class QualityEventStore extends EventEmitter {
     this._events = [];
     this._bySourceEventId = new Map();
     this._logStore = new JsonlLog(this.options.eventLogPath, {
-      logger: this.options.logger
+      logger: this.options.logger,
+      maxBytes: this.options.eventLogMaxBytes,
+      maxFiles: this.options.eventLogMaxFiles
     });
     this._loaded = false;
   }

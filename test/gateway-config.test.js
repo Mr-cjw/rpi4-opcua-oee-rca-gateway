@@ -47,3 +47,25 @@ test("gateway config refuses to disable a required PLC point", () => {
     /OPCUA_DEVICE_STATUS_NODE cannot be disabled/
   );
 });
+
+test("gateway config tunes bounded JSONL rotation independently", () => {
+  const config = loadGatewayConfig({
+    PROCESS_CONTEXT_LOG_MAX_BYTES: "2048",
+    PROCESS_CONTEXT_LOG_MAX_FILES: "2",
+    QUALITY_EVENT_LOG_MAX_BYTES: "4096",
+    QUALITY_EVENT_LOG_MAX_FILES: "4"
+  });
+
+  assert.equal(config.context.logMaxBytes, 2048);
+  assert.equal(config.context.logMaxFiles, 2);
+  assert.equal(config.quality.logMaxBytes, 4096);
+  assert.equal(config.quality.logMaxFiles, 4);
+  assert.throws(
+    () => loadGatewayConfig({ PROCESS_CONTEXT_LOG_MAX_BYTES: "512" }),
+    /PROCESS_CONTEXT_LOG_MAX_BYTES/
+  );
+  assert.throws(
+    () => loadGatewayConfig({ QUALITY_EVENT_LOG_MAX_FILES: "0" }),
+    /QUALITY_EVENT_LOG_MAX_FILES/
+  );
+});

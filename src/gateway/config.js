@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("node:path");
+const { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } = require("./jsonl");
 
 function integerFromEnv(env, name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
   const raw = env[name];
@@ -175,7 +176,19 @@ function loadGatewayConfig(env = process.env) {
         min: 2,
         max: 1000000
       }),
-      logPath: jsonlPathFromEnv(env, "PROCESS_CONTEXT_LOG", "process-context.jsonl")
+      logPath: jsonlPathFromEnv(env, "PROCESS_CONTEXT_LOG", "process-context.jsonl"),
+      logMaxBytes: integerFromEnv(
+        env,
+        "PROCESS_CONTEXT_LOG_MAX_BYTES",
+        DEFAULT_MAX_BYTES,
+        { min: 1024, max: 1024 * 1024 * 1024 }
+      ),
+      logMaxFiles: integerFromEnv(
+        env,
+        "PROCESS_CONTEXT_LOG_MAX_FILES",
+        DEFAULT_MAX_FILES,
+        { min: 1, max: 100 }
+      )
     }),
     analytics: Object.freeze({
       nominalOutputPerMinute: numberFromEnv(env, "OEE_NOMINAL_OUTPUT_PER_MIN", 120, {
@@ -204,7 +217,19 @@ function loadGatewayConfig(env = process.env) {
         min: 2,
         max: 1000000
       }),
-      logPath: jsonlPathFromEnv(env, "QUALITY_EVENT_LOG", "quality-events.jsonl")
+      logPath: jsonlPathFromEnv(env, "QUALITY_EVENT_LOG", "quality-events.jsonl"),
+      logMaxBytes: integerFromEnv(
+        env,
+        "QUALITY_EVENT_LOG_MAX_BYTES",
+        DEFAULT_MAX_BYTES,
+        { min: 1024, max: 1024 * 1024 * 1024 }
+      ),
+      logMaxFiles: integerFromEnv(
+        env,
+        "QUALITY_EVENT_LOG_MAX_FILES",
+        DEFAULT_MAX_FILES,
+        { min: 1, max: 100 }
+      )
     }),
     api: Object.freeze({
       host: env.GATEWAY_HTTP_HOST || "127.0.0.1",

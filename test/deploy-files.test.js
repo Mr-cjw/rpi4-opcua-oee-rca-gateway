@@ -34,7 +34,11 @@ test("gateway environment template includes persistence and API safeguards", asy
     "GATEWAY_HTTP_HOST",
     "GATEWAY_API_TOKEN",
     "PROCESS_CONTEXT_LOG",
+    "PROCESS_CONTEXT_LOG_MAX_BYTES",
+    "PROCESS_CONTEXT_LOG_MAX_FILES",
     "QUALITY_EVENT_LOG",
+    "QUALITY_EVENT_LOG_MAX_BYTES",
+    "QUALITY_EVENT_LOG_MAX_FILES",
     "OEE_NOMINAL_OUTPUT_PER_MIN",
     "RCA_TEMPERATURE_THRESHOLD_C"
   ]) {

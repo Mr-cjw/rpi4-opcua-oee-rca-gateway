@@ -41,6 +41,8 @@ class GatewayRuntime extends EventEmitter {
         ...config.identity,
         ...config.context,
         eventLogPath: config.context.logPath,
+        eventLogMaxBytes: config.context.logMaxBytes,
+        eventLogMaxFiles: config.context.logMaxFiles,
         logger: this.logger
       });
     this.qualityEvents =
@@ -49,6 +51,8 @@ class GatewayRuntime extends EventEmitter {
         ...config.identity,
         ...config.quality,
         eventLogPath: config.quality.logPath,
+        eventLogMaxBytes: config.quality.logMaxBytes,
+        eventLogMaxFiles: config.quality.logMaxFiles,
         logger: this.logger
       });
     this.workContextStore =
