@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rpi4.local/contracts/process-context-event.schema.json",
+  "title": "ProcessContextEvent",
+  "description": "Equipment context sampled by the Raspberry Pi OEE/RCA gateway. This event is analytical input and does not mutate QA or MES delivery state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "source",
+    "eventType",
+    "occurredAt",
+    "lineId",
+    "stationId",
+    "metrics",
+    "alarms"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "eventType": {
+      "const": "PROCESS_CONTEXT"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lineId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workOrderId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "serialNumber": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deviceStatus",
+        "currentOutput",
+        "goodCount",
+        "temperatureC"
+      ],
+      "properties": {
+        "deviceStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "currentOutput": {
+          "type": "number"
+        },
+        "goodCount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "temperatureC": {
+          "type": "number"
+        },
+        "alarmSequence": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "alarms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "occurredAt"
+        ],
+        "properties": {
+          "eventId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "cause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deviceStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "temperatureC": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "currentOutput": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "goodCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

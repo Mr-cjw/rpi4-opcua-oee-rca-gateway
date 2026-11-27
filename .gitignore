@@ -229,3 +229,5 @@ node_modules/
 PKI/
 coverage/
 .pki/
+data/
+*.jsonl

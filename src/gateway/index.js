@@ -1,11 +1,11 @@
 "use strict";
 
 const { loadGatewayConfig } = require("./config");
-const { OpcUaGatewayClient } = require("./opcua-client");
+const { GatewayRuntime } = require("./runtime");
 
 async function main() {
   const config = loadGatewayConfig();
-  const client = new OpcUaGatewayClient(config);
+  const runtime = new GatewayRuntime(config);
 
   let shuttingDown = false;
   async function shutdown(reason, exitCode = 0) {
@@ -22,7 +22,7 @@ async function main() {
     forcedExit.unref();
 
     try {
-      await client.stop();
+      await runtime.stop();
       clearTimeout(forcedExit);
       process.exitCode = exitCode;
     } catch (error) {
@@ -44,7 +44,7 @@ async function main() {
   });
 
   try {
-    await client.start();
+    await runtime.start();
   } catch (error) {
     if (shuttingDown) {
       return;
@@ -53,11 +53,19 @@ async function main() {
   }
 
   console.log("[gateway] OPC UA client is connected and subscribed.");
+  console.log(`[gateway] Context API: ${runtime.api.address}`);
+  console.log(
+    `[gateway] Identity: line=${config.identity.lineId} station=${config.identity.stationId}`
+  );
+  console.log(
+    `[gateway] Context log: ${config.context.logPath || "disabled"}`
+  );
   if (process.env.OPCUA_LOG_SNAPSHOT === "1") {
     console.log(
-      `[gateway] Initial snapshot: ${JSON.stringify(client.getSnapshot(), null, 2)}`
+      `[gateway] Initial snapshot: ${JSON.stringify(runtime.client.getSnapshot(), null, 2)}`
     );
   }
+  console.log("[gateway] Press Ctrl+C to stop.");
 }
 
 main().catch((error) => {

@@ -1,0 +1,231 @@
+"use strict";
+
+const http = require("node:http");
+const { timingSafeEqual } = require("node:crypto");
+
+const MAX_BODY_BYTES = 1024 * 1024;
+
+class HttpError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+function sendJson(response, statusCode, payload) {
+  const body = `${JSON.stringify(payload)}\n`;
+  response.writeHead(statusCode, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff"
+  });
+  response.end(body);
+}
+
+function secureTokenMatches(provided, expected) {
+  const left = Buffer.from(provided);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function readJsonBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    request.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new HttpError(413, "request body exceeds 1 MiB"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      if (chunks.length === 0) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch {
+        reject(new HttpError(400, "request body must be valid JSON"));
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
+function integerQuery(searchParams, name) {
+  const raw = searchParams.get(name);
+  if (raw === null || raw === "") {
+    return undefined;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value)) {
+    throw new HttpError(400, `${name} must be an integer`);
+  }
+  return value;
+}
+
+function createGatewayApi(runtime, options = {}) {
+  const host = options.host || "127.0.0.1";
+  const port = options.port ?? 8080;
+  const token = options.token || "";
+  const logger = options.logger || null;
+  let server = null;
+  let boundPort = null;
+
+  async function handle(request, response) {
+    const url = new URL(request.url || "/", `http://${host}:${boundPort || port}`);
+    const pathname = url.pathname;
+
+    if (pathname === "/healthz" && request.method === "GET") {
+      sendJson(response, 200, runtime.getStatus());
+      return;
+    }
+
+    if (token) {
+      const authorization = request.headers.authorization || "";
+      const provided = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+      if (!secureTokenMatches(provided, token)) {
+        response.setHeader("www-authenticate", "Bearer");
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+    }
+
+    if (pathname === "/v1/context/latest" && request.method === "GET") {
+      const latest = runtime.getLatestContext();
+      if (!latest) {
+        sendJson(response, 404, { error: "no process context has been captured yet" });
+        return;
+      }
+      sendJson(response, 200, latest);
+      return;
+    }
+
+    if (pathname === "/v1/events" && request.method === "GET") {
+      const events = runtime.getContextEvents({
+        from: url.searchParams.get("from") || undefined,
+        to: url.searchParams.get("to") || undefined,
+        limit: integerQuery(url.searchParams, "limit")
+      });
+      sendJson(response, 200, { count: events.length, events });
+      return;
+    }
+
+    if (pathname === "/v1/alarms" && request.method === "GET") {
+      const alarms = runtime.getAlarmHistory({
+        from: url.searchParams.get("from") || undefined,
+        to: url.searchParams.get("to") || undefined,
+        limit: integerQuery(url.searchParams, "limit")
+      });
+      sendJson(response, 200, { count: alarms.length, alarms });
+      return;
+    }
+
+    if (pathname === "/v1/oee" && request.method === "GET") {
+      const result = runtime.calculateOee({
+        from: url.searchParams.get("from") || undefined,
+        to: url.searchParams.get("to") || undefined,
+        windowMs: integerQuery(url.searchParams, "windowMs"),
+        ngCount: integerQuery(url.searchParams, "ngCount")
+      });
+      sendJson(response, 200, result);
+      return;
+    }
+
+    if (pathname === "/v1/rca" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = runtime.analyzeRca({
+        targetAt: body.targetAt,
+        windowMs: body.windowMs,
+        temperatureThresholdC: body.temperatureThresholdC
+      });
+      sendJson(response, 200, result);
+      return;
+    }
+
+    if (pathname === "/v1/correlation" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const correlationId = runtime.setCorrelationId(body.correlationId);
+      sendJson(response, 200, { correlationId });
+      return;
+    }
+
+    sendJson(response, 404, { error: "not found" });
+  }
+
+  const api = {
+    get port() {
+      return boundPort;
+    },
+    get address() {
+      return boundPort === null ? null : `http://${host}:${boundPort}`;
+    },
+    async listen() {
+      if (server) {
+        return api.address;
+      }
+      server = http.createServer((request, response) => {
+        handle(request, response).catch((error) => {
+          const statusCode = error instanceof HttpError ? error.statusCode : 500;
+          if (statusCode >= 500 && logger?.error) {
+            logger.error({
+              timestamp: new Date().toISOString(),
+              level: "error",
+              module: "gateway-api",
+              message: "HTTP request failed",
+              path: request.url,
+              error: error.message
+            });
+          }
+          if (!response.headersSent) {
+            sendJson(response, statusCode, { error: error.message || "internal server error" });
+          } else {
+            response.destroy();
+          }
+        });
+      });
+      server.requestTimeout = 15000;
+      server.headersTimeout = 10000;
+
+      await new Promise((resolve, reject) => {
+        const onError = (error) => {
+          server?.off("listening", onListening);
+          reject(error);
+        };
+        const onListening = () => {
+          server?.off("error", onError);
+          const address = server.address();
+          boundPort = typeof address === "object" && address ? address.port : port;
+          resolve();
+        };
+        server.once("error", onError);
+        server.once("listening", onListening);
+        server.listen(port, host);
+      });
+      return api.address;
+    },
+    async close() {
+      if (!server) {
+        return;
+      }
+      const closing = server;
+      server = null;
+      await new Promise((resolve) => {
+        closing.close(() => resolve());
+        closing.closeAllConnections?.();
+      });
+      boundPort = null;
+    }
+  };
+
+  return api;
+}
+
+module.exports = {
+  createGatewayApi,
+  HttpError
+};

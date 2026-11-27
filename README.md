@@ -16,6 +16,8 @@ It provides:
 - Random downtime and temperature-spike injection
 - OPC UA methods for deterministic fault injection
 - Seed control for repeatable test runs
+- A Gateway runtime that records `PROCESS_CONTEXT` events to JSONL
+- Loopback HTTP endpoints for process context, OEE decomposition, and RCA candidates
 
 ## Requirements
 
@@ -120,6 +122,121 @@ The module handles one shared session/subscription, sequential reconnect with
 bounded exponential backoff, duplicate value suppression, structured alarm
 normalization, and deterministic cleanup. `getSnapshot()` returns the latest
 value payload for every subscribed variable.
+
+## Gateway Runtime: Process Context, OEE and RCA
+
+`npm run gateway` now starts the full Gateway runtime, not only the OPC UA
+client. With the mock server already running, use two terminals:
+
+```bash
+# Terminal 1: PLC, real or mock
+npm start
+
+# Terminal 2: Gateway runtime
+GATEWAY_LINE_ID=JX-LINE-01 \
+GATEWAY_STATION_ID=JX-LINQIN-STATION-01 \
+PROCESS_CONTEXT_LOG=data/process-context.jsonl \
+npm run gateway
+```
+
+The runtime performs four jobs:
+
+1. Connects to one OPC UA endpoint and keeps one subscription alive.
+2. Samples the latest PLC values into a versioned `ProcessContextEvent` and
+   appends it to JSONL.
+3. Exposes a loopback HTTP API for the latest context, retained events, OEE,
+   and RCA candidates.
+4. Keeps alarm history separately so alarms raised between sampling ticks are
+   still available to RCA.
+
+The event contract is
+[`contracts/process-context-event.schema.json`](contracts/process-context-event.schema.json).
+Analysis only reads context events; it never changes QA or MES delivery state.
+
+### HTTP API
+
+The default bind address is `127.0.0.1:8080`. Set `GATEWAY_API_TOKEN` to require
+`Authorization: Bearer <token>` on every endpoint except `/healthz`.
+
+```bash
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/v1/context/latest
+curl 'http://127.0.0.1:8080/v1/events?limit=20'
+curl 'http://127.0.0.1:8080/v1/oee?windowMs=300000&ngCount=3'
+curl -X POST http://127.0.0.1:8080/v1/rca \
+  -H 'content-type: application/json' \
+  -d '{"targetAt":"2026-11-27T06:00:00.000Z","windowMs":300000}'
+```
+
+### OEE inputs and limits
+
+The first version intentionally exposes every input instead of only showing a
+single headline number:
+
+- Availability = `RUNNING` intervals / observed intervals;
+- Performance = `goodCount` delta / theoretical good units at nominal output;
+- Quality = `goodCount` delta / (`goodCount` delta + supplied NG count);
+- OEE = Availability x Performance x Quality.
+
+The observed window is currently used as planned production time. Shift
+calendars, planned stops, changeovers, and speed loss need to be added before
+using this as a formal production OEE figure. If `ngCount` is omitted, the API
+returns a warning because quality would otherwise be overstated.
+
+The mock PLC exposes `GoodCount` but not `TotalProducedCount`, so Performance
+currently uses `GoodCount` as the production proxy. A real PLC mapping should
+add total produced count to separate speed loss from quality loss cleanly.
+
+### RCA boundary
+
+RCA first performs explainable time-window correlation. It looks for downtime
+and temperature anomalies around the requested `targetAt` and returns candidate
+root causes with raw evidence and a confidence label. Every candidate has
+`causalClaim: false`; time overlap is not presented as proof of causation.
+
+Example response shape:
+
+```json
+{
+  "conclusion": "TEMPERATURE_SPIKE",
+  "candidates": [
+    {
+      "code": "TEMPERATURE_SPIKE",
+      "score": 0.91,
+      "confidence": "medium-high",
+      "confidenceLabel": "time overlap, not causal proof",
+      "causalClaim": false,
+      "evidence": []
+    }
+  ],
+  "disclaimer": "Candidates are derived from time-window overlap. They are not evidence of causation and require human confirmation."
+}
+```
+
+### Gateway runtime configuration
+
+| Variable | Default | Description |
+|---|---:|---|
+| `GATEWAY_LINE_ID` | `LINE-01` | Line identifier written into context events |
+| `GATEWAY_STATION_ID` | `STATION-01` | Station identifier written into context events |
+| `GATEWAY_WORK_ORDER_ID` | empty | Optional current work order |
+| `GATEWAY_SERIAL_NUMBER` | empty | Optional current serial number |
+| `GATEWAY_CORRELATION_ID` | empty | Optional correlation ID for the current work order |
+| `PROCESS_CONTEXT_SAMPLE_INTERVAL_MS` | `1000` | Context sampling interval |
+| `PROCESS_CONTEXT_RETENTION_MS` | `3600000` | In-memory retention window |
+| `PROCESS_CONTEXT_MAX_EVENTS` | `10000` | Maximum retained events/alarms |
+| `PROCESS_CONTEXT_LOG` | `data/process-context.jsonl` | JSONL path; use `off` to disable or `stdout` to stream |
+| `OEE_NOMINAL_OUTPUT_PER_MIN` | `120` | Theoretical output for Performance |
+| `OEE_WINDOW_MS` | `300000` | Default OEE query window |
+| `RCA_WINDOW_MS` | `300000` | Default RCA +/- window |
+| `RCA_TEMPERATURE_THRESHOLD_C` | `70` | Temperature anomaly threshold |
+| `GATEWAY_HTTP_HOST` | `127.0.0.1` | HTTP bind address |
+| `GATEWAY_HTTP_PORT` | `8080` | HTTP port; `0` selects a free port |
+| `GATEWAY_API_TOKEN` | empty | Optional bearer token |
+
+The JSONL output is append-only and is not rotated automatically yet. The
+in-memory event window is bounded; long-term retention should move to SQLite or
+a time-series store before a real pilot.
 
 ### Gateway client configuration
 
@@ -460,13 +577,17 @@ host. Use the host gateway/address or a Docker service name. Ensure TCP port
 
 ## Automated Tests
 
-Run the simulation unit tests and the Gateway client integration test:
+Run the simulation, OEE/RCA, process-context, HTTP API, and Gateway client
+integration tests:
 
 ```bash
 npm test
 ```
 
-The integration test starts an isolated mock server, connects through
+The suite covers deterministic simulation, OEE input decomposition, downtime
+impact, RCA candidate/evidence behavior, the versioned process-context event,
+JSONL persistence, bearer-token enforcement, and an end-to-end runtime API. The
+OPC UA integration test starts an isolated mock server, connects through
 `OpcUaGatewayClient`, verifies variable data, injects a downtime, verifies the
 normalized native alarm event, and then cleans up the session and subscription.
 
@@ -476,6 +597,14 @@ custom event fields, `AlarmEvents`, and method calls, then shuts everything down
 
 ```bash
 npm run e2e
+```
+
+Run the full Gateway path against a live mock PLC. This starts the PLC, connects
+the real OPC UA client, samples process context, injects downtime plus a
+temperature spike, and verifies the HTTP OEE/RCA responses:
+
+```bash
+npm run e2e:gateway
 ```
 
 To test an already-running server:
@@ -496,12 +625,14 @@ OPCUA_ENDPOINT=opc.tcp://192.168.1.50:4840/UA/MockPLC npm run smoke
    flat.
 6. Verify that the RCA pipeline receives a downtime event and creates the
    expected root-cause record.
-7. Wait for recovery and verify that output and `GoodCount` resume.
-8. Call `TriggerTemperatureSpike` with `DurationSeconds=15` and
+7. Query `/v1/oee` and `/v1/rca`; confirm that every OEE component and RCA
+   candidate includes its inputs/evidence rather than only a headline value.
+8. Wait for recovery and verify that output and `GoodCount` resume.
+9. Call `TriggerTemperatureSpike` with `DurationSeconds=15` and
    `PeakCelsius=95`.
-9. Verify that the RCA rule triggers on the temperature threshold and clears
+10. Verify that the RCA rule triggers on the temperature threshold and clears
    after recovery.
-10. Repeat with one fixed `SIM_SEED` to compare RCA output across builds.
+11. Repeat with one fixed `SIM_SEED` to compare RCA output across builds.
 
 ## Raspberry Pi systemd Example
 
