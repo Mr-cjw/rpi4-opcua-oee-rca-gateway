@@ -20,6 +20,7 @@ It provides:
 - Loopback HTTP endpoints for process context, OEE decomposition, and RCA candidates
 - Optional bearer-protected Prometheus metrics
 - Runtime-updatable work-order, serial-number, and correlation context
+- Durable quality-event idempotency independent of log rotation
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
 
 ## Requirements
@@ -225,7 +226,17 @@ The endpoint:
 - accepts `quantity`, work order, serial, correlation ID, defect type,
   confidence, image ID, and free-form metadata;
 - returns `201` for the first write and `200` with `duplicate: true` for a
-  replay.
+  replay. Duplicate responses include `retained`; when the original event has
+  already left the in-memory window, `event` contains the compact archived
+  record and `retained` is `false`.
+
+Idempotency keys are stored in a separate atomically replaced ledger, not just
+in the event-retention window. By default the ledger retains 100,000 source
+event IDs for seven days, so a retry remains a duplicate across event-log
+rotation and Gateway restarts. The ledger is bounded by
+`QUALITY_EVENT_IDEMPOTENCY_RETENTION_MS` and
+`QUALITY_EVENT_IDEMPOTENCY_MAX_ENTRIES`; set
+`QUALITY_EVENT_IDEMPOTENCY_FILE=off` to disable durable deduplication.
 
 When `/v1/oee` is called without an explicit `ngCount`, the Gateway sums the NG
 quantity recorded in the same time window. `/v1/rca` accepts
@@ -348,6 +359,9 @@ Gateway only reads points; it does not write PLC controls.
 | `QUALITY_EVENT_LOG` | `data/quality-events.jsonl` | NG JSONL path; use `off` to disable or `stdout` to stream |
 | `QUALITY_EVENT_LOG_MAX_BYTES` | `10485760` | Rotate the active quality log after this many bytes |
 | `QUALITY_EVENT_LOG_MAX_FILES` | `3` | Number of rotated quality-log backups to retain |
+| `QUALITY_EVENT_IDEMPOTENCY_FILE` | `data/quality-idempotency.json` | Atomic source-event ID ledger; use `off` to disable |
+| `QUALITY_EVENT_IDEMPOTENCY_RETENTION_MS` | `604800000` | Deduplication horizon; must be at least `QUALITY_EVENT_RETENTION_MS` |
+| `QUALITY_EVENT_IDEMPOTENCY_MAX_ENTRIES` | `100000` | Maximum retained source-event IDs; must be at least `QUALITY_EVENT_MAX_EVENTS` |
 | `GATEWAY_HTTP_HOST` | `127.0.0.1` | HTTP bind address |
 | `GATEWAY_HTTP_PORT` | `8080` | HTTP port; `0` selects a free port |
 | `GATEWAY_API_TOKEN` | empty | Optional bearer token |
@@ -358,7 +372,9 @@ default, so disk use is bounded by `(MAX_FILES + 1) x MAX_BYTES` for each
 stream. This is a bounded operational log, not a long-term historian; move to
 SQLite or a time-series store before a real pilot. The small runtime
 work-context state file is replaced atomically on every update and is safe to
-back up independently.
+back up independently. The quality-idempotency ledger is also replaced
+atomically and should be backed up with the quality JSONL when duplicate
+suppression matters across recovery.
 
 ### Gateway client configuration
 

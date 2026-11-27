@@ -52,6 +52,9 @@ class GatewayRuntime extends EventEmitter {
         ...config.identity,
         ...config.quality,
         eventLogPath: config.quality.logPath,
+        idempotencyPath: config.quality.idempotencyPath,
+        idempotencyRetentionMs: config.quality.idempotencyRetentionMs,
+        idempotencyMaxEntries: config.quality.idempotencyMaxEntries,
         eventLogMaxBytes: config.quality.logMaxBytes,
         eventLogMaxFiles: config.quality.logMaxFiles,
         logger: this.logger

@@ -218,6 +218,23 @@ function loadGatewayConfig(env = process.env) {
         max: 1000000
       }),
       logPath: jsonlPathFromEnv(env, "QUALITY_EVENT_LOG", "quality-events.jsonl"),
+      idempotencyPath: statePathFromEnv(
+        env,
+        "QUALITY_EVENT_IDEMPOTENCY_FILE",
+        "quality-idempotency.json"
+      ),
+      idempotencyRetentionMs: integerFromEnv(
+        env,
+        "QUALITY_EVENT_IDEMPOTENCY_RETENTION_MS",
+        7 * 24 * 60 * 60 * 1000,
+        { min: 60000, max: 30 * 24 * 60 * 60 * 1000 }
+      ),
+      idempotencyMaxEntries: integerFromEnv(
+        env,
+        "QUALITY_EVENT_IDEMPOTENCY_MAX_ENTRIES",
+        100000,
+        { min: 2, max: 1000000 }
+      ),
       logMaxBytes: integerFromEnv(
         env,
         "QUALITY_EVENT_LOG_MAX_BYTES",

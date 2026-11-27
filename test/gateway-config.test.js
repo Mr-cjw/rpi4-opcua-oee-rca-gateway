@@ -69,3 +69,25 @@ test("gateway config tunes bounded JSONL rotation independently", () => {
     /QUALITY_EVENT_LOG_MAX_FILES/
   );
 });
+
+test("gateway config configures durable quality idempotency", () => {
+  const defaults = loadGatewayConfig({});
+  assert.match(defaults.quality.idempotencyPath, /quality-idempotency\.json$/);
+  assert.equal(defaults.quality.idempotencyRetentionMs, 7 * 24 * 60 * 60 * 1000);
+  assert.equal(defaults.quality.idempotencyMaxEntries, 100000);
+
+  const config = loadGatewayConfig({
+    QUALITY_EVENT_IDEMPOTENCY_FILE: "off",
+    QUALITY_EVENT_RETENTION_MS: "60000",
+    QUALITY_EVENT_IDEMPOTENCY_RETENTION_MS: "120000",
+    QUALITY_EVENT_MAX_EVENTS: "10",
+    QUALITY_EVENT_IDEMPOTENCY_MAX_ENTRIES: "50"
+  });
+  assert.equal(config.quality.idempotencyPath, null);
+  assert.equal(config.quality.idempotencyRetentionMs, 120000);
+  assert.equal(config.quality.idempotencyMaxEntries, 50);
+  assert.throws(
+    () => loadGatewayConfig({ QUALITY_EVENT_IDEMPOTENCY_RETENTION_MS: "59999" }),
+    /QUALITY_EVENT_IDEMPOTENCY_RETENTION_MS/
+  );
+});

@@ -37,6 +37,9 @@ test("gateway environment template includes persistence and API safeguards", asy
     "PROCESS_CONTEXT_LOG_MAX_BYTES",
     "PROCESS_CONTEXT_LOG_MAX_FILES",
     "QUALITY_EVENT_LOG",
+    "QUALITY_EVENT_IDEMPOTENCY_FILE",
+    "QUALITY_EVENT_IDEMPOTENCY_RETENTION_MS",
+    "QUALITY_EVENT_IDEMPOTENCY_MAX_ENTRIES",
     "QUALITY_EVENT_LOG_MAX_BYTES",
     "QUALITY_EVENT_LOG_MAX_FILES",
     "OEE_NOMINAL_OUTPUT_PER_MIN",
@@ -48,5 +51,6 @@ test("gateway environment template includes persistence and API safeguards", asy
   assert.match(env, /^GATEWAY_API_TOKEN=replace-with-strong-token$/m);
   assert.match(env, /^PROCESS_CONTEXT_LOG=\/var\/lib\/rpi4-gateway\//m);
   assert.match(env, /^QUALITY_EVENT_LOG=\/var\/lib\/rpi4-gateway\//m);
+  assert.match(env, /^QUALITY_EVENT_IDEMPOTENCY_FILE=\/var\/lib\/rpi4-gateway\//m);
   assert.match(env, /^GATEWAY_WORK_CONTEXT_FILE=\/var\/lib\/rpi4-gateway\//m);
 });

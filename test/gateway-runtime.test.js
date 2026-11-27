@@ -56,6 +56,7 @@ function makeRuntime(extraEnv = {}) {
     OPCUA_ENDPOINT: "opc.tcp://127.0.0.1:1/UA/MockPLC",
     PROCESS_CONTEXT_LOG: "off",
     QUALITY_EVENT_LOG: "off",
+    QUALITY_EVENT_IDEMPOTENCY_FILE: "off",
     GATEWAY_HTTP_PORT: "0",
     GATEWAY_LINE_ID: "JX-LINE-01",
     GATEWAY_STATION_ID: "JX-LINQIN-STATION-01",
@@ -572,7 +573,8 @@ test("gateway runtime replays context and quality events after restart", async (
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "gateway-replay-"));
   const env = {
     PROCESS_CONTEXT_LOG: path.join(directory, "process-context.jsonl"),
-    QUALITY_EVENT_LOG: path.join(directory, "quality-events.jsonl")
+    QUALITY_EVENT_LOG: path.join(directory, "quality-events.jsonl"),
+    QUALITY_EVENT_IDEMPOTENCY_FILE: path.join(directory, "quality-idempotency.json")
   };
   t.after(async () => {
     await fs.rm(directory, { recursive: true, force: true });
@@ -593,6 +595,15 @@ test("gateway runtime replays context and quality events after restart", async (
   const second = makeRuntime(env);
   try {
     await second.runtime.start();
+    assert.equal(second.runtime.getStatus().quality.eventCount, 1);
+
+    const duplicate = second.runtime.recordQualityEvent({
+      sourceEventId: "QC-REPLAY-001",
+      occurredAt: iso(10),
+      quantity: 2
+    });
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(duplicate.event.qualityEventId, quality.event.qualityEventId);
     assert.equal(second.runtime.getStatus().quality.eventCount, 1);
 
     const oee = second.runtime.calculateOee({ from: iso(0), to: iso(10) });

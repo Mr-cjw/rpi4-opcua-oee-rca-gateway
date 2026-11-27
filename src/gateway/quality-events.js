@@ -4,6 +4,7 @@ const { EventEmitter } = require("node:events");
 const { randomUUID } = require("node:crypto");
 const { toMillis } = require("../analytics/oee");
 const { JsonlLog } = require("./jsonl");
+const { QualityIdempotencyStore } = require("./quality-idempotency");
 const {
   matchesWorkContext,
   normalizeWorkContextUpdate,
@@ -13,6 +14,8 @@ const {
 
 const DEFAULT_RETENTION_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_EVENTS = 10000;
+const DEFAULT_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_IDEMPOTENCY_MAX_ENTRIES = 100000;
 
 class QualityEventValidationError extends Error {
   constructor(message) {
@@ -76,6 +79,36 @@ function rangeFromOptions(options = {}) {
   };
 }
 
+function compactQualityEvent(event) {
+  const compact = {
+    schemaVersion: "1.0",
+    qualityEventId: event.qualityEventId,
+    sourceEventId: event.sourceEventId,
+    eventType: event.eventType,
+    result: "NG",
+    occurredAt: event.occurredAt,
+    lineId: event.lineId,
+    stationId: event.stationId,
+    quantity: event.quantity,
+    recordedAt: event.recordedAt,
+    metadata: {}
+  };
+  for (const field of [
+    "workOrderId",
+    "serialNumber",
+    "correlationId",
+    "defectType",
+    "imageId",
+    "source",
+    "confidence"
+  ]) {
+    if (event[field] !== undefined) {
+      compact[field] = event[field];
+    }
+  }
+  return compact;
+}
+
 class QualityEventStore extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -88,6 +121,11 @@ class QualityEventStore extends EventEmitter {
       retentionMs: options.retentionMs ?? DEFAULT_RETENTION_MS,
       maxEvents: options.maxEvents ?? DEFAULT_MAX_EVENTS,
       eventLogPath: options.eventLogPath || options.logPath || null,
+      idempotencyPath: options.idempotencyPath || null,
+      idempotencyRetentionMs:
+        options.idempotencyRetentionMs ?? DEFAULT_IDEMPOTENCY_RETENTION_MS,
+      idempotencyMaxEntries:
+        options.idempotencyMaxEntries ?? DEFAULT_IDEMPOTENCY_MAX_ENTRIES,
       clock: options.clock || (() => Date.now()),
       createId: options.createId || (() => `qevt-${randomUUID()}`),
       logger: options.logger || null
@@ -98,6 +136,22 @@ class QualityEventStore extends EventEmitter {
     if (!Number.isInteger(this.options.maxEvents) || this.options.maxEvents < 2) {
       throw new Error("quality event maxEvents must be an integer >= 2");
     }
+    if (
+      !Number.isInteger(this.options.idempotencyRetentionMs) ||
+      this.options.idempotencyRetentionMs < this.options.retentionMs
+    ) {
+      throw new Error(
+        "quality event idempotencyRetentionMs must be an integer >= retentionMs"
+      );
+    }
+    if (
+      !Number.isInteger(this.options.idempotencyMaxEntries) ||
+      this.options.idempotencyMaxEntries < this.options.maxEvents
+    ) {
+      throw new Error(
+        "quality event idempotencyMaxEntries must be an integer >= maxEvents"
+      );
+    }
 
     this._events = [];
     this._bySourceEventId = new Map();
@@ -106,6 +160,8 @@ class QualityEventStore extends EventEmitter {
       maxBytes: this.options.eventLogMaxBytes,
       maxFiles: this.options.eventLogMaxFiles
     });
+    this._idempotencyStore = new QualityIdempotencyStore(this.options.idempotencyPath);
+    this._idempotencyWrite = Promise.resolve();
     this._loaded = false;
   }
 
@@ -135,7 +191,12 @@ class QualityEventStore extends EventEmitter {
     }
     const existing = this._bySourceEventId.get(sourceEventId);
     if (existing) {
-      return { event: existing, duplicate: true };
+      const retainedEvent = this.get(existing.event.qualityEventId);
+      return {
+        event: retainedEvent || existing.event,
+        duplicate: true,
+        retained: Boolean(retainedEvent)
+      };
     }
 
     const result = String(input.result ?? "NG").toUpperCase();
@@ -209,9 +270,13 @@ class QualityEventStore extends EventEmitter {
     }
 
     this._events.push(event);
-    this._bySourceEventId.set(sourceEventId, event);
+    this._bySourceEventId.set(sourceEventId, {
+      event: compactQualityEvent(event),
+      recordedAtMs: toMillis(event.recordedAt, "recordedAt")
+    });
     this._prune();
     this._logStore.append(event);
+    this._scheduleIdempotencyPersist();
     this.emit("event", event);
     return { event, duplicate: false };
   }
@@ -244,7 +309,13 @@ class QualityEventStore extends EventEmitter {
 
   async load() {
     if (this._loaded) {
-      return { loaded: 0, skipped: 0, retained: this._events.length, alreadyLoaded: true };
+      return {
+        loaded: 0,
+        skipped: 0,
+        retained: this._events.length,
+        idempotencyLoaded: 0,
+        alreadyLoaded: true
+      };
     }
     this._loaded = true;
     let loaded = 0;
@@ -266,18 +337,30 @@ class QualityEventStore extends EventEmitter {
     );
     this._prune();
     this._bySourceEventId = new Map(
-      this._events.map((event) => [event.sourceEventId, event])
+      this._events.map((event) => [
+        event.sourceEventId,
+        {
+          event: compactQualityEvent(event),
+          recordedAtMs: toMillis(event.recordedAt, "recordedAt")
+        }
+      ])
     );
+    const idempotencyResult = await this._loadIdempotency();
+    this._pruneIdempotency();
     return {
       loaded,
       skipped: skipped + readResult.corrupt,
       retained: this._events.length,
+      idempotencyLoaded: idempotencyResult.loaded,
+      idempotencySkipped: idempotencyResult.skipped,
+      idempotencyError: idempotencyResult.error || null,
       alreadyLoaded: false
     };
   }
 
   async flush() {
     await this._logStore.flush();
+    await this._idempotencyWrite;
   }
 
   _isValidStoredEvent(event) {
@@ -314,29 +397,105 @@ class QualityEventStore extends EventEmitter {
 
   _prune() {
     const cutoff = this.options.clock() - this.options.retentionMs;
-    const removed = [];
     this._events = this._events.filter((event) => {
-      const keep = toMillis(event.recordedAt, "recordedAt") >= cutoff;
-      if (!keep) {
-        removed.push(event);
-      }
-      return keep;
+      return toMillis(event.recordedAt, "recordedAt") >= cutoff;
     });
-    for (const event of removed) {
-      this._bySourceEventId.delete(event.sourceEventId);
-    }
     if (this._events.length > this.options.maxEvents) {
-      const dropped = this._events.slice(0, this._events.length - this.options.maxEvents);
       this._events = this._events.slice(-this.options.maxEvents);
-      for (const event of dropped) {
-        this._bySourceEventId.delete(event.sourceEventId);
+    }
+    this._pruneIdempotency();
+  }
+
+  async _loadIdempotency() {
+    if (!this._idempotencyStore.enabled) {
+      return { loaded: 0, skipped: 0, error: null };
+    }
+    let result;
+    try {
+      result = await this._idempotencyStore.load();
+    } catch (error) {
+      this._log("warn", "Unable to load quality idempotency state", {
+        error: error.message
+      });
+      return { loaded: 0, skipped: 0, error: error.message };
+    }
+
+    let loaded = 0;
+    let skipped = 0;
+    const entries = [];
+    for (const raw of result.entries) {
+      if (!this._isValidStoredEvent(raw)) {
+        skipped += 1;
+        continue;
       }
+      entries.push(raw);
+    }
+    entries.sort(
+      (left, right) =>
+        toMillis(left.recordedAt, "recordedAt") -
+        toMillis(right.recordedAt, "recordedAt")
+    );
+    for (const event of entries) {
+      if (this._bySourceEventId.has(event.sourceEventId)) {
+        continue;
+      }
+      this._bySourceEventId.set(event.sourceEventId, {
+        event: compactQualityEvent(event),
+        recordedAtMs: toMillis(event.recordedAt, "recordedAt")
+      });
+      loaded += 1;
+    }
+    return { loaded, skipped, error: null };
+  }
+
+  _pruneIdempotency() {
+    const cutoff = this.options.clock() - this.options.idempotencyRetentionMs;
+    for (const [sourceEventId, entry] of this._bySourceEventId) {
+      if (entry.recordedAtMs < cutoff) {
+        this._bySourceEventId.delete(sourceEventId);
+      }
+    }
+    while (this._bySourceEventId.size > this.options.idempotencyMaxEntries) {
+      const oldest = this._bySourceEventId.keys().next().value;
+      this._bySourceEventId.delete(oldest);
+    }
+  }
+
+  _scheduleIdempotencyPersist() {
+    if (!this._idempotencyStore.enabled) {
+      return;
+    }
+    const entries = [...this._bySourceEventId.values()].map((entry) => entry.event);
+    this._idempotencyWrite = this._idempotencyWrite
+      .then(() => this._idempotencyStore.save(entries))
+      .catch((error) => {
+        this._log("error", "Unable to persist quality idempotency state", {
+          error: error.message
+        });
+      });
+  }
+
+  _log(level, message, data = {}) {
+    if (!this.options.logger) {
+      return;
+    }
+    const method = this.options.logger[level] || this.options.logger.info;
+    if (typeof method === "function") {
+      method({
+        timestamp: new Date().toISOString(),
+        level,
+        module: "quality-events",
+        message,
+        ...data
+      });
     }
   }
 }
 
 module.exports = {
   DEFAULT_MAX_EVENTS,
+  DEFAULT_IDEMPOTENCY_MAX_ENTRIES,
+  DEFAULT_IDEMPOTENCY_RETENTION_MS,
   DEFAULT_RETENTION_MS,
   QualityEventNotFoundError,
   QualityEventStore,

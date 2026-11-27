@@ -70,6 +70,7 @@ async function main() {
       OPCUA_CLIENT_PKI_ROOT: path.join(runDir, "client-pki"),
       PROCESS_CONTEXT_LOG: "off",
       QUALITY_EVENT_LOG: "off",
+      QUALITY_EVENT_IDEMPOTENCY_FILE: path.join(runDir, "quality-idempotency.json"),
       PROCESS_CONTEXT_SAMPLE_INTERVAL_MS: "100",
       GATEWAY_LINE_ID: "JX-LINE-01",
       GATEWAY_STATION_ID: "JX-LINQIN-STATION-01",

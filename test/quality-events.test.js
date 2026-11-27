@@ -74,6 +74,7 @@ test("quality event store creates a versioned, idempotent NG event", () => {
     occurredAt: iso(10)
   });
   assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.retained, true);
   assert.equal(duplicate.event.qualityEventId, first.event.qualityEventId);
   assert.equal(store.count, 1);
 });
@@ -183,7 +184,96 @@ test("quality event store filters by work order and correlation ID", () => {
   assert.equal(store.list({ workOrderId: "WO-A", correlationId: "corr-b" }).length, 0);
 });
 
-test("quality event store prunes old events and their idempotency keys", () => {
+test("quality idempotency survives event retention and restart", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "quality-idempotency-"));
+  const eventLogPath = path.join(directory, "quality-events.jsonl");
+  const idempotencyPath = path.join(directory, "quality-idempotency.json");
+  t.after(async () => {
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  const first = makeStore({
+    eventLogPath,
+    idempotencyPath,
+    clock: () => BASE_MS + 60_000
+  });
+  const original = first.store.record({
+    sourceEventId: "QC-DURABLE",
+    occurredAt: iso(1),
+    quantity: 2
+  });
+  await first.store.flush();
+
+  const ledger = JSON.parse(await fs.readFile(idempotencyPath, "utf8"));
+  assert.equal(ledger.schemaVersion, "1.0");
+  assert.equal(ledger.entries.length, 1);
+  assert.equal(ledger.entries[0].sourceEventId, "QC-DURABLE");
+
+  const second = makeStore({
+    eventLogPath,
+    idempotencyPath,
+    clock: () => BASE_MS + 130_000
+  });
+  const loaded = await second.store.load();
+  assert.equal(loaded.retained, 0);
+  assert.equal(loaded.idempotencyLoaded, 1);
+
+  const duplicate = second.store.record({
+    sourceEventId: "QC-DURABLE",
+    occurredAt: iso(120),
+    quantity: 2
+  });
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.retained, false);
+  assert.equal(duplicate.event.qualityEventId, original.event.qualityEventId);
+  assert.equal(duplicate.event.sourceEventId, "QC-DURABLE");
+  assert.equal(second.store.count, 0);
+  assert.equal(second.store.quantity(), 0);
+});
+
+test("quality idempotency expires at its configured horizon", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "quality-idempotency-expiry-"));
+  const eventLogPath = path.join(directory, "quality-events.jsonl");
+  const idempotencyPath = path.join(directory, "quality-idempotency.json");
+  t.after(async () => {
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  const first = makeStore({
+    eventLogPath,
+    idempotencyPath,
+    idempotencyRetentionMs: 60_000,
+    clock: () => BASE_MS + 60_000
+  });
+  const original = first.store.record({
+    sourceEventId: "QC-EXPIRED",
+    occurredAt: iso(1),
+    quantity: 1
+  });
+  await first.store.flush();
+
+  const second = makeStore({
+    eventLogPath,
+    idempotencyPath,
+    idempotencyRetentionMs: 60_000,
+    clock: () => BASE_MS + 200_000,
+    createId: (() => {
+      let id = 0;
+      return () => `qevt-second-${++id}`;
+    })()
+  });
+  await second.store.load();
+  const replayed = second.store.record({
+    sourceEventId: "QC-EXPIRED",
+    occurredAt: iso(190),
+    quantity: 1
+  });
+  assert.equal(replayed.duplicate, false);
+  assert.notEqual(replayed.event.qualityEventId, original.event.qualityEventId);
+  assert.equal(second.store.count, 1);
+});
+
+test("quality event store prunes old events but keeps idempotency keys", () => {
   const { store, setNow } = makeStore();
   const old = store.record({ sourceEventId: "QC-OLD", occurredAt: iso(0) });
   setNow(BASE_MS + 121_000);
@@ -192,7 +282,10 @@ test("quality event store prunes old events and their idempotency keys", () => {
   assert.equal(store.get(old.event.qualityEventId), null);
   assert.equal(store.count, 1);
   const replayed = store.record({ sourceEventId: "QC-OLD", occurredAt: iso(120) });
-  assert.equal(replayed.duplicate, false);
+  assert.equal(replayed.duplicate, true);
+  assert.equal(replayed.retained, false);
+  assert.equal(replayed.event.qualityEventId, old.event.qualityEventId);
+  assert.equal(store.count, 1);
 });
 
 test("quality event store replays JSONL and keeps idempotency across restarts", async (t) => {
