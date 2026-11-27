@@ -22,8 +22,9 @@ curl http://127.0.0.1:8080/healthz
 
 The service uses `StateDirectory=rpi4-gateway`, so `/var/lib/rpi4-gateway` is
 created with the service user's ownership. JSONL logs and the OPC UA client PKI
-directory live there. The repository `data/` directory is also writable for
-development runs.
+directory live there. Runtime work order/SN/correlation updates are persisted to
+`/var/lib/rpi4-gateway/work-context.json` and restored on restart. The repository
+`data/` directory is also writable for development runs.
 
 ## Operational notes
 

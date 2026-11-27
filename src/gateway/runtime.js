@@ -7,6 +7,7 @@ const { OpcUaGatewayClient } = require("./opcua-client");
 const { ProcessContextCollector } = require("./process-context");
 const { QualityEventNotFoundError, QualityEventStore } = require("./quality-events");
 const { createGatewayApi } = require("./http-api");
+const { WorkContextStore } = require("./work-context-store");
 
 const defaultLogger = {
   info(record) {
@@ -50,6 +51,9 @@ class GatewayRuntime extends EventEmitter {
         eventLogPath: config.quality.logPath,
         logger: this.logger
       });
+    this.workContextStore =
+      dependencies.workContextStore ||
+      new WorkContextStore(config.workContext?.statePath || null);
     this.api = dependencies.api || null;
     this.startedAt = null;
     this._started = false;
@@ -66,6 +70,7 @@ class GatewayRuntime extends EventEmitter {
 
     this.startedAt = new Date().toISOString();
     await this._loadPersistedState();
+    await this._loadWorkContextState();
     if (!this.api) {
       this.api = createGatewayApi(this, {
         ...this.config.api,
@@ -147,16 +152,22 @@ class GatewayRuntime extends EventEmitter {
     return this.collector.getWorkContext();
   }
 
-  updateWorkContext(update) {
+  async updateWorkContext(update) {
     const context = this.collector.setWorkContext(update);
     if (typeof this.qualityEvents.setWorkContext === "function") {
       this.qualityEvents.setWorkContext(context);
     }
+    try {
+      await this.workContextStore.save(context);
+    } catch (error) {
+      this._log("error", "Unable to persist work context", { error: error.message });
+      throw error;
+    }
     return context;
   }
 
-  setCorrelationId(correlationId) {
-    return this.updateWorkContext({ correlationId }).correlationId;
+  async setCorrelationId(correlationId) {
+    return (await this.updateWorkContext({ correlationId })).correlationId;
   }
 
   async _loadPersistedState() {
@@ -183,6 +194,25 @@ class GatewayRuntime extends EventEmitter {
       });
     }
     return results;
+  }
+
+  async _loadWorkContextState() {
+    try {
+      const result = await this.workContextStore.load();
+      if (result.loaded) {
+        this.collector.setWorkContext(result.context);
+        if (typeof this.qualityEvents.setWorkContext === "function") {
+          this.qualityEvents.setWorkContext(result.context);
+        }
+        this._log("info", "Restored persisted work context", result.context);
+      }
+      return result;
+    } catch (error) {
+      this._log("warn", "Unable to restore persisted work context", {
+        error: error.message
+      });
+      return { loaded: false, context: null, error: error.message };
+    }
   }
 
   recordQualityEvent(input) {

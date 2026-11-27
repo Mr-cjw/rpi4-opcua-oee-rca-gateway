@@ -75,6 +75,7 @@ async function main() {
       GATEWAY_STATION_ID: "JX-LINQIN-STATION-01",
       GATEWAY_WORK_ORDER_ID: "WO-GATEWAY-E2E-001",
       GATEWAY_CORRELATION_ID: "corr-gateway-e2e",
+      GATEWAY_WORK_CONTEXT_FILE: path.join(runDir, "work-context.json"),
       GATEWAY_HTTP_PORT: "0",
       GATEWAY_API_TOKEN: "",
       OEE_NOMINAL_OUTPUT_PER_MIN: "120"

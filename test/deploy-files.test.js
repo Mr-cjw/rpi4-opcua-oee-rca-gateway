@@ -30,6 +30,7 @@ test("gateway environment template includes persistence and API safeguards", asy
     "OPCUA_DEVICE_STATUS_NODE",
     "GATEWAY_LINE_ID",
     "GATEWAY_STATION_ID",
+    "GATEWAY_WORK_CONTEXT_FILE",
     "GATEWAY_HTTP_HOST",
     "GATEWAY_API_TOKEN",
     "PROCESS_CONTEXT_LOG",
@@ -43,4 +44,5 @@ test("gateway environment template includes persistence and API safeguards", asy
   assert.match(env, /^GATEWAY_API_TOKEN=replace-with-strong-token$/m);
   assert.match(env, /^PROCESS_CONTEXT_LOG=\/var\/lib\/rpi4-gateway\//m);
   assert.match(env, /^QUALITY_EVENT_LOG=\/var\/lib\/rpi4-gateway\//m);
+  assert.match(env, /^GATEWAY_WORK_CONTEXT_FILE=\/var\/lib\/rpi4-gateway\//m);
 });

@@ -191,7 +191,9 @@ New `PROCESS_CONTEXT` samples use the updated values on the next capture.
 Quality events that omit work-order, serial-number, or correlation fields also
 inherit the current runtime values; explicit quality-event values take
 precedence for that event. `POST /v1/correlation` remains available as a
-compatibility shortcut for updating only the correlation ID.
+compatibility shortcut for updating only the correlation ID. Runtime updates
+are atomically persisted with `GATEWAY_WORK_CONTEXT_FILE` and restored when the
+Gateway restarts; set the path to `off` to keep the context in memory only.
 
 ### NG quality-event ingestion
 
@@ -301,6 +303,7 @@ Gateway only reads points; it does not write PLC controls.
 | `GATEWAY_WORK_ORDER_ID` | empty | Initial current work order; runtime-updatable |
 | `GATEWAY_SERIAL_NUMBER` | empty | Initial current serial number; runtime-updatable |
 | `GATEWAY_CORRELATION_ID` | empty | Initial correlation ID; runtime-updatable |
+| `GATEWAY_WORK_CONTEXT_FILE` | `data/work-context.json` | Atomic runtime work-context state; `off` disables persistence |
 | `OPCUA_DEVICE_STATUS_NODE` | `ns=1;s=MockPLC.DeviceStatus` | Device status NodeId |
 | `OPCUA_CURRENT_OUTPUT_NODE` | `ns=1;s=MockPLC.CurrentOutput` | Current output NodeId |
 | `OPCUA_GOOD_COUNT_NODE` | `ns=1;s=MockPLC.GoodCount` | Good count NodeId |
@@ -325,7 +328,8 @@ Gateway only reads points; it does not write PLC controls.
 Both process-context and quality-event JSONL logs are replayed at startup. They
 are append-only and not rotated automatically yet; the in-memory replay window
 is bounded. Long-term retention should move to SQLite or a time-series store
-before a real pilot.
+before a real pilot. The small runtime work-context state file is replaced
+atomically on every update and is safe to back up independently.
 
 ### Gateway client configuration
 

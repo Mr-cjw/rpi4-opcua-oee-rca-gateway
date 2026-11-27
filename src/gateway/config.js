@@ -39,6 +39,14 @@ function jsonlPathFromEnv(env, name, defaultFile) {
   return path.resolve(raw || path.join(process.cwd(), "data", defaultFile));
 }
 
+function statePathFromEnv(env, name, defaultFile) {
+  const raw = env[name];
+  if (raw === "off" || raw === "none" || raw === "disabled") {
+    return null;
+  }
+  return path.resolve(raw || path.join(process.cwd(), "data", defaultFile));
+}
+
 function nodeIdFromEnv(env, name, fallback, { optional = false } = {}) {
   const raw = env[name];
   if (raw === "off" || raw === "none" || raw === "disabled") {
@@ -150,6 +158,9 @@ function loadGatewayConfig(env = process.env) {
       workOrderId: env.GATEWAY_WORK_ORDER_ID || "",
       serialNumber: env.GATEWAY_SERIAL_NUMBER || "",
       correlationId: env.GATEWAY_CORRELATION_ID || ""
+    }),
+    workContext: Object.freeze({
+      statePath: statePathFromEnv(env, "GATEWAY_WORK_CONTEXT_FILE", "work-context.json")
     }),
     context: Object.freeze({
       sampleIntervalMs: integerFromEnv(env, "PROCESS_CONTEXT_SAMPLE_INTERVAL_MS", 1000, {

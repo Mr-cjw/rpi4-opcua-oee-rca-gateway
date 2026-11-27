@@ -61,6 +61,7 @@ function makeRuntime(extraEnv = {}) {
     GATEWAY_STATION_ID: "JX-LINQIN-STATION-01",
     OEE_NOMINAL_OUTPUT_PER_MIN: "120",
     GATEWAY_API_TOKEN: "",
+    GATEWAY_WORK_CONTEXT_FILE: "off",
     ...extraEnv
   });
   const client = new FakeOpcUaClient();
@@ -315,6 +316,52 @@ test("gateway runtime exposes and applies runtime work context updates", async (
   });
   assert.equal(invalidResponse.status, 400);
   assert.match((await invalidResponse.json()).error, /workOrderId/);
+});
+
+test("gateway runtime persists and restores work context", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "gateway-work-context-"));
+  const statePath = path.join(directory, "work-context.json");
+  let first = null;
+  let second = null;
+  t.after(async () => {
+    await first?.runtime.stop().catch(() => undefined);
+    await second?.runtime.stop().catch(() => undefined);
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  first = makeRuntime({ GATEWAY_WORK_CONTEXT_FILE: statePath });
+  await first.runtime.start();
+  const updated = await first.runtime.updateWorkContext({
+    workOrderId: "WO-PERSISTED",
+    serialNumber: "SN-PERSISTED",
+    correlationId: "corr-persisted"
+  });
+  assert.deepEqual(updated, {
+    workOrderId: "WO-PERSISTED",
+    serialNumber: "SN-PERSISTED",
+    correlationId: "corr-persisted"
+  });
+  const stored = JSON.parse(await fs.readFile(statePath, "utf8"));
+  assert.equal(stored.schemaVersion, "1.0");
+  assert.equal(stored.workOrderId, "WO-PERSISTED");
+  assert.equal(stored.serialNumber, "SN-PERSISTED");
+  assert.equal(stored.correlationId, "corr-persisted");
+  assert.match(stored.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+  await first.runtime.stop();
+  first = null;
+
+  second = makeRuntime({ GATEWAY_WORK_CONTEXT_FILE: statePath });
+  await second.runtime.start();
+  assert.deepEqual(second.runtime.getWorkContext(), updated);
+  const quality = second.runtime.recordQualityEvent({
+    sourceEventId: "QC-PERSISTED-CONTEXT",
+    occurredAt: new Date().toISOString()
+  });
+  assert.equal(quality.event.workOrderId, "WO-PERSISTED");
+  assert.equal(quality.event.serialNumber, "SN-PERSISTED");
+  assert.equal(quality.event.correlationId, "corr-persisted");
+  await second.runtime.stop();
+  second = null;
 });
 
 test("gateway runtime stops the OPC UA client and HTTP API", async () => {

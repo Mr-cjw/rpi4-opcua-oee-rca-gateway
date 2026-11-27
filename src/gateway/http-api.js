@@ -112,7 +112,7 @@ function createGatewayApi(runtime, options = {}) {
 
     if (pathname === "/v1/work-context" && request.method === "POST") {
       const body = await readJsonBody(request);
-      sendJson(response, 200, runtime.updateWorkContext(body));
+      sendJson(response, 200, await runtime.updateWorkContext(body));
       return;
     }
 
@@ -194,7 +194,7 @@ function createGatewayApi(runtime, options = {}) {
 
     if (pathname === "/v1/correlation" && request.method === "POST") {
       const body = await readJsonBody(request);
-      const correlationId = runtime.setCorrelationId(body.correlationId);
+      const correlationId = await runtime.setCorrelationId(body.correlationId);
       sendJson(response, 200, { correlationId });
       return;
     }
