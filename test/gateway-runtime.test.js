@@ -218,6 +218,8 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(oee.qualitySource, "quality-events");
   assert.equal(oee.qualityEventCount, 1);
   assert.equal(oee.qualityEventQuantity, 2);
+  assert.equal(oee.qualityReconciliation.status, "counter-unavailable");
+  assert.equal(oee.dataQuality.status, "ok");
 
   const rcaResponse = await fetch(`${runtime.api.address}/v1/rca`, {
     method: "POST",
@@ -272,6 +274,63 @@ test("gateway runtime reports total-production OEE counter mode", async (t) => {
   assert.equal(oee.counterScrapDelta, 2);
   assert.equal(oee.plannedSeconds, 10);
   assert.equal(oee.qualitySource, "query");
+  assert.equal(oee.qualityReconciliation.status, "reconciled");
+  assert.equal(oee.qualityReconciliation.delta, 0);
+  assert.equal(oee.dataQuality.status, "ok");
+});
+
+test("gateway runtime exposes counter-to-quality reconciliation warnings", async (t) => {
+  const { runtime } = makeRuntime();
+  t.after(async () => runtime.stop());
+  await runtime.start();
+  captureWindow(runtime.collector, { totalProduced: true });
+  runtime.recordQualityEvent({
+    sourceEventId: "QC-RECONCILIATION-001",
+    occurredAt: iso(5),
+    quantity: 1
+  });
+
+  const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
+  oeeUrl.searchParams.set("from", iso(0));
+  oeeUrl.searchParams.set("to", iso(10));
+  const response = await fetch(oeeUrl);
+  assert.equal(response.status, 200);
+  const oee = await response.json();
+
+  assert.equal(oee.qualitySource, "quality-events");
+  assert.equal(oee.qualityEventQuantity, 1);
+  assert.equal(oee.counterScrapDelta, 2);
+  assert.equal(oee.qualityReconciliation.status, "mismatch");
+  assert.equal(oee.qualityReconciliation.delta, 1);
+  assert.equal(oee.dataQuality.status, "warning");
+  assert.ok(
+    oee.dataQuality.issues.some(
+      (issue) => issue.code === "QUALITY_RECONCILIATION_MISMATCH"
+    )
+  );
+  assert.ok(oee.warnings.some((warning) => warning.includes("differs")));
+});
+
+test("gateway runtime reports an empty quality feed after OEE refactoring", async (t) => {
+  const { runtime } = makeRuntime();
+  t.after(async () => runtime.stop());
+  await runtime.start();
+  captureWindow(runtime.collector);
+
+  const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
+  oeeUrl.searchParams.set("from", iso(0));
+  oeeUrl.searchParams.set("to", iso(10));
+  const response = await fetch(oeeUrl);
+  assert.equal(response.status, 200);
+  const oee = await response.json();
+
+  assert.equal(oee.qualitySource, "quality-events");
+  assert.equal(oee.qualityEventCount, 0);
+  assert.equal(oee.dataQuality.status, "warning");
+  assert.ok(
+    oee.dataQuality.issues.some((issue) => issue.code === "QUALITY_EVENT_FEED_EMPTY")
+  );
+  assert.ok(oee.warnings.some((warning) => warning.includes("No NG quality events")));
 });
 
 test("gateway API enforces a bearer token when configured", async (t) => {

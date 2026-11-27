@@ -169,6 +169,115 @@ function buildCounterContinuity(rows) {
   };
 }
 
+function optionalNonNegativeInteger(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : null;
+}
+
+function createDataQualityTracker() {
+  const warnings = [];
+  const issues = [];
+  return {
+    warnings,
+    add(code, severity, message, details = {}) {
+      warnings.push(message);
+      issues.push({ code, severity, message, ...details });
+    },
+    finalize(sampleCount) {
+      let status = "ok";
+      if (sampleCount < 2) {
+        status = "insufficient";
+      } else if (issues.some((issue) => issue.severity === "error")) {
+        status = "degraded";
+      } else if (issues.some((issue) => issue.severity === "warning")) {
+        status = "warning";
+      }
+      return {
+        status,
+        issueCount: issues.length,
+        warningCount: issues.filter(
+          (issue) => issue.severity === "warning" || issue.severity === "error"
+        ).length,
+        errorCount: issues.filter((issue) => issue.severity === "error").length,
+        issues: issues.map((issue) => ({ ...issue }))
+      };
+    }
+  };
+}
+
+function addQualitySourceIssues(dataQuality, options) {
+  if (
+    options.qualitySource === "quality-events" &&
+    optionalNonNegativeInteger(options.qualityEventCount) === 0
+  ) {
+    dataQuality.add(
+      "QUALITY_EVENT_FEED_EMPTY",
+      "warning",
+      "No NG quality events were recorded in the window; verify the quality-event feed is connected.",
+      { qualityEventCount: 0 }
+    );
+  }
+}
+
+function buildQualityReconciliation(counter, ngCount, options, dataQuality) {
+  const qualitySource =
+    options.qualitySource || (options.ngCount === undefined ? "unspecified" : "query");
+  const qualityEventQuantity = optionalNonNegativeInteger(
+    options.qualityEventQuantity
+  );
+  const qualityEventCount = optionalNonNegativeInteger(options.qualityEventCount);
+  const counterScrapDelta = counter.counterScrapDelta;
+  const delta =
+    counterScrapDelta === null ? null : round(counterScrapDelta - ngCount);
+  const eventDelta =
+    counterScrapDelta === null || qualityEventQuantity === null
+      ? null
+      : round(counterScrapDelta - qualityEventQuantity);
+
+  let status = "quality-source-unspecified";
+  if (counterScrapDelta === null) {
+    status = "counter-unavailable";
+  } else if (qualitySource === "query") {
+    status = delta === 0 ? "reconciled" : "mismatch";
+  } else if (qualitySource === "quality-events") {
+    status =
+      qualityEventQuantity === null
+        ? "quality-source-unavailable"
+        : delta === 0
+          ? "reconciled"
+          : "mismatch";
+  }
+
+  if (status === "mismatch") {
+    dataQuality.add(
+      "QUALITY_RECONCILIATION_MISMATCH",
+      "warning",
+      `Counter scrap delta (${counterScrapDelta}) differs from effective NG quantity (${ngCount}) by ${delta} units; reconcile the total counter and quality-event feed.`,
+      {
+        counterScrapDelta,
+        qualityInputQuantity: ngCount,
+        qualityEventQuantity,
+        delta
+      }
+    );
+  }
+
+  return {
+    status,
+    qualitySource,
+    counterScrapDelta,
+    qualityInputQuantity: ngCount,
+    qualityEventQuantity,
+    qualityEventCount,
+    delta,
+    eventDelta,
+    toleranceUnits: 0
+  };
+}
+
 function normalizeSamples(samples) {
   if (!Array.isArray(samples)) {
     throw new Error("samples must be an array");
@@ -210,7 +319,13 @@ function normalizeSamples(samples) {
     .sort((left, right) => left.at - right.at);
 }
 
-function resolveCounterMode(rows, goodDelta, ngCount, warnings, counterContinuity) {
+function resolveCounterMode(
+  rows,
+  goodDelta,
+  ngCount,
+  dataQuality,
+  counterContinuity
+) {
   const proxy = {
     counterMode:
       counterContinuity.goodCount.resetCount > 0
@@ -226,7 +341,9 @@ function resolveCounterMode(rows, goodDelta, ngCount, warnings, counterContinuit
     return proxy;
   }
   if (rows.some((row) => row.invalidTotalProducedCount || row.totalProducedCount === null)) {
-    warnings.push(
+    dataQuality.add(
+      "TOTAL_COUNTER_INCOMPLETE",
+      "error",
       "totalProducedCount is missing or invalid in one or more samples; falling back to the goodCount proxy."
     );
     return proxy;
@@ -236,22 +353,31 @@ function resolveCounterMode(rows, goodDelta, ngCount, warnings, counterContinuit
     (row) => row.totalProducedCount < row.goodCount
   );
   if (belowGoodIndex >= 0) {
-    warnings.push(
-      `totalProducedCount is below goodCount at sample ${belowGoodIndex}; falling back to the goodCount proxy.`
+    dataQuality.add(
+      "TOTAL_COUNTER_BELOW_GOOD",
+      "error",
+      `totalProducedCount is below goodCount at sample ${belowGoodIndex}; falling back to the goodCount proxy.`,
+      { sampleIndex: belowGoodIndex }
     );
     return proxy;
   }
 
   const totalDelta = counterContinuity.totalProducedCount.delta;
   if (totalDelta < goodDelta) {
-    warnings.push(
-      "totalProducedCount delta is below goodCount delta; falling back to the goodCount proxy."
+    dataQuality.add(
+      "TOTAL_COUNTER_DELTA_BELOW_GOOD",
+      "error",
+      "totalProducedCount delta is below goodCount delta; falling back to the goodCount proxy.",
+      { totalDelta, goodDelta }
     );
     return proxy;
   }
   if (totalDelta === 0 && ngCount > 0) {
-    warnings.push(
-      "totalProducedCount did not advance although NG quantity was recorded; quality is reported as zero."
+    dataQuality.add(
+      "TOTAL_COUNTER_DID_NOT_ADVANCE",
+      "warning",
+      "totalProducedCount did not advance although NG quantity was recorded; quality is reported as zero.",
+      { ngCount }
     );
   }
   return {
@@ -304,7 +430,7 @@ function calculateOee(samples, options = {}) {
     throw new Error("ngCount must be a non-negative integer");
   }
 
-  const warnings = [];
+  const dataQuality = createDataQualityTracker();
   if (rows.length < 2) {
     const counterMode =
       rows.length === 1 &&
@@ -320,6 +446,19 @@ function calculateOee(samples, options = {}) {
       counterMode === "total-produced"
         ? "totalProducedCount delta / theoretical produced units at nominal output"
         : "goodCount delta / theoretical good units at nominal output";
+    dataQuality.add(
+      "INSUFFICIENT_SAMPLES",
+      "error",
+      "At least two samples are required to calculate OEE.",
+      { sampleCount: rows.length }
+    );
+    addQualitySourceIssues(dataQuality, options);
+    const qualityReconciliation = buildQualityReconciliation(
+      { counterScrapDelta: null },
+      ngCount,
+      options,
+      dataQuality
+    );
     return {
       availability: 0,
       performance: 0,
@@ -346,6 +485,8 @@ function calculateOee(samples, options = {}) {
       nominalOutputPerMinute,
       plannedTime,
       downtimeSources,
+      qualityReconciliation,
+      dataQuality: dataQuality.finalize(rows.length),
       lossBreakdown: {
         availabilityLossSeconds: 0,
         plannedStopSeconds: 0,
@@ -370,7 +511,7 @@ function calculateOee(samples, options = {}) {
         downtimeSources,
         qualityBasis
       },
-      warnings: ["At least two samples are required to calculate OEE."],
+      warnings: dataQuality.warnings,
       basis: {
         plannedTime: "intersection of sampled window and configured shift windows",
         availability:
@@ -423,17 +564,35 @@ function calculateOee(samples, options = {}) {
   }
 
   for (const reset of counterContinuity.resets) {
-    warnings.push(
-      `${reset.counter} reset/rollback detected at sample ${reset.sampleIndex} (${reset.previousValue} -> ${reset.value}); production is summed across ${counterContinuity.epochs} observed counter epochs and increments hidden at the reset are not estimated.`
+    dataQuality.add(
+      "COUNTER_RESET",
+      "warning",
+      `${reset.counter} reset/rollback detected at sample ${reset.sampleIndex} (${reset.previousValue} -> ${reset.value}); production is summed across ${counterContinuity.epochs} observed counter epochs and increments hidden at the reset are not estimated.`,
+      {
+        counter: reset.counter,
+        sampleIndex: reset.sampleIndex,
+        sampleAt: reset.sampleAt,
+        previousSampleAt: reset.previousSampleAt,
+        previousValue: reset.previousValue,
+        value: reset.value
+      }
     );
   }
   const goodDelta = counterContinuity.goodCount.delta ?? 0;
   if (unknownStopMs > 0) {
-    warnings.push("Unknown device statuses are treated as non-running time.");
+    dataQuality.add(
+      "UNKNOWN_DEVICE_STATUS",
+      "warning",
+      "Unknown device statuses are treated as non-running time.",
+      { unknownStopSeconds: round(unknownStopMs / 1000, 3) }
+    );
   }
   if (outsidePlanRunningMs > 0) {
-    warnings.push(
-      "The equipment was RUNNING outside configured shift windows; counters still reflect the observed sample window."
+    dataQuality.add(
+      "RUNNING_OUTSIDE_PLAN",
+      "warning",
+      "The equipment was RUNNING outside configured shift windows; counters still reflect the observed sample window.",
+      { outsidePlanRunningSeconds: round(outsidePlanRunningMs / 1000, 3) }
     );
   }
 
@@ -452,7 +611,7 @@ function calculateOee(samples, options = {}) {
     rows,
     goodDelta,
     ngCount,
-    warnings,
+    dataQuality,
     counterContinuity
   );
   const usesTotalCounter = counter.counterMode.startsWith("total-produced");
@@ -499,18 +658,33 @@ function calculateOee(samples, options = {}) {
   };
 
   if (plannedMs === 0) {
-    warnings.push("No planned production time overlaps the observed sample window.");
+    dataQuality.add(
+      "NO_PLANNED_TIME",
+      "error",
+      "No planned production time overlaps the observed sample window."
+    );
   }
   if (plannedMs > 0 && plannedProductionMs === 0) {
-    warnings.push(
+    dataQuality.add(
+      "NO_AVAILABLE_PLANNED_PRODUCTION_TIME",
+      "warning",
       "No available planned production time remains after planned downtime and changeover."
     );
   }
   if (options.ngCount === undefined && !usesTotalCounter) {
-    warnings.push(
+    dataQuality.add(
+      "NG_COUNT_NOT_SUPPLIED",
+      "warning",
       "ngCount was not supplied; quality assumes zero NG units and may overstate OEE."
     );
   }
+  addQualitySourceIssues(dataQuality, options);
+  const qualityReconciliation = buildQualityReconciliation(
+    counter,
+    ngCount,
+    options,
+    dataQuality
+  );
 
   return {
     availability: round(availability),
@@ -542,6 +716,8 @@ function calculateOee(samples, options = {}) {
     plannedTime,
     downtimeSources,
     lossBreakdown,
+    qualityReconciliation,
+    dataQuality: dataQuality.finalize(rows.length),
     inputs: {
       sampleCount: rows.length,
       firstSampleAt: new Date(first.at).toISOString(),
@@ -557,7 +733,7 @@ function calculateOee(samples, options = {}) {
       downtimeSources,
       qualityBasis
     },
-    warnings,
+    warnings: dataQuality.warnings,
     basis: {
       plannedTime: "intersection of sampled window and configured shift windows",
       availability:

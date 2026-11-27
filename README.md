@@ -324,6 +324,27 @@ a lower bound. Reset detection uses the retained process-context event history
 and is replayed after a Gateway restart; if that history does not span the
 reset, the reset cannot be inferred.
 
+OEE responses also include structured `dataQuality`:
+
+- `status` is `ok`, `warning`, `degraded`, or `insufficient`;
+- `issues` contains machine-readable `code`, `severity`, `message`, and relevant
+  values such as the reset sample or reconciliation delta;
+- `warningCount` and `errorCount` make alerting and dashboards easier.
+
+Examples of issue codes include `COUNTER_RESET`,
+`TOTAL_COUNTER_INCOMPLETE`, `UNKNOWN_DEVICE_STATUS`,
+`RUNNING_OUTSIDE_PLAN`, `QUALITY_EVENT_FEED_EMPTY`, and
+`QUALITY_RECONCILIATION_MISMATCH`. The legacy `warnings` string array remains
+available and contains the same human-readable messages.
+
+When a total counter is available, `qualityReconciliation` compares
+`counterScrapDelta` with the effective NG input. It exposes the status, both
+counter and quality-event quantities, `delta`, `eventDelta`, and
+`toleranceUnits` (currently zero). A non-zero delta produces a warning because
+the counter and quality feed may disagree; query-supplied `ngCount` takes
+precedence as the effective input while the quality-event quantity remains
+visible for comparison.
+
 Legacy or mixed samples without a valid total counter keep the previous
 `good-count-proxy` behavior:
 

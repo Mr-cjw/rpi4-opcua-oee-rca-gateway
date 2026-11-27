@@ -70,7 +70,72 @@ test("OEE uses total production counter deltas when available", () => {
   assert.equal(result.lossBreakdown.speedLossUnits, 0);
   assert.equal(result.lossBreakdown.qualityLossUnits, 2);
   assert.equal(result.lossBreakdown.qualityLossSource, "total-counter-scrap");
+  assert.equal(result.qualityReconciliation.status, "reconciled");
+  assert.equal(result.qualityReconciliation.delta, 0);
+  assert.equal(result.dataQuality.status, "ok");
   assert.deepEqual(result.warnings, []);
+});
+
+test("OEE reconciles counter scrap with the effective quality feed", () => {
+  const samples = [
+    sample(0, { goodCount: 0, totalProducedCount: 0 }),
+    sample(1, { goodCount: 4, totalProducedCount: 6 }),
+    sample(2, { goodCount: 8, totalProducedCount: 10 })
+  ];
+  const reconciled = calculateOee(samples, {
+    nominalOutputPerMinute: 120,
+    ngCount: 2,
+    qualitySource: "quality-events",
+    qualityEventCount: 1,
+    qualityEventQuantity: 2
+  });
+  assert.equal(reconciled.counterScrapDelta, 2);
+  assert.equal(reconciled.qualityReconciliation.status, "reconciled");
+  assert.equal(reconciled.qualityReconciliation.qualityInputQuantity, 2);
+  assert.equal(reconciled.qualityReconciliation.qualityEventQuantity, 2);
+  assert.equal(reconciled.qualityReconciliation.delta, 0);
+  assert.equal(reconciled.qualityReconciliation.eventDelta, 0);
+  assert.equal(reconciled.dataQuality.status, "ok");
+
+  const mismatch = calculateOee(samples, {
+    nominalOutputPerMinute: 120,
+    ngCount: 1,
+    qualitySource: "quality-events",
+    qualityEventCount: 1,
+    qualityEventQuantity: 1
+  });
+  assert.equal(mismatch.qualityReconciliation.status, "mismatch");
+  assert.equal(mismatch.qualityReconciliation.delta, 1);
+  assert.equal(mismatch.dataQuality.status, "warning");
+  assert.ok(
+    mismatch.dataQuality.issues.some(
+      (issue) => issue.code === "QUALITY_RECONCILIATION_MISMATCH"
+    )
+  );
+  assert.ok(mismatch.warnings.some((warning) => warning.includes("differs")));
+});
+
+test("OEE reports an empty quality feed in structured data quality", () => {
+  const result = calculateOee(
+    [
+      sample(0, { goodCount: 0, totalProducedCount: 0 }),
+      sample(1, { goodCount: 4, totalProducedCount: 6 })
+    ],
+    {
+      nominalOutputPerMinute: 120,
+      ngCount: 0,
+      qualitySource: "quality-events",
+      qualityEventCount: 0,
+      qualityEventQuantity: 0
+    }
+  );
+
+  assert.equal(result.dataQuality.status, "warning");
+  assert.ok(
+    result.dataQuality.issues.some((issue) => issue.code === "QUALITY_EVENT_FEED_EMPTY")
+  );
+  assert.equal(result.qualityReconciliation.status, "mismatch");
+  assert.equal(result.qualityReconciliation.qualityEventCount, 0);
 });
 
 test("OEE detects counter reset epochs and preserves observed production", () => {
@@ -112,6 +177,11 @@ test("OEE detects counter reset epochs and preserves observed production", () =>
     ]
   );
   assert.ok(result.warnings.some((warning) => warning.includes("reset/rollback")));
+  assert.equal(result.dataQuality.status, "warning");
+  assert.equal(
+    result.dataQuality.issues.filter((issue) => issue.code === "COUNTER_RESET").length,
+    2
+  );
   assert.equal(
     result.inputs.counterScope,
     "sum of adjacent increments within observed counter epochs"
@@ -150,6 +220,10 @@ test("OEE falls back when total production counters are incomplete or inconsiste
   });
   assert.equal(mixed.counterMode, "good-count-proxy");
   assert.ok(mixed.warnings.some((warning) => warning.includes("missing or invalid")));
+  assert.equal(mixed.dataQuality.status, "degraded");
+  assert.ok(
+    mixed.dataQuality.issues.some((issue) => issue.code === "TOTAL_COUNTER_INCOMPLETE")
+  );
 
   const belowGood = calculateOee(
     [
@@ -160,6 +234,7 @@ test("OEE falls back when total production counters are incomplete or inconsiste
   );
   assert.equal(belowGood.counterMode, "good-count-proxy");
   assert.ok(belowGood.warnings.some((warning) => warning.includes("below goodCount")));
+  assert.equal(belowGood.dataQuality.status, "degraded");
 });
 
 test("OEE reports zero quality when total production does not advance", () => {
@@ -303,6 +378,8 @@ test("OEE returns an explicit zero result when the window has too few samples", 
 
   assert.equal(result.oee, 0);
   assert.equal(result.inputs.sampleCount, 1);
+  assert.equal(result.dataQuality.status, "insufficient");
+  assert.equal(result.dataQuality.errorCount, 1);
   assert.ok(result.warnings.length > 0);
 });
 

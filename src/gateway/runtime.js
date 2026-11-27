@@ -259,7 +259,10 @@ class GatewayRuntime extends EventEmitter {
     const analyticsOptions = {
       nominalOutputPerMinute: this.config.analytics.nominalOutputPerMinute,
       plannedTime: this.config.analytics.plannedTime,
-      downtimeClassification: this.config.analytics.downtimeClassification
+      downtimeClassification: this.config.analytics.downtimeClassification,
+      qualitySource: options.ngCount === undefined ? "quality-events" : "query",
+      qualityEventCount: qualityEvents.length,
+      qualityEventQuantity: qualityEventNgCount
     };
     if (options.ngCount !== undefined) {
       analyticsOptions.ngCount = options.ngCount;
@@ -271,11 +274,6 @@ class GatewayRuntime extends EventEmitter {
     result.qualitySource = options.ngCount === undefined ? "quality-events" : "query";
     result.qualityEventCount = qualityEvents.length;
     result.qualityEventQuantity = qualityEventNgCount;
-    if (options.ngCount === undefined && qualityEvents.length === 0) {
-      result.warnings.push(
-        "No NG quality events were recorded in the window; verify the quality-event feed is connected."
-      );
-    }
 
     return {
       range: {
