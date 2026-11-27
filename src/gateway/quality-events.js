@@ -97,6 +97,7 @@ function compactQualityEvent(event) {
     "workOrderId",
     "serialNumber",
     "correlationId",
+    "productId",
     "defectType",
     "imageId",
     "source",
@@ -118,6 +119,7 @@ class QualityEventStore extends EventEmitter {
       workOrderId: options.workOrderId || null,
       serialNumber: options.serialNumber || null,
       correlationId: options.correlationId || null,
+      productId: options.productId || null,
       retentionMs: options.retentionMs ?? DEFAULT_RETENTION_MS,
       maxEvents: options.maxEvents ?? DEFAULT_MAX_EVENTS,
       eventLogPath: options.eventLogPath || options.logPath || null,
@@ -243,6 +245,8 @@ class QualityEventStore extends EventEmitter {
     const workOrderId = optionalString(input.workOrderId, "workOrderId") || this.options.workOrderId;
     const serialNumber =
       optionalString(input.serialNumber, "serialNumber") || this.options.serialNumber;
+    const productId =
+      optionalString(input.productId, "productId") || this.options.productId;
     const defectType = optionalString(input.defectType, "defectType");
     const imageId = optionalString(input.imageId, "imageId");
     const source = optionalString(input.source, "source");
@@ -255,6 +259,9 @@ class QualityEventStore extends EventEmitter {
     }
     if (serialNumber) {
       event.serialNumber = serialNumber;
+    }
+    if (productId) {
+      event.productId = productId;
     }
     if (defectType) {
       event.defectType = defectType;

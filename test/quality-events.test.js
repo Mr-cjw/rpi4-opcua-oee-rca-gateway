@@ -25,6 +25,7 @@ function makeStore(overrides = {}) {
     stationId: "JX-LINQIN-STATION-01",
     workOrderId: "WO-DEFAULT",
     serialNumber: "SN-DEFAULT",
+    productId: "SKU-DEFAULT",
     retentionMs: 60_000,
     maxEvents: 10,
     clock: () => now,
@@ -59,6 +60,7 @@ test("quality event store creates a versioned, idempotent NG event", () => {
   assert.equal(first.event.stationId, "JX-LINQIN-STATION-01");
   assert.equal(first.event.workOrderId, "WO-DEFAULT");
   assert.equal(first.event.serialNumber, "SN-DEFAULT");
+  assert.equal(first.event.productId, "SKU-DEFAULT");
   assert.equal(first.event.quantity, 1);
   assert.equal(first.event.confidence, 0.97);
   assert.deepEqual(first.event.metadata, { imageId: "IMG-001" });
@@ -117,29 +119,39 @@ test("quality event defaults follow runtime work context updates", () => {
   store.setWorkContext({
     workOrderId: "WO-NEXT",
     serialNumber: "SN-NEXT",
-    correlationId: "corr-next"
+    correlationId: "corr-next",
+    productId: "SKU-NEXT"
   });
 
   const inherited = store.record({ sourceEventId: "QC-CONTEXT-1" });
   assert.equal(inherited.event.workOrderId, "WO-NEXT");
   assert.equal(inherited.event.serialNumber, "SN-NEXT");
   assert.equal(inherited.event.correlationId, "corr-next");
+  assert.equal(inherited.event.productId, "SKU-NEXT");
 
   const explicit = store.record({
     sourceEventId: "QC-CONTEXT-2",
     workOrderId: "WO-EXPLICIT",
     serialNumber: "SN-EXPLICIT",
-    correlationId: "corr-explicit"
+    correlationId: "corr-explicit",
+    productId: "SKU-EXPLICIT"
   });
   assert.equal(explicit.event.workOrderId, "WO-EXPLICIT");
   assert.equal(explicit.event.serialNumber, "SN-EXPLICIT");
   assert.equal(explicit.event.correlationId, "corr-explicit");
+  assert.equal(explicit.event.productId, "SKU-EXPLICIT");
 
-  store.setWorkContext({ workOrderId: null, serialNumber: "", correlationId: null });
+  store.setWorkContext({
+    workOrderId: null,
+    serialNumber: "",
+    correlationId: null,
+    productId: null
+  });
   const cleared = store.record({ sourceEventId: "QC-CONTEXT-3" });
   assert.equal(Object.hasOwn(cleared.event, "workOrderId"), false);
   assert.equal(Object.hasOwn(cleared.event, "serialNumber"), false);
   assert.equal(Object.hasOwn(cleared.event, "correlationId"), false);
+  assert.equal(Object.hasOwn(cleared.event, "productId"), false);
   assert.throws(
     () => store.setWorkContext({ serialNumber: false }),
     (error) => error.statusCode === 400 && /serialNumber/.test(error.message)
@@ -168,6 +180,7 @@ test("quality event store filters by work order and correlation ID", () => {
     occurredAt: iso(1),
     workOrderId: "WO-A",
     correlationId: "corr-a",
+    productId: "SKU-A",
     quantity: 2
   });
   store.record({
@@ -175,6 +188,7 @@ test("quality event store filters by work order and correlation ID", () => {
     occurredAt: iso(2),
     workOrderId: "WO-B",
     correlationId: "corr-b",
+    productId: "SKU-B",
     quantity: 3
   });
 
@@ -182,6 +196,8 @@ test("quality event store filters by work order and correlation ID", () => {
   assert.equal(store.list({ correlationId: "corr-b" }).length, 1);
   assert.equal(store.quantity({ workOrderId: "WO-A" }), 2);
   assert.equal(store.list({ workOrderId: "WO-A", correlationId: "corr-b" }).length, 0);
+  assert.equal(store.list({ productId: "SKU-B" }).length, 1);
+  assert.equal(store.quantity({ productId: "SKU-A" }), 2);
 });
 
 test("quality idempotency survives event retention and restart", async (t) => {

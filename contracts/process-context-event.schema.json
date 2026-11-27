@@ -55,6 +55,10 @@
       "type": "string",
       "minLength": 1
     },
+    "productId": {
+      "type": "string",
+      "minLength": 1
+    },
     "metrics": {
       "type": "object",
       "additionalProperties": false,

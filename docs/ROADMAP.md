@@ -36,9 +36,9 @@ correctness gap in an earlier phase.
 - Deterministic OPC UA Mock PLC with process, alarm, fault-injection, and total/good counters.
 - OPC UA Gateway with reconnecting subscription, configurable NodeIds, and optional native events.
 - Durable process-context and quality-event JSONL with bounded rotation and replay.
-- Runtime work-order, serial-number, and correlation context with atomic persistence.
+- Runtime work-order, serial-number, correlation, and product context with atomic persistence.
 - Idempotent NG quality-event ingestion with a durable idempotency ledger.
-- OEE with availability, performance, quality, total-counter mode, and proxy fallback.
+- OEE with availability, performance, quality, total-counter mode, proxy fallback, and per-SKU cycle times.
 - Time-window RCA for downtime and temperature anomalies, scoped by work context.
 - Local HTTP API, bearer token option, Prometheus metrics, systemd deployment, and E2E tests.
 
@@ -68,8 +68,10 @@ Progress:
 - Completed 2026-11-27: structured OEE `dataQuality` issues plus counter-vs-NG
   reconciliation status, deltas, and mismatch warnings.
 - Completed 2026-11-27: a global validated ideal-cycle-time input with config
-  and per-query overrides plus explicit Performance provenance. Product/SKU
-  lookup for mixed-product windows remains.
+  and per-query overrides plus explicit Performance provenance.
+- Completed 2026-11-27: runtime `productId` context, product-scoped API/RCA
+  filters, per-SKU `OEE_PRODUCT_CYCLE_TIMES` lookup, mixed-product theoretical
+  output summation, and explicit fallback/data-quality warnings.
 
 Deliverables:
 
@@ -207,11 +209,9 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Add product/SKU-specific ideal-cycle lookup and product context for
-   mixed-product windows.
-2. Add a real-PLC `doctor`/commissioning validation path.
-3. Add CI and a repeatable soak-test harness.
-4. Begin the M2 storage boundary and disk-pressure behavior.
+1. Add a real-PLC `doctor`/commissioning validation path.
+2. Add CI and a repeatable soak-test harness.
+3. Begin the M2 storage boundary and disk-pressure behavior.
 
 The remaining M1 units should be completed before adding new outward integrations.
 

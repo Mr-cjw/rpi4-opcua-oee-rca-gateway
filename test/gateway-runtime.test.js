@@ -309,6 +309,56 @@ test("gateway runtime applies config and query ideal cycle times", async (t) => 
   assert.equal(invalidResponse.status, 400);
 });
 
+test("gateway runtime applies product context to per-SKU Performance", async (t) => {
+  const { runtime } = makeRuntime({
+    OEE_PRODUCT_CYCLE_TIMES: "SKU-A=500,SKU-B=1000"
+  });
+  t.after(async () => runtime.stop());
+  await runtime.start();
+
+  await runtime.updateWorkContext({ productId: "SKU-A" });
+  runtime.collector.capture(
+    plcSnapshot({ goodCount: 0, totalProducedCount: 0 }),
+    { occurredAt: iso(0) }
+  );
+  runtime.collector.capture(
+    plcSnapshot({ goodCount: 2, totalProducedCount: 2 }),
+    { occurredAt: iso(1) }
+  );
+  await runtime.updateWorkContext({ productId: "SKU-B" });
+  runtime.collector.capture(
+    plcSnapshot({ goodCount: 4, totalProducedCount: 4 }),
+    { occurredAt: iso(2) }
+  );
+  runtime.collector.capture(
+    plcSnapshot({ goodCount: 5, totalProducedCount: 5 }),
+    { occurredAt: iso(3) }
+  );
+
+  const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
+  oeeUrl.searchParams.set("from", iso(0));
+  oeeUrl.searchParams.set("to", iso(3));
+  oeeUrl.searchParams.set("ngCount", "0");
+  const response = await fetch(oeeUrl);
+  assert.equal(response.status, 200);
+  const oee = await response.json();
+
+  assert.equal(oee.theoreticalGood, 5);
+  assert.equal(oee.performance, 1);
+  assert.equal(oee.performanceSource, "product-cycle-time");
+  assert.deepEqual(
+    oee.appliedCycleTimes.map(({ productId, runningSeconds, theoreticalUnits }) => ({
+      productId,
+      runningSeconds,
+      theoreticalUnits
+    })),
+    [
+      { productId: "SKU-A", runningSeconds: 2, theoreticalUnits: 4 },
+      { productId: "SKU-B", runningSeconds: 1, theoreticalUnits: 1 }
+    ]
+  );
+});
+
 test("gateway runtime exposes counter-to-quality reconciliation warnings", async (t) => {
   const { runtime } = makeRuntime();
   t.after(async () => runtime.stop());
@@ -396,7 +446,8 @@ test("gateway runtime exposes and applies runtime work context updates", async (
   assert.deepEqual(await initialResponse.json(), {
     workOrderId: null,
     serialNumber: null,
-    correlationId: null
+    correlationId: null,
+    productId: null
   });
 
   const updateResponse = await fetch(`${runtime.api.address}/v1/work-context`, {
@@ -405,14 +456,16 @@ test("gateway runtime exposes and applies runtime work context updates", async (
     body: JSON.stringify({
       workOrderId: "WO-RUNTIME-NEXT",
       serialNumber: "SN-RUNTIME-NEXT",
-      correlationId: "corr-runtime-next"
+      correlationId: "corr-runtime-next",
+      productId: "SKU-RUNTIME-NEXT"
     })
   });
   assert.equal(updateResponse.status, 200);
   assert.deepEqual(await updateResponse.json(), {
     workOrderId: "WO-RUNTIME-NEXT",
     serialNumber: "SN-RUNTIME-NEXT",
-    correlationId: "corr-runtime-next"
+    correlationId: "corr-runtime-next",
+    productId: "SKU-RUNTIME-NEXT"
   });
 
   const event = runtime.collector.capture(plcSnapshot({ goodCount: 1 }), {
@@ -421,6 +474,7 @@ test("gateway runtime exposes and applies runtime work context updates", async (
   assert.equal(event.workOrderId, "WO-RUNTIME-NEXT");
   assert.equal(event.serialNumber, "SN-RUNTIME-NEXT");
   assert.equal(event.correlationId, "corr-runtime-next");
+  assert.equal(event.productId, "SKU-RUNTIME-NEXT");
 
   const qualityResponse = await fetch(`${runtime.api.address}/v1/quality-events`, {
     method: "POST",
@@ -435,10 +489,12 @@ test("gateway runtime exposes and applies runtime work context updates", async (
   assert.equal(quality.event.workOrderId, "WO-RUNTIME-NEXT");
   assert.equal(quality.event.serialNumber, "SN-RUNTIME-NEXT");
   assert.equal(quality.event.correlationId, "corr-runtime-next");
+  assert.equal(quality.event.productId, "SKU-RUNTIME-NEXT");
   const metrics = await (await fetch(`${runtime.api.address}/metrics`)).text();
   assert.match(metrics, /work_order_id="WO-RUNTIME-NEXT"/);
   assert.match(metrics, /serial_number="SN-RUNTIME-NEXT"/);
   assert.match(metrics, /correlation_id="corr-runtime-next"/);
+  assert.match(metrics, /product_id="SKU-RUNTIME-NEXT"/);
 
   const correlationResponse = await fetch(`${runtime.api.address}/v1/correlation`, {
     method: "POST",
@@ -453,13 +509,19 @@ test("gateway runtime exposes and applies runtime work context updates", async (
   const clearResponse = await fetch(`${runtime.api.address}/v1/work-context`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ workOrderId: null, serialNumber: "", correlationId: null })
+    body: JSON.stringify({
+      workOrderId: null,
+      serialNumber: "",
+      correlationId: null,
+      productId: null
+    })
   });
   assert.equal(clearResponse.status, 200);
   assert.deepEqual(await clearResponse.json(), {
     workOrderId: null,
     serialNumber: null,
-    correlationId: null
+    correlationId: null,
+    productId: null
   });
   const clearedEvent = runtime.collector.capture(plcSnapshot({ goodCount: 2 }), {
     occurredAt: new Date().toISOString()
@@ -467,6 +529,7 @@ test("gateway runtime exposes and applies runtime work context updates", async (
   assert.equal(Object.hasOwn(clearedEvent, "workOrderId"), false);
   assert.equal(Object.hasOwn(clearedEvent, "serialNumber"), false);
   assert.equal(Object.hasOwn(clearedEvent, "correlationId"), false);
+  assert.equal(Object.hasOwn(clearedEvent, "productId"), false);
 
   const invalidResponse = await fetch(`${runtime.api.address}/v1/work-context`, {
     method: "POST",
@@ -493,18 +556,21 @@ test("gateway runtime persists and restores work context", async (t) => {
   const updated = await first.runtime.updateWorkContext({
     workOrderId: "WO-PERSISTED",
     serialNumber: "SN-PERSISTED",
-    correlationId: "corr-persisted"
+    correlationId: "corr-persisted",
+    productId: "SKU-PERSISTED"
   });
   assert.deepEqual(updated, {
     workOrderId: "WO-PERSISTED",
     serialNumber: "SN-PERSISTED",
-    correlationId: "corr-persisted"
+    correlationId: "corr-persisted",
+    productId: "SKU-PERSISTED"
   });
   const stored = JSON.parse(await fs.readFile(statePath, "utf8"));
   assert.equal(stored.schemaVersion, "1.0");
   assert.equal(stored.workOrderId, "WO-PERSISTED");
   assert.equal(stored.serialNumber, "SN-PERSISTED");
   assert.equal(stored.correlationId, "corr-persisted");
+  assert.equal(stored.productId, "SKU-PERSISTED");
   assert.match(stored.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
   await first.runtime.stop();
   first = null;
@@ -519,6 +585,7 @@ test("gateway runtime persists and restores work context", async (t) => {
   assert.equal(quality.event.workOrderId, "WO-PERSISTED");
   assert.equal(quality.event.serialNumber, "SN-PERSISTED");
   assert.equal(quality.event.correlationId, "corr-persisted");
+  assert.equal(quality.event.productId, "SKU-PERSISTED");
   await second.runtime.stop();
   second = null;
 });
@@ -531,7 +598,8 @@ test("gateway API scopes events, NG input and OEE by work context", async (t) =>
   await runtime.updateWorkContext({
     workOrderId: "WO-SCOPE-A",
     serialNumber: "SN-SCOPE-A",
-    correlationId: "corr-scope-a"
+    correlationId: "corr-scope-a",
+    productId: "SKU-SCOPE-A"
   });
   runtime.collector.capture(plcSnapshot({ goodCount: 0 }), { occurredAt: iso(0) });
   runtime.collector.capture(plcSnapshot({ goodCount: 2 }), { occurredAt: iso(1) });
@@ -544,7 +612,8 @@ test("gateway API scopes events, NG input and OEE by work context", async (t) =>
   await runtime.updateWorkContext({
     workOrderId: "WO-SCOPE-B",
     serialNumber: "SN-SCOPE-B",
-    correlationId: "corr-scope-b"
+    correlationId: "corr-scope-b",
+    productId: "SKU-SCOPE-B"
   });
   runtime.collector.capture(plcSnapshot({ goodCount: 4 }), { occurredAt: iso(2) });
   runtime.collector.capture(plcSnapshot({ goodCount: 6 }), { occurredAt: iso(3) });
@@ -555,12 +624,13 @@ test("gateway API scopes events, NG input and OEE by work context", async (t) =>
   });
 
   const eventsResponse = await fetch(
-    `${runtime.api.address}/v1/events?workOrderId=WO-SCOPE-A&correlationId=corr-scope-a`
+    `${runtime.api.address}/v1/events?workOrderId=WO-SCOPE-A&correlationId=corr-scope-a&productId=SKU-SCOPE-A`
   );
   assert.equal(eventsResponse.status, 200);
   const events = await eventsResponse.json();
   assert.equal(events.count, 2);
   assert.ok(events.events.every((event) => event.workOrderId === "WO-SCOPE-A"));
+  assert.ok(events.events.every((event) => event.productId === "SKU-SCOPE-A"));
 
   const qualityResponse = await fetch(
     `${runtime.api.address}/v1/quality-events?correlationId=corr-scope-b`
@@ -569,11 +639,13 @@ test("gateway API scopes events, NG input and OEE by work context", async (t) =>
   const quality = await qualityResponse.json();
   assert.equal(quality.count, 1);
   assert.equal(quality.events[0].workOrderId, "WO-SCOPE-B");
+  assert.equal(quality.events[0].productId, "SKU-SCOPE-B");
 
   const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
   oeeUrl.searchParams.set("from", iso(0));
   oeeUrl.searchParams.set("to", iso(3));
   oeeUrl.searchParams.set("workOrderId", "WO-SCOPE-A");
+  oeeUrl.searchParams.set("productId", "SKU-SCOPE-A");
   const oeeResponse = await fetch(oeeUrl);
   assert.equal(oeeResponse.status, 200);
   const oee = await oeeResponse.json();
@@ -582,7 +654,8 @@ test("gateway API scopes events, NG input and OEE by work context", async (t) =>
   assert.equal(oee.qualityEventQuantity, 1);
   assert.deepEqual(oee.scope, {
     workOrderId: "WO-SCOPE-A",
-    correlationId: null
+    correlationId: null,
+    productId: "SKU-SCOPE-A"
   });
 });
 
@@ -594,7 +667,8 @@ test("RCA scopes context and alarms to the quality event work context", async (t
   await runtime.updateWorkContext({
     workOrderId: "WO-RCA-A",
     serialNumber: "SN-RCA-A",
-    correlationId: "corr-rca-a"
+    correlationId: "corr-rca-a",
+    productId: "SKU-RCA-A"
   });
   runtime.collector.capture(plcSnapshot({ goodCount: 0, temperatureC: 24 }), {
     occurredAt: iso(41)
@@ -624,7 +698,8 @@ test("RCA scopes context and alarms to the quality event work context", async (t
   await runtime.updateWorkContext({
     workOrderId: "WO-RCA-B",
     serialNumber: "SN-RCA-B",
-    correlationId: "corr-rca-b"
+    correlationId: "corr-rca-b",
+    productId: "SKU-RCA-B"
   });
   runtime.collector.capture(plcSnapshot({ goodCount: 4, temperatureC: 24 }), {
     occurredAt: iso(42)
@@ -652,7 +727,8 @@ test("RCA scopes context and alarms to the quality event work context", async (t
   assert.equal(rcaA.scopeApplied, true);
   assert.deepEqual(rcaA.scope, {
     workOrderId: "WO-RCA-A",
-    correlationId: "corr-rca-a"
+    correlationId: "corr-rca-a",
+    productId: "SKU-RCA-A"
   });
   assert.equal(rcaA.sampleCount, 4);
   assert.equal(rcaA.alarmCount, 1);
@@ -666,7 +742,8 @@ test("RCA scopes context and alarms to the quality event work context", async (t
   assert.equal(rcaB.scopeApplied, true);
   assert.deepEqual(rcaB.scope, {
     workOrderId: "WO-RCA-B",
-    correlationId: "corr-rca-b"
+    correlationId: "corr-rca-b",
+    productId: "SKU-RCA-B"
   });
   assert.equal(rcaB.sampleCount, 4);
   assert.equal(rcaB.alarmCount, 0);

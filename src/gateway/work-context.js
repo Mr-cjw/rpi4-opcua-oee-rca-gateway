@@ -3,7 +3,8 @@
 const WORK_CONTEXT_FIELDS = Object.freeze([
   "workOrderId",
   "serialNumber",
-  "correlationId"
+  "correlationId",
+  "productId"
 ]);
 
 class WorkContextValidationError extends Error {
@@ -41,7 +42,8 @@ function workContextFrom(options = {}) {
   return {
     workOrderId: options.workOrderId || null,
     serialNumber: options.serialNumber || null,
-    correlationId: options.correlationId || null
+    correlationId: options.correlationId || null,
+    productId: options.productId || null
   };
 }
 
@@ -49,7 +51,8 @@ function workContextFilterFrom(options = {}) {
   const normalized = normalizeWorkContextUpdate(options);
   return {
     workOrderId: normalized.workOrderId ?? null,
-    correlationId: normalized.correlationId ?? null
+    correlationId: normalized.correlationId ?? null,
+    productId: normalized.productId ?? null
   };
 }
 
@@ -58,6 +61,9 @@ function matchesWorkContext(record, filter = {}) {
     return false;
   }
   if (filter.correlationId && record?.correlationId !== filter.correlationId) {
+    return false;
+  }
+  if (filter.productId && record?.productId !== filter.productId) {
     return false;
   }
   return true;

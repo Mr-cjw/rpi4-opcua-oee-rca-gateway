@@ -61,6 +61,10 @@
       "type": "string",
       "minLength": 1
     },
+    "productId": {
+      "type": "string",
+      "minLength": 1
+    },
     "quantity": {
       "type": "integer",
       "minimum": 1

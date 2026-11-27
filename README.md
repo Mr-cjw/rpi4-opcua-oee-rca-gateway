@@ -20,11 +20,12 @@ It provides:
 - A Gateway runtime that records `PROCESS_CONTEXT` events to JSONL
 - Loopback HTTP endpoints for process context, OEE decomposition, and RCA candidates
 - Optional bearer-protected Prometheus metrics
-- Runtime-updatable work-order, serial-number, and correlation context
+- Runtime-updatable work-order, serial-number, correlation, and product context
 - Durable quality-event idempotency independent of log rotation
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
 - Time-zone-aware shift windows for planned production time
 - Classified stoppage and OEE loss breakdown
+- Per-product/SKU ideal-cycle-time Performance with explicit fallback provenance
 
 The phased plan from the current prototype to a field pilot is documented in
 [`docs/ROADMAP.md`](docs/ROADMAP.md). The immediate priority is OEE correctness:
@@ -177,17 +178,17 @@ curl http://127.0.0.1:8080/v1/context/latest
 curl http://127.0.0.1:8080/v1/work-context
 curl -X POST http://127.0.0.1:8080/v1/work-context \
   -H 'content-type: application/json' \
-  -d '{"workOrderId":"WO-JX-001","serialNumber":"SN-JX-001","correlationId":"corr-jx-001"}'
-curl 'http://127.0.0.1:8080/v1/events?workOrderId=WO-JX-001&limit=20'
-curl 'http://127.0.0.1:8080/v1/oee?windowMs=300000&workOrderId=WO-JX-001'
+  -d '{"workOrderId":"WO-JX-001","serialNumber":"SN-JX-001","correlationId":"corr-jx-001","productId":"SKU-JX-001"}'
+curl 'http://127.0.0.1:8080/v1/events?workOrderId=WO-JX-001&productId=SKU-JX-001&limit=20'
+curl 'http://127.0.0.1:8080/v1/oee?windowMs=300000&workOrderId=WO-JX-001&productId=SKU-JX-001'
 curl -X POST http://127.0.0.1:8080/v1/quality-events \
   -H 'content-type: application/json' \
-  -d '{"sourceEventId":"QC-JX-001","result":"NG","occurredAt":"2026-11-27T06:00:00.000Z","workOrderId":"WO-JX-001","correlationId":"corr-jx-001","quantity":1}'
-curl 'http://127.0.0.1:8080/v1/alarms?workOrderId=WO-JX-001&limit=20'
+  -d '{"sourceEventId":"QC-JX-001","result":"NG","occurredAt":"2026-11-27T06:00:00.000Z","workOrderId":"WO-JX-001","correlationId":"corr-jx-001","productId":"SKU-JX-001","quantity":1}'
+curl 'http://127.0.0.1:8080/v1/alarms?workOrderId=WO-JX-001&productId=SKU-JX-001&limit=20'
 curl 'http://127.0.0.1:8080/v1/quality-events?limit=20'
 curl -X POST http://127.0.0.1:8080/v1/rca \
   -H 'content-type: application/json' \
-  -d '{"qualityEventId":"qevt-...","windowMs":300000,"workOrderId":"WO-JX-001"}'
+  -d '{"qualityEventId":"qevt-...","windowMs":300000,"workOrderId":"WO-JX-001","productId":"SKU-JX-001"}'
 ```
 
 `GET /metrics` exposes Prometheus text metrics for process uptime, OPC UA
@@ -196,26 +197,29 @@ and the current line/work context. It uses the same `GATEWAY_API_TOKEN` check as
 the `/v1/*` endpoints; only `/healthz` is unauthenticated.
 
 `/v1/events`, `/v1/alarms`, `/v1/quality-events`, and `/v1/oee` accept optional
-`workOrderId` and `correlationId` query parameters. `/v1/rca` accepts the same
-fields in its JSON body. Filters are applied before limit/OEE aggregation, so a
-5-minute OEE window does not mix two work orders when one is selected. Scoped
-OEE responses echo the active filter in `scope`; an explicit `ngCount` still
-overrides the quality-event input. Alarm-history entries retain the work
-context active when the alarm was recorded.
+`workOrderId`, `correlationId`, and `productId` query parameters. `/v1/rca`
+accepts the same fields in its JSON body. Filters are applied before
+limit/OEE aggregation, so a 5-minute OEE window does not mix two work orders or
+two products when one is selected. Scoped OEE responses echo the active filter
+in `scope`; an explicit `ngCount` still overrides the quality-event input.
+Alarm-history entries retain the work context active when the alarm was
+recorded. `GET /metrics` includes the current `product_id` label on
+`rpi4_gateway_work_order_info`.
 
 ### Runtime work context
 
-`GET /v1/work-context` returns the current work order, serial number, and
-correlation ID. `POST /v1/work-context` updates any subset of those fields:
+`GET /v1/work-context` returns the current work order, serial number,
+correlation ID, and product ID. `POST /v1/work-context` updates any subset of
+those fields:
 
 - omitted fields keep their current values;
 - `null`, `undefined`, or an empty string clears a field;
 - any other non-string value returns `400`.
 
 New `PROCESS_CONTEXT` samples use the updated values on the next capture.
-Quality events that omit work-order, serial-number, or correlation fields also
-inherit the current runtime values; explicit quality-event values take
-precedence for that event. `POST /v1/correlation` remains available as a
+Quality events that omit work-order, serial-number, correlation, or product
+fields also inherit the current runtime values; explicit quality-event values
+take precedence for that event. `POST /v1/correlation` remains available as a
 compatibility shortcut for updating only the correlation ID. Runtime updates
 are atomically persisted with `GATEWAY_WORK_CONTEXT_FILE` and restored when the
 Gateway restarts; set the path to `off` to keep the context in memory only.
@@ -231,8 +235,8 @@ The endpoint:
 - accepts NG events only;
 - requires `sourceEventId` and uses it for idempotency;
 - fills `lineId`/`stationId` from Gateway configuration and rejects mismatches;
-- accepts `quantity`, work order, serial, correlation ID, defect type,
-  confidence, image ID, and free-form metadata;
+- accepts `quantity`, work order, serial, correlation ID, product ID, defect
+  type, confidence, image ID, and free-form metadata;
 - returns `201` for the first write and `200` with `duplicate: true` for a
   replay. Duplicate responses include `retained`; when the original event has
   already left the in-memory window, `event` contains the compact archived
@@ -267,13 +271,29 @@ headline number:
 - Quality = good-count delta / production-count delta;
 - OEE = Availability x Performance x Quality.
 
-Performance uses `OEE_NOMINAL_OUTPUT_PER_MIN` by default. Set
-`OEE_IDEAL_CYCLE_TIME_MS` to use a validated per-unit cycle time instead, or
-pass `idealCycleTimeMs` to `/v1/oee` to override it for one query. Query values
-take precedence. Responses expose `idealCycleTimeMs`, `idealCycleTimeSource`
-(`config` or `query`), and `performanceSource` (`nominal-output-rate` or
-`ideal-cycle-time`). This is currently one cycle time per Gateway context;
-product/SKU-specific lookup for mixed-product windows remains a later step.
+Performance uses `OEE_NOMINAL_OUTPUT_PER_MIN` by default. Configure
+`OEE_PRODUCT_CYCLE_TIMES` as `PRODUCT_ID=MILLISECONDS,...` to assign a
+validated cycle time to each SKU. For every planned `RUNNING` interval the
+Gateway applies, in order:
+
+1. the cycle time mapped to that interval's `productId`;
+2. the global `OEE_IDEAL_CYCLE_TIME_MS` or query-level `idealCycleTimeMs` when
+   the product is absent or unmapped;
+3. the nominal output rate when neither cycle-time input applies.
+
+The theoretical output for the window is the sum of these per-interval values,
+so a mixed-product window does not reuse one SKU's cycle time for another.
+Responses expose `idealCycleTimeMs`, `idealCycleTimeSource` (`config` or
+`query`), `configuredProductCycleTimes`, and `appliedCycleTimes`. Each
+`appliedCycleTimes` entry records the `productId`, applied `cycleTimeMs`,
+`source`, `runningSeconds`, and `theoreticalUnits`. `performanceSource` is
+`product-cycle-time`, `mixed-cycle-time`, `ideal-cycle-time`, or
+`nominal-output-rate` based on the sources actually used by the window.
+Missing product context or an unmapped product produces
+`PRODUCT_CONTEXT_MISSING` or `PRODUCT_CYCLE_TIME_MISSING` in `dataQuality` and
+falls back explicitly. Cycle-time values are operator-supplied assumptions;
+validate them against the PLC/process before treating Performance as a formal
+production figure.
 
 Planned time is the intersection of the sampled window and the configured
 `OEE_SHIFT_WINDOWS` in `OEE_TIMEZONE`. The default is
@@ -359,12 +379,12 @@ Legacy or mixed samples without a valid total counter keep the previous
 - Performance = `goodCount` delta / theoretical good units at nominal output;
 - Quality = `goodCount` delta / (`goodCount` delta + recorded NG quantity).
 
-Product-mix ideal cycle time and speed-loss attribution still need to be added
-before using this as a formal production OEE figure. If `ngCount` is omitted,
-the API uses recorded quality events; if none exist in the window it returns a
-warning because the quality feed may not be connected. If the total counter is
-missing from only part of the window or is below `goodCount`, the API falls
-back to the good-count proxy and returns an explicit warning.
+Per-SKU cycle-time inputs are now available, but they remain operator-supplied
+assumptions rather than values read from the PLC recipe. If `ngCount` is
+omitted, the API uses recorded quality events; if none exist in the window it
+returns a warning because the quality feed may not be connected. If the total
+counter is missing from only part of the window or is below `goodCount`, the
+API falls back to the good-count proxy and returns an explicit warning.
 
 ### RCA boundary
 
@@ -438,6 +458,7 @@ Gateway only reads points; it does not write PLC controls.
 | `GATEWAY_WORK_ORDER_ID` | empty | Initial current work order; runtime-updatable |
 | `GATEWAY_SERIAL_NUMBER` | empty | Initial current serial number; runtime-updatable |
 | `GATEWAY_CORRELATION_ID` | empty | Initial correlation ID; runtime-updatable |
+| `GATEWAY_PRODUCT_ID` | empty | Initial product/SKU ID; runtime-updatable |
 | `GATEWAY_WORK_CONTEXT_FILE` | `data/work-context.json` | Atomic runtime work-context state; `off` disables persistence |
 | `OPCUA_DEVICE_STATUS_NODE` | `ns=1;s=MockPLC.DeviceStatus` | Device status NodeId |
 | `OPCUA_CURRENT_OUTPUT_NODE` | `ns=1;s=MockPLC.CurrentOutput` | Current output NodeId |
@@ -454,6 +475,7 @@ Gateway only reads points; it does not write PLC controls.
 | `PROCESS_CONTEXT_LOG_MAX_FILES` | `3` | Number of rotated context-log backups to retain |
 | `OEE_NOMINAL_OUTPUT_PER_MIN` | `120` | Fallback theoretical output for Performance |
 | `OEE_IDEAL_CYCLE_TIME_MS` | empty | Optional validated cycle time; overrides the nominal rate when set |
+| `OEE_PRODUCT_CYCLE_TIMES` | empty | Per-SKU cycle times as `PRODUCT_ID=MILLISECONDS,...`; mapped products take precedence |
 | `OEE_TIMEZONE` | system time zone | IANA time zone for shift and planned-time calculations |
 | `OEE_SHIFT_WINDOWS` | `00:00-24:00` | Daily shift windows; `[DAYS:]HH:MM-HH:MM` separated by semicolons |
 | `OEE_PLANNED_DOWNTIME_ALARM_CODES` | empty | Comma-separated active alarm codes classified as planned downtime |

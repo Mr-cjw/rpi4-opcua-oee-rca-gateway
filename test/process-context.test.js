@@ -43,6 +43,7 @@ function makeCollector(overrides = {}) {
     workOrderId: "WO-JX-001",
     serialNumber: "SN-JX-001",
     correlationId: "corr-001",
+    productId: "SKU-JX-001",
     sampleIntervalMs: 1000,
     retentionMs: 60_000,
     maxEvents: 10,
@@ -66,6 +67,7 @@ test("process context builds the shared event contract", () => {
   assert.equal(event.stationId, "JX-LINQIN-STATION-01");
   assert.equal(event.workOrderId, "WO-JX-001");
   assert.equal(event.serialNumber, "SN-JX-001");
+  assert.equal(event.productId, "SKU-JX-001");
   assert.deepEqual(event.metrics, {
     deviceStatus: "RUNNING",
     currentOutput: 118.432,
@@ -121,12 +123,14 @@ test("process context updates and clears runtime work context", () => {
   const updated = collector.setWorkContext({
     workOrderId: "WO-JX-002",
     serialNumber: "SN-JX-002",
-    correlationId: "corr-002"
+    correlationId: "corr-002",
+    productId: "SKU-JX-002"
   });
   assert.deepEqual(updated, {
     workOrderId: "WO-JX-002",
     serialNumber: "SN-JX-002",
-    correlationId: "corr-002"
+    correlationId: "corr-002",
+    productId: "SKU-JX-002"
   });
   assert.deepEqual(collector.getWorkContext(), updated);
   assert.deepEqual(emitted, [updated]);
@@ -137,16 +141,19 @@ test("process context updates and clears runtime work context", () => {
   assert.equal(event.workOrderId, "WO-JX-002");
   assert.equal(event.serialNumber, "SN-JX-002");
   assert.equal(event.correlationId, "corr-002");
+  assert.equal(event.productId, "SKU-JX-002");
 
   const cleared = collector.setWorkContext({
     workOrderId: null,
     serialNumber: "",
-    correlationId: undefined
+    correlationId: undefined,
+    productId: ""
   });
   assert.deepEqual(cleared, {
     workOrderId: null,
     serialNumber: null,
-    correlationId: null
+    correlationId: null,
+    productId: null
   });
   const clearedEvent = collector.capture(snapshot(), {
     occurredAt: "2026-11-27T00:00:11.000Z"
@@ -154,6 +161,7 @@ test("process context updates and clears runtime work context", () => {
   assert.equal(Object.hasOwn(clearedEvent, "workOrderId"), false);
   assert.equal(Object.hasOwn(clearedEvent, "serialNumber"), false);
   assert.equal(Object.hasOwn(clearedEvent, "correlationId"), false);
+  assert.equal(Object.hasOwn(clearedEvent, "productId"), false);
 
   assert.throws(
     () => collector.setWorkContext({ workOrderId: 42 }),

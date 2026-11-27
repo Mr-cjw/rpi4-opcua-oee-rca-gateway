@@ -22,11 +22,11 @@ curl http://127.0.0.1:8080/healthz
 
 The service uses `StateDirectory=rpi4-gateway`, so `/var/lib/rpi4-gateway` is
 created with the service user's ownership. JSONL logs and the OPC UA client PKI
-directory live there. Runtime work order/SN/correlation updates are persisted to
-`/var/lib/rpi4-gateway/work-context.json` and restored on restart. Quality
-source-event IDs live in `/var/lib/rpi4-gateway/quality-idempotency.json`, with
-a seven-day and 100,000-entry default horizon. The repository `data/` directory
-is also writable for development runs.
+directory live there. Runtime work order/SN/correlation/product updates are
+persisted to `/var/lib/rpi4-gateway/work-context.json` and restored on restart.
+Quality source-event IDs live in `/var/lib/rpi4-gateway/quality-idempotency.json`,
+with a seven-day and 100,000-entry default horizon. The repository `data/`
+directory is also writable for development runs.
 
 ## Operational notes
 
@@ -41,4 +41,7 @@ is also writable for development runs.
   card or SSD budget.
 - `OEE_NOMINAL_OUTPUT_PER_MIN` or `OEE_IDEAL_CYCLE_TIME_MS`, planned time, and
   quality-event connectivity must be validated before quoting OEE as a
-  production metric.
+  production metric. When `OEE_PRODUCT_CYCLE_TIMES` is used, validate every
+  configured SKU value and confirm the runtime `GATEWAY_PRODUCT_ID` / PLC
+  product context matches the SKU actually running; missing or unmapped
+  products fall back with an explicit data-quality warning.

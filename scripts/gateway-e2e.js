@@ -76,10 +76,12 @@ async function main() {
       GATEWAY_STATION_ID: "JX-LINQIN-STATION-01",
       GATEWAY_WORK_ORDER_ID: "WO-GATEWAY-E2E-001",
       GATEWAY_CORRELATION_ID: "corr-gateway-e2e",
+      GATEWAY_PRODUCT_ID: "SKU-E2E-001",
       GATEWAY_WORK_CONTEXT_FILE: path.join(runDir, "work-context.json"),
       GATEWAY_HTTP_PORT: "0",
       GATEWAY_API_TOKEN: "",
-      OEE_NOMINAL_OUTPUT_PER_MIN: "120"
+      OEE_NOMINAL_OUTPUT_PER_MIN: "120",
+      OEE_PRODUCT_CYCLE_TIMES: "SKU-E2E-002=500"
     });
     runtime = new GatewayRuntime(gatewayConfig, {
       logger: { info() {}, warn() {}, error() {} }
@@ -110,6 +112,7 @@ async function main() {
     const beforeFault = await getJson(`${runtime.api.address}/v1/context/latest`);
     assert.equal(beforeFault.eventType, "PROCESS_CONTEXT");
     assert.equal(beforeFault.workOrderId, "WO-GATEWAY-E2E-001");
+    assert.equal(beforeFault.productId, "SKU-E2E-001");
     assert.ok(
       beforeFault.metrics.totalProducedCount >= beforeFault.metrics.goodCount
     );
@@ -120,16 +123,20 @@ async function main() {
       body: JSON.stringify({
         workOrderId: "WO-GATEWAY-E2E-002",
         serialNumber: "SN-GATEWAY-E2E-002",
-        correlationId: "corr-gateway-e2e-002"
+        correlationId: "corr-gateway-e2e-002",
+        productId: "SKU-E2E-002"
       })
     });
     assert.equal(workContext.workOrderId, "WO-GATEWAY-E2E-002");
+    assert.equal(workContext.productId, "SKU-E2E-002");
     await waitFor(
       () =>
         runtime.getLatestContext()?.serialNumber === "SN-GATEWAY-E2E-002" &&
+        runtime.getLatestContext()?.productId === "SKU-E2E-002" &&
         runtime.getContextEvents({
           workOrderId: "WO-GATEWAY-E2E-002",
-          correlationId: "corr-gateway-e2e-002"
+          correlationId: "corr-gateway-e2e-002",
+          productId: "SKU-E2E-002"
         }).length >= 2,
       5000,
       "two context samples with the updated work context"
@@ -138,7 +145,8 @@ async function main() {
       () => {
         const events = runtime.getContextEvents({
           workOrderId: "WO-GATEWAY-E2E-002",
-          correlationId: "corr-gateway-e2e-002"
+          correlationId: "corr-gateway-e2e-002",
+          productId: "SKU-E2E-002"
         });
         if (events.length < 2) {
           return false;
@@ -186,11 +194,13 @@ async function main() {
     assert.equal(quality.event.workOrderId, "WO-GATEWAY-E2E-002");
     assert.equal(quality.event.serialNumber, "SN-GATEWAY-E2E-002");
     assert.equal(quality.event.correlationId, "corr-gateway-e2e-002");
+    assert.equal(quality.event.productId, "SKU-E2E-002");
 
     const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
     oeeUrl.searchParams.set("windowMs", "300000");
     oeeUrl.searchParams.set("workOrderId", "WO-GATEWAY-E2E-002");
     oeeUrl.searchParams.set("correlationId", "corr-gateway-e2e-002");
+    oeeUrl.searchParams.set("productId", "SKU-E2E-002");
     const oee = await getJson(oeeUrl);
     for (const key of ["availability", "performance", "quality", "oee"]) {
       assert.ok(oee[key] >= 0 && oee[key] <= 1, `${key} must be between 0 and 1`);
@@ -206,9 +216,12 @@ async function main() {
     assert.ok(oee.lossBreakdown.speedLossUnits >= 0);
     assert.equal(oee.qualitySource, "quality-events");
     assert.equal(oee.qualityEventCount, 1);
+    assert.equal(oee.performanceSource, "product-cycle-time");
+    assert.equal(oee.appliedCycleTimes[0].productId, "SKU-E2E-002");
     assert.deepEqual(oee.scope, {
       workOrderId: "WO-GATEWAY-E2E-002",
-      correlationId: "corr-gateway-e2e-002"
+      correlationId: "corr-gateway-e2e-002",
+      productId: "SKU-E2E-002"
     });
     assert.ok(oee.quality < 1);
 

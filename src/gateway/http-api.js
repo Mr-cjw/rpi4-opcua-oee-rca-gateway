@@ -74,7 +74,8 @@ function metricsPayload(runtime) {
       `station_id="${prometheusLabel(identity.stationId)}",` +
       `work_order_id="${prometheusLabel(identity.workOrderId)}",` +
       `serial_number="${prometheusLabel(identity.serialNumber)}",` +
-      `correlation_id="${prometheusLabel(identity.correlationId)}"} 1`,
+      `correlation_id="${prometheusLabel(identity.correlationId)}",` +
+      `product_id="${prometheusLabel(identity.productId)}"} 1`,
     ""
   ].join("\n");
 }
@@ -191,6 +192,7 @@ function createGatewayApi(runtime, options = {}) {
         to: url.searchParams.get("to") || undefined,
         workOrderId: url.searchParams.get("workOrderId") || undefined,
         correlationId: url.searchParams.get("correlationId") || undefined,
+        productId: url.searchParams.get("productId") || undefined,
         limit: integerQuery(url.searchParams, "limit")
       });
       sendJson(response, 200, { count: events.length, events });
@@ -203,6 +205,7 @@ function createGatewayApi(runtime, options = {}) {
         to: url.searchParams.get("to") || undefined,
         workOrderId: url.searchParams.get("workOrderId") || undefined,
         correlationId: url.searchParams.get("correlationId") || undefined,
+        productId: url.searchParams.get("productId") || undefined,
         limit: integerQuery(url.searchParams, "limit")
       });
       sendJson(response, 200, { count: alarms.length, alarms });
@@ -215,6 +218,7 @@ function createGatewayApi(runtime, options = {}) {
         to: url.searchParams.get("to") || undefined,
         workOrderId: url.searchParams.get("workOrderId") || undefined,
         correlationId: url.searchParams.get("correlationId") || undefined,
+        productId: url.searchParams.get("productId") || undefined,
         windowMs: integerQuery(url.searchParams, "windowMs"),
         idealCycleTimeMs: positiveIntegerQuery(url.searchParams, "idealCycleTimeMs"),
         ngCount: integerQuery(url.searchParams, "ngCount")
@@ -236,6 +240,7 @@ function createGatewayApi(runtime, options = {}) {
         to: url.searchParams.get("to") || undefined,
         workOrderId: url.searchParams.get("workOrderId") || undefined,
         correlationId: url.searchParams.get("correlationId") || undefined,
+        productId: url.searchParams.get("productId") || undefined,
         limit: integerQuery(url.searchParams, "limit")
       });
       sendJson(response, 200, { count: events.length, events });
@@ -265,6 +270,7 @@ function createGatewayApi(runtime, options = {}) {
         qualityEventId: body.qualityEventId,
         workOrderId: body.workOrderId,
         correlationId: body.correlationId,
+        productId: body.productId,
         windowMs: body.windowMs,
         temperatureThresholdC: body.temperatureThresholdC
       });

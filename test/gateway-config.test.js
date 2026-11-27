@@ -118,6 +118,32 @@ test("gateway config parses an optional ideal cycle time", () => {
   );
 });
 
+test("gateway config parses per-product cycle times", () => {
+  const defaults = loadGatewayConfig({});
+  assert.deepEqual(defaults.analytics.productCycleTimes, {});
+
+  const configured = loadGatewayConfig({
+    OEE_PRODUCT_CYCLE_TIMES: "SKU-A=500,SKU-B=750"
+  });
+  assert.deepEqual(configured.analytics.productCycleTimes, {
+    "SKU-A": 500,
+    "SKU-B": 750
+  });
+
+  assert.throws(
+    () => loadGatewayConfig({ OEE_PRODUCT_CYCLE_TIMES: "SKU-A" }),
+    /OEE_PRODUCT_CYCLE_TIMES/
+  );
+  assert.throws(
+    () => loadGatewayConfig({ OEE_PRODUCT_CYCLE_TIMES: "SKU-A=0" }),
+    /OEE_PRODUCT_CYCLE_TIMES/
+  );
+  assert.throws(
+    () => loadGatewayConfig({ OEE_PRODUCT_CYCLE_TIMES: "SKU-A=500,SKU-A=750" }),
+    /duplicate/
+  );
+});
+
 test("gateway config refuses to disable a required PLC point", () => {
   assert.throws(
     () => loadGatewayConfig({ OPCUA_DEVICE_STATUS_NODE: "off" }),

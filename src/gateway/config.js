@@ -66,6 +66,32 @@ function alarmCodesFromEnv(env, name) {
   return Object.freeze([...new Set(codes)]);
 }
 
+function productCycleTimesFromEnv(env, name) {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return Object.freeze({});
+  }
+  const entries = raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const cycleTimes = {};
+  for (const entry of entries) {
+    const separator = entry.lastIndexOf("=");
+    const productId = separator > 0 ? entry.slice(0, separator).trim() : "";
+    const rawCycleTime = separator > 0 ? entry.slice(separator + 1).trim() : "";
+    const cycleTimeMs = Number(rawCycleTime);
+    if (!productId || !Number.isFinite(cycleTimeMs) || cycleTimeMs <= 0) {
+      throw new Error(`${name} entry must use PRODUCT_ID=MILLISECONDS; received "${entry}"`);
+    }
+    if (Object.prototype.hasOwnProperty.call(cycleTimes, productId)) {
+      throw new Error(`${name} contains duplicate productId "${productId}"`);
+    }
+    cycleTimes[productId] = cycleTimeMs;
+  }
+  return Object.freeze(cycleTimes);
+}
+
 function nodeIdFromEnv(env, name, fallback, { optional = false } = {}) {
   const raw = env[name];
   if (raw === "off" || raw === "none" || raw === "disabled") {
@@ -105,6 +131,7 @@ function loadGatewayConfig(env = process.env) {
     "OEE_PLANNED_DOWNTIME_ALARM_CODES"
   );
   const changeoverAlarmCodes = alarmCodesFromEnv(env, "OEE_CHANGEOVER_ALARM_CODES");
+  const productCycleTimes = productCycleTimesFromEnv(env, "OEE_PRODUCT_CYCLE_TIMES");
   const overlappingCode = plannedDowntimeAlarmCodes.find((code) =>
     changeoverAlarmCodes.includes(code)
   );
@@ -214,7 +241,8 @@ function loadGatewayConfig(env = process.env) {
       stationId: env.GATEWAY_STATION_ID || "STATION-01",
       workOrderId: env.GATEWAY_WORK_ORDER_ID || "",
       serialNumber: env.GATEWAY_SERIAL_NUMBER || "",
-      correlationId: env.GATEWAY_CORRELATION_ID || ""
+      correlationId: env.GATEWAY_CORRELATION_ID || "",
+      productId: env.GATEWAY_PRODUCT_ID || ""
     }),
     workContext: Object.freeze({
       statePath: statePathFromEnv(env, "GATEWAY_WORK_CONTEXT_FILE", "work-context.json")
@@ -255,6 +283,7 @@ function loadGatewayConfig(env = process.env) {
         min: 0.001,
         max: 3600000
       }),
+      productCycleTimes,
       plannedTime: Object.freeze({
         timeZone,
         windows: shiftWindows,

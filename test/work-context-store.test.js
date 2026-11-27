@@ -18,7 +18,8 @@ test("work context store atomically saves and loads context", async (t) => {
   const context = {
     workOrderId: "WO-STORE-001",
     serialNumber: "SN-STORE-001",
-    correlationId: "corr-store-001"
+    correlationId: "corr-store-001",
+    productId: "SKU-STORE-001"
   };
   assert.equal(await store.save(context), true);
 
@@ -27,6 +28,7 @@ test("work context store atomically saves and loads context", async (t) => {
   assert.deepEqual(files, ["work-context.json"]);
   const stored = JSON.parse(await fs.readFile(filePath, "utf8"));
   assert.equal(stored.workOrderId, "WO-STORE-001");
+  assert.equal(stored.productId, "SKU-STORE-001");
   assert.equal(stored.schemaVersion, "1.0");
 });
 

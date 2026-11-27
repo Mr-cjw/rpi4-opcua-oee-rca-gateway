@@ -98,11 +98,91 @@ test("OEE uses an ideal cycle time when supplied", () => {
   assert.equal(ideal.idealCycleTimeMs, 1000);
   assert.equal(ideal.idealCycleTimeSource, "query");
   assert.equal(ideal.performanceSource, "ideal-cycle-time");
-  assert.match(ideal.basis.performance, /configured ideal cycle time/);
+  assert.match(ideal.basis.performance, /applied cycle-time inputs/);
 
   assert.throws(
     () => calculateOee(samples, { idealCycleTimeMs: 0 }),
     /idealCycleTimeMs/
+  );
+});
+
+test("OEE sums theoretical output from per-product cycle times", () => {
+  const samples = [
+    sample(0, { goodCount: 0, totalProducedCount: 0 }),
+    sample(1, { goodCount: 2, totalProducedCount: 2 }),
+    sample(2, { goodCount: 4, totalProducedCount: 4 }),
+    sample(3, { goodCount: 5, totalProducedCount: 5 })
+  ];
+  samples[0].productId = "SKU-A";
+  samples[1].productId = "SKU-A";
+  samples[2].productId = "SKU-B";
+  samples[3].productId = "SKU-B";
+
+  const result = calculateOee(samples, {
+    nominalOutputPerMinute: 120,
+    ngCount: 0,
+    productCycleTimes: {
+      "SKU-A": 500,
+      "SKU-B": 1000
+    }
+  });
+
+  assert.equal(result.theoreticalGood, 5);
+  assert.equal(result.performance, 1);
+  assert.equal(result.performanceSource, "product-cycle-time");
+  assert.equal(result.configuredProductCycleTimes["SKU-A"], 500);
+  assert.deepEqual(result.appliedCycleTimes, [
+    {
+      productId: "SKU-A",
+      cycleTimeMs: 500,
+      source: "product-cycle-time",
+      runningSeconds: 2,
+      theoreticalUnits: 4
+    },
+    {
+      productId: "SKU-B",
+      cycleTimeMs: 1000,
+      source: "product-cycle-time",
+      runningSeconds: 1,
+      theoreticalUnits: 1
+    }
+  ]);
+  assert.equal(result.dataQuality.status, "ok");
+});
+
+test("OEE warns when product context or a product cycle time is missing", () => {
+  const samples = [
+    sample(0, { goodCount: 0, totalProducedCount: 0 }),
+    sample(1, { goodCount: 2, totalProducedCount: 2 }),
+    sample(2, { goodCount: 4, totalProducedCount: 4 }),
+    sample(3, { goodCount: 5, totalProducedCount: 5 })
+  ];
+  samples[0].productId = "SKU-A";
+  samples[1].productId = "SKU-A";
+  samples[2].productId = "SKU-UNMAPPED";
+  samples[3].productId = "SKU-UNMAPPED";
+
+  const result = calculateOee(samples, {
+    nominalOutputPerMinute: 120,
+    ngCount: 0,
+    productCycleTimes: { "SKU-A": 500 }
+  });
+
+  assert.equal(result.performanceSource, "mixed-cycle-time");
+  assert.equal(result.dataQuality.status, "warning");
+  assert.ok(
+    result.dataQuality.issues.some(
+      (issue) =>
+        issue.code === "PRODUCT_CYCLE_TIME_MISSING" &&
+        issue.productId === "SKU-UNMAPPED"
+    )
+  );
+  assert.deepEqual(
+    result.appliedCycleTimes.map(({ productId, source }) => ({ productId, source })),
+    [
+      { productId: "SKU-A", source: "product-cycle-time" },
+      { productId: "SKU-UNMAPPED", source: "nominal-output-rate" }
+    ]
   );
 });
 

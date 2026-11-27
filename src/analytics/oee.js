@@ -303,6 +303,10 @@ function normalizeSamples(samples) {
         }
       }
       const deviceStatus = String(metricValue(sample, "deviceStatus") || "UNKNOWN").toUpperCase();
+      const productId =
+        typeof sample?.productId === "string" && sample.productId.trim() !== ""
+          ? sample.productId.trim()
+          : null;
       if (!Number.isFinite(goodCount)) {
         throw new Error(`samples[${index}].goodCount must be a finite number`);
       }
@@ -313,6 +317,7 @@ function normalizeSamples(samples) {
         invalidTotalProducedCount,
         alarmCodes: normalizeAlarmCodes(sample),
         deviceStatus,
+        productId,
         sample
       };
     })
@@ -430,6 +435,20 @@ function calculateOee(samples, options = {}) {
   ) {
     idealCycleTimeMs = Number(idealCycleTimeRaw);
   }
+  const productCycleTimes = new Map();
+  for (const [productIdValue, cycleTimeValue] of Object.entries(
+    options.productCycleTimes || {}
+  )) {
+    const productId = String(productIdValue).trim();
+    const cycleTimeMs = Number(cycleTimeValue);
+    if (!productId || !Number.isFinite(cycleTimeMs) || cycleTimeMs <= 0) {
+      throw new Error("productCycleTimes entries must have a productId and positive cycle time");
+    }
+    productCycleTimes.set(productId, cycleTimeMs);
+  }
+  const configuredProductCycleTimes = Object.freeze(
+    Object.fromEntries(productCycleTimes)
+  );
   const ngCount = Number(options.ngCount ?? 0);
 
   if (!Number.isFinite(nominalOutputPerMinute) || nominalOutputPerMinute <= 0) {
@@ -444,14 +463,18 @@ function calculateOee(samples, options = {}) {
   if (!Number.isInteger(ngCount) || ngCount < 0) {
     throw new Error("ngCount must be a non-negative integer");
   }
-  const performanceSource =
-    idealCycleTimeMs === null ? "nominal-output-rate" : "ideal-cycle-time";
+  const configuredPerformanceSource =
+    productCycleTimes.size > 0
+      ? "product-cycle-time"
+      : idealCycleTimeMs === null
+        ? "nominal-output-rate"
+        : "ideal-cycle-time";
   const idealCycleTimeSource =
     idealCycleTimeMs === null ? null : options.idealCycleTimeSource || null;
   const throughputBasis =
-    idealCycleTimeMs === null
-      ? "theoretical produced units at nominal output"
-      : "theoretical produced units at configured ideal cycle time";
+    productCycleTimes.size > 0 || idealCycleTimeMs !== null
+      ? "summed theoretical produced units from applied cycle-time inputs"
+      : "theoretical produced units at nominal output";
 
   const dataQuality = createDataQualityTracker();
   if (rows.length < 2) {
@@ -508,7 +531,9 @@ function calculateOee(samples, options = {}) {
       nominalOutputPerMinute,
       idealCycleTimeMs,
       idealCycleTimeSource,
-      performanceSource,
+      performanceSource: configuredPerformanceSource,
+      configuredProductCycleTimes,
+      appliedCycleTimes: [],
       plannedTime,
       downtimeSources,
       qualityReconciliation,
@@ -531,8 +556,10 @@ function calculateOee(samples, options = {}) {
         firstSampleAt: rows[0]?.sample?.occurredAt ?? null,
         lastSampleAt: rows[0]?.sample?.occurredAt ?? null,
         counterMode,
-        performanceSource,
+        performanceSource: configuredPerformanceSource,
         idealCycleTimeMs,
+        productCycleTimes: configuredProductCycleTimes,
+        appliedCycleTimes: [],
         counterScope: "first-to-last sample in observed window",
         counterContinuity,
         plannedTime,
@@ -560,6 +587,10 @@ function calculateOee(samples, options = {}) {
   let changeoverMs = 0;
   let unplannedStopMs = 0;
   let unknownStopMs = 0;
+  let theoreticalGood = 0;
+  const cycleTimeUsage = new Map();
+  const missingProductContext = new Set();
+  const unmappedProductIds = new Set();
 
   for (let index = 1; index < rows.length; index += 1) {
     const previous = rows[index - 1];
@@ -573,6 +604,41 @@ function calculateOee(samples, options = {}) {
     if (previous.deviceStatus === "RUNNING") {
       runningMs += intervalPlannedMs;
       outsidePlanRunningMs += intervalMs - intervalPlannedMs;
+      if (intervalPlannedMs > 0) {
+        let cycleTimeMs = null;
+        let cycleTimeSource = "nominal-output-rate";
+        if (previous.productId && productCycleTimes.has(previous.productId)) {
+          cycleTimeMs = productCycleTimes.get(previous.productId);
+          cycleTimeSource = "product-cycle-time";
+        } else if (idealCycleTimeMs !== null) {
+          cycleTimeMs = idealCycleTimeMs;
+          cycleTimeSource = "ideal-cycle-time";
+        }
+        if (productCycleTimes.size > 0) {
+          if (!previous.productId) {
+            missingProductContext.add(null);
+          } else if (!productCycleTimes.has(previous.productId)) {
+            unmappedProductIds.add(previous.productId);
+          }
+        }
+        const intervalSeconds = intervalPlannedMs / 1000;
+        const theoreticalUnits =
+          cycleTimeMs === null
+            ? nominalOutputPerMinute * (intervalSeconds / 60)
+            : (intervalSeconds * 1000) / cycleTimeMs;
+        theoreticalGood += theoreticalUnits;
+        const usageKey = `${previous.productId || ""}|${cycleTimeSource}|${cycleTimeMs || ""}`;
+        const usage = cycleTimeUsage.get(usageKey) || {
+          productId: previous.productId,
+          cycleTimeMs,
+          source: cycleTimeSource,
+          runningSeconds: 0,
+          theoreticalUnits: 0
+        };
+        usage.runningSeconds += intervalSeconds;
+        usage.theoreticalUnits += theoreticalUnits;
+        cycleTimeUsage.set(usageKey, usage);
+      }
     } else if (intervalPlannedMs > 0) {
       const changeoverCode = findMatchingAlarmCode(previous, changeoverAlarmCodes);
       const plannedDowntimeCode = findMatchingAlarmCode(
@@ -623,6 +689,21 @@ function calculateOee(samples, options = {}) {
       { outsidePlanRunningSeconds: round(outsidePlanRunningMs / 1000, 3) }
     );
   }
+  if (missingProductContext.size > 0) {
+    dataQuality.add(
+      "PRODUCT_CONTEXT_MISSING",
+      "warning",
+      "Product context is missing for one or more RUNNING intervals; Performance used the configured fallback cycle-time input."
+    );
+  }
+  for (const productId of unmappedProductIds) {
+    dataQuality.add(
+      "PRODUCT_CYCLE_TIME_MISSING",
+      "warning",
+      `No cycle time is configured for productId "${productId}"; Performance used the configured fallback cycle-time input.`,
+      { productId }
+    );
+  }
 
   const observedSeconds = observedMs / 1000;
   const plannedSeconds = plannedMs / 1000;
@@ -634,10 +715,20 @@ function calculateOee(samples, options = {}) {
   const runningSeconds = runningMs / 1000;
   const availability =
     plannedProductionMs > 0 ? clamp(runningMs / plannedProductionMs, 0, 1) : 0;
-  const theoreticalGood =
-    idealCycleTimeMs === null
-      ? nominalOutputPerMinute * (runningSeconds / 60)
-      : (runningSeconds * 1000) / idealCycleTimeMs;
+  const appliedCycleTimes = [...cycleTimeUsage.values()].map((usage) => ({
+    ...usage,
+    runningSeconds: round(usage.runningSeconds, 3),
+    theoreticalUnits: round(usage.theoreticalUnits, 3)
+  }));
+  const observedPerformanceSources = new Set(
+    appliedCycleTimes.map((usage) => usage.source)
+  );
+  const performanceSource =
+    observedPerformanceSources.size === 0
+      ? configuredPerformanceSource
+      : observedPerformanceSources.size === 1
+        ? observedPerformanceSources.values().next().value
+        : "mixed-cycle-time";
   const counter = resolveCounterMode(
     rows,
     goodDelta,
@@ -747,6 +838,8 @@ function calculateOee(samples, options = {}) {
     idealCycleTimeMs,
     idealCycleTimeSource,
     performanceSource,
+    configuredProductCycleTimes,
+    appliedCycleTimes,
     plannedTime,
     downtimeSources,
     lossBreakdown,
@@ -759,6 +852,8 @@ function calculateOee(samples, options = {}) {
       counterMode: counter.counterMode,
       performanceSource,
       idealCycleTimeMs,
+      productCycleTimes: configuredProductCycleTimes,
+      appliedCycleTimes,
       counterScope:
         counterContinuity.resetCount > 0
           ? "sum of adjacent increments within observed counter epochs"

@@ -102,6 +102,7 @@ class ProcessContextCollector extends EventEmitter {
       stationId: options.stationId,
       workOrderId: options.workOrderId || null,
       serialNumber: options.serialNumber || null,
+      productId: options.productId || null,
       source: options.source || "rpi4-gateway",
       sampleIntervalMs: options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS,
       retentionMs: options.retentionMs ?? DEFAULT_RETENTION_MS,
@@ -268,15 +269,14 @@ class ProcessContextCollector extends EventEmitter {
       },
       alarms: activeAlarms
     };
-    const correlationId = options.correlationId ?? this.options.correlationId;
-    if (correlationId) {
-      event.correlationId = correlationId;
-    }
-    if (this.options.workOrderId) {
-      event.workOrderId = this.options.workOrderId;
-    }
-    if (this.options.serialNumber) {
-      event.serialNumber = this.options.serialNumber;
+    const context = {
+      ...workContextFrom(this.options),
+      correlationId: options.correlationId ?? this.options.correlationId
+    };
+    for (const field of WORK_CONTEXT_FIELDS) {
+      if (context[field]) {
+        event[field] = context[field];
+      }
     }
 
     this._latest = event;

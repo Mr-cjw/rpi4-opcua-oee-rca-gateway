@@ -258,6 +258,7 @@ class GatewayRuntime extends EventEmitter {
     );
     const analyticsOptions = {
       nominalOutputPerMinute: this.config.analytics.nominalOutputPerMinute,
+      productCycleTimes: this.config.analytics.productCycleTimes,
       plannedTime: this.config.analytics.plannedTime,
       downtimeClassification: this.config.analytics.downtimeClassification,
       qualitySource: options.ngCount === undefined ? "quality-events" : "query",
@@ -299,7 +300,7 @@ class GatewayRuntime extends EventEmitter {
   analyzeRca(options = {}) {
     const explicitScope = workContextFilterFrom(options);
     const explicitScopeRequested = Boolean(
-      explicitScope.workOrderId || explicitScope.correlationId
+      explicitScope.workOrderId || explicitScope.correlationId || explicitScope.productId
     );
     let qualityEvent = null;
     let targetAt;
@@ -328,8 +329,17 @@ class GatewayRuntime extends EventEmitter {
           correlationId:
             explicitScope.correlationId || qualityEvent.correlationId || null
         }
-      : explicitScope;
-    const scopeRequested = Boolean(scope.workOrderId || scope.correlationId);
+      : {
+          workOrderId: explicitScope.workOrderId,
+          correlationId: explicitScope.correlationId
+        };
+    const scopeProductId = explicitScope.productId || qualityEvent?.productId || null;
+    if (scopeProductId) {
+      scope.productId = scopeProductId;
+    }
+    const scopeRequested = Boolean(
+      scope.workOrderId || scope.correlationId || scope.productId
+    );
     let events = this.collector.getEvents({ from, to, ...scope });
     let alarms = this.collector.getAlarmHistory({ from, to, ...scope });
     let scopeApplied = scopeRequested;
