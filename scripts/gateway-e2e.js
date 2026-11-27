@@ -113,19 +113,43 @@ async function main() {
     assert.ok(anomaly.alarms.some((alarm) => alarm.code === "DOWNTIME"));
     assert.ok(anomaly.alarms.some((alarm) => alarm.code === "TEMPERATURE_SPIKE"));
 
+    const quality = await getJson(`${runtime.api.address}/v1/quality-events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sourceEventId: `QC-GATEWAY-E2E-${Date.now()}`,
+        eventType: "NG_ORDER",
+        result: "NG",
+        occurredAt: anomaly.occurredAt,
+        lineId: "JX-LINE-01",
+        stationId: "JX-LINQIN-STATION-01",
+        workOrderId: "WO-GATEWAY-E2E-001",
+        serialNumber: "SN-GATEWAY-E2E-001",
+        correlationId: "corr-gateway-e2e",
+        defectType: "TEMPERATURE_DEFORMATION",
+        quantity: 1,
+        confidence: 0.96,
+        metadata: { source: "gateway-e2e" }
+      })
+    });
+    assert.equal(quality.duplicate, false);
+
     const oee = await getJson(
-      `${runtime.api.address}/v1/oee?ngCount=1&windowMs=300000`
+      `${runtime.api.address}/v1/oee?windowMs=300000`
     );
     for (const key of ["availability", "performance", "quality", "oee"]) {
       assert.ok(oee[key] >= 0 && oee[key] <= 1, `${key} must be between 0 and 1`);
     }
     assert.ok(oee.eventCount >= 2);
+    assert.equal(oee.qualitySource, "quality-events");
+    assert.equal(oee.qualityEventCount, 1);
+    assert.ok(oee.quality < 1);
 
     const rca = await getJson(`${runtime.api.address}/v1/rca`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        targetAt: anomaly.occurredAt,
+        qualityEventId: quality.event.qualityEventId,
         windowMs: 10000,
         temperatureThresholdC: 70
       })
@@ -144,6 +168,7 @@ async function main() {
         `P ${(oee.performance * 100).toFixed(1)}%, ` +
         `Q ${(oee.quality * 100).toFixed(1)}%)`
     );
+    console.log(`Quality event: ${quality.event.qualityEventId}`);
     console.log(`RCA candidates: ${codes.join(", ")}`);
     console.log("Gateway E2E test passed.");
   } finally {

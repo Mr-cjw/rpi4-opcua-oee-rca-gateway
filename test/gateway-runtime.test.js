@@ -114,10 +114,65 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   const events = await eventsResponse.json();
   assert.equal(events.count, 3);
 
+  const qualityBody = {
+    sourceEventId: "QC-RUNTIME-001",
+    eventType: "NG_ORDER",
+    result: "NG",
+    occurredAt: iso(10),
+    lineId: "JX-LINE-01",
+    stationId: "JX-LINQIN-STATION-01",
+    workOrderId: "WO-RUNTIME-001",
+    serialNumber: "SN-RUNTIME-001",
+    correlationId: "corr-runtime-001",
+    defectType: "DENT",
+    quantity: 2,
+    confidence: 0.97,
+    metadata: { imageId: "IMG-RUNTIME-001" }
+  };
+  const qualityResponse = await fetch(`${runtime.api.address}/v1/quality-events`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(qualityBody)
+  });
+  assert.equal(qualityResponse.status, 201);
+  const quality = await qualityResponse.json();
+  assert.equal(quality.duplicate, false);
+  assert.match(quality.event.qualityEventId, /^qevt-/);
+  assert.equal(quality.event.quantity, 2);
+  assert.equal(quality.event.correlationId, "corr-runtime-001");
+
+  const duplicateResponse = await fetch(`${runtime.api.address}/v1/quality-events`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(qualityBody)
+  });
+  assert.equal(duplicateResponse.status, 200);
+  const duplicate = await duplicateResponse.json();
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.event.qualityEventId, quality.event.qualityEventId);
+
+  const qualityListResponse = await fetch(`${runtime.api.address}/v1/quality-events`);
+  assert.equal(qualityListResponse.status, 200);
+  const qualityList = await qualityListResponse.json();
+  assert.equal(qualityList.count, 1);
+  assert.equal(qualityList.events[0].sourceEventId, "QC-RUNTIME-001");
+
+  const qualityByIdResponse = await fetch(
+    `${runtime.api.address}/v1/quality-events/${quality.event.qualityEventId}`
+  );
+  assert.equal(qualityByIdResponse.status, 200);
+  assert.equal((await qualityByIdResponse.json()).sourceEventId, "QC-RUNTIME-001");
+
+  const invalidQualityResponse = await fetch(`${runtime.api.address}/v1/quality-events`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sourceEventId: "QC-RUNTIME-BAD", result: "OK" })
+  });
+  assert.equal(invalidQualityResponse.status, 400);
+
   const oeeUrl = new URL(`${runtime.api.address}/v1/oee`);
   oeeUrl.searchParams.set("from", iso(0));
   oeeUrl.searchParams.set("to", iso(10));
-  oeeUrl.searchParams.set("ngCount", "2");
   const oeeResponse = await fetch(oeeUrl);
   assert.equal(oeeResponse.status, 200);
   const oee = await oeeResponse.json();
@@ -125,12 +180,15 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(oee.performance, 0.9);
   assert.equal(oee.quality, 0.9);
   assert.equal(oee.oee, 0.81);
+  assert.equal(oee.qualitySource, "quality-events");
+  assert.equal(oee.qualityEventCount, 1);
+  assert.equal(oee.qualityEventQuantity, 2);
 
   const rcaResponse = await fetch(`${runtime.api.address}/v1/rca`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      targetAt: iso(10),
+      qualityEventId: quality.event.qualityEventId,
       windowMs: 10_000,
       temperatureThresholdC: 70
     })
@@ -139,6 +197,16 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   const rca = await rcaResponse.json();
   assert.equal(rca.conclusion, "TEMPERATURE_SPIKE");
   assert.equal(rca.candidates[0].causalClaim, false);
+  assert.equal(rca.targetAt, iso(10));
+  assert.equal(rca.targetQualityEventId, quality.event.qualityEventId);
+  assert.equal(rca.correlationId, "corr-runtime-001");
+
+  const missingRcaResponse = await fetch(`${runtime.api.address}/v1/rca`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ qualityEventId: "qevt-missing" })
+  });
+  assert.equal(missingRcaResponse.status, 404);
 });
 
 test("gateway API enforces a bearer token when configured", async (t) => {

@@ -136,10 +136,44 @@ function createGatewayApi(runtime, options = {}) {
       return;
     }
 
+    if (pathname === "/v1/quality-events" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = runtime.recordQualityEvent(body);
+      sendJson(response, result.duplicate ? 200 : 201, result);
+      return;
+    }
+
+    if (pathname === "/v1/quality-events" && request.method === "GET") {
+      const events = runtime.getQualityEvents({
+        from: url.searchParams.get("from") || undefined,
+        to: url.searchParams.get("to") || undefined,
+        limit: integerQuery(url.searchParams, "limit")
+      });
+      sendJson(response, 200, { count: events.length, events });
+      return;
+    }
+
+    if (pathname.startsWith("/v1/quality-events/") && request.method === "GET") {
+      let qualityEventId;
+      try {
+        qualityEventId = decodeURIComponent(pathname.slice("/v1/quality-events/".length));
+      } catch {
+        throw new HttpError(400, "qualityEventId is not valid URL encoding");
+      }
+      const event = qualityEventId ? runtime.getQualityEvent(qualityEventId) : null;
+      if (!event) {
+        sendJson(response, 404, { error: `quality event not found: ${qualityEventId}` });
+        return;
+      }
+      sendJson(response, 200, event);
+      return;
+    }
+
     if (pathname === "/v1/rca" && request.method === "POST") {
       const body = await readJsonBody(request);
       const result = runtime.analyzeRca({
         targetAt: body.targetAt,
+        qualityEventId: body.qualityEventId,
         windowMs: body.windowMs,
         temperatureThresholdC: body.temperatureThresholdC
       });
@@ -170,7 +204,12 @@ function createGatewayApi(runtime, options = {}) {
       }
       server = http.createServer((request, response) => {
         handle(request, response).catch((error) => {
-          const statusCode = error instanceof HttpError ? error.statusCode : 500;
+          const statusCode =
+            error instanceof HttpError
+              ? error.statusCode
+              : Number.isInteger(error?.statusCode)
+                ? error.statusCode
+                : 500;
           if (statusCode >= 500 && logger?.error) {
             logger.error({
               timestamp: new Date().toISOString(),

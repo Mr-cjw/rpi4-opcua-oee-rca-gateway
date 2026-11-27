@@ -126,6 +126,16 @@ function loadGatewayConfig(env = process.env) {
         max: 200
       })
     }),
+    quality: Object.freeze({
+      retentionMs: integerFromEnv(env, "QUALITY_EVENT_RETENTION_MS", 3600000, {
+        min: 60000,
+        max: 7 * 24 * 60 * 60 * 1000
+      }),
+      maxEvents: integerFromEnv(env, "QUALITY_EVENT_MAX_EVENTS", 10000, {
+        min: 2,
+        max: 1000000
+      })
+    }),
     api: Object.freeze({
       host: env.GATEWAY_HTTP_HOST || "127.0.0.1",
       port: integerFromEnv(env, "GATEWAY_HTTP_PORT", 8080, { min: 0, max: 65535 }),

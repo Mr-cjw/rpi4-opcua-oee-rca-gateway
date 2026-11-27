@@ -163,10 +163,40 @@ curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/v1/context/latest
 curl 'http://127.0.0.1:8080/v1/events?limit=20'
 curl 'http://127.0.0.1:8080/v1/oee?windowMs=300000&ngCount=3'
+curl -X POST http://127.0.0.1:8080/v1/quality-events \
+  -H 'content-type: application/json' \
+  -d '{"sourceEventId":"QC-JX-001","result":"NG","occurredAt":"2026-11-27T06:00:00.000Z","workOrderId":"WO-JX-001","correlationId":"corr-jx-001","quantity":1}'
+curl 'http://127.0.0.1:8080/v1/quality-events?limit=20'
 curl -X POST http://127.0.0.1:8080/v1/rca \
   -H 'content-type: application/json' \
-  -d '{"targetAt":"2026-11-27T06:00:00.000Z","windowMs":300000}'
+  -d '{"qualityEventId":"qevt-...","windowMs":300000}'
 ```
+
+### NG quality-event ingestion
+
+`POST /v1/quality-events` accepts the quality-side event that matters for OEE
+and RCA. It is deliberately analysis input only; it does not send anything to
+MES or change delivery state.
+
+The endpoint:
+
+- accepts NG events only;
+- requires `sourceEventId` and uses it for idempotency;
+- fills `lineId`/`stationId` from Gateway configuration and rejects mismatches;
+- accepts `quantity`, work order, serial, correlation ID, defect type,
+  confidence, image ID, and free-form metadata;
+- returns `201` for the first write and `200` with `duplicate: true` for a
+  replay.
+
+When `/v1/oee` is called without an explicit `ngCount`, the Gateway sums the NG
+quantity recorded in the same time window. `/v1/rca` accepts
+`{"qualityEventId":"qevt-..."}` and uses that event's `occurredAt` and
+`correlationId` as the analysis target.
+
+The event contract is
+[`contracts/quality-event.schema.json`](contracts/quality-event.schema.json).
+Quality events are currently retained in memory; durable quality-event history
+is a follow-up item.
 
 ### OEE inputs and limits
 
@@ -175,13 +205,14 @@ single headline number:
 
 - Availability = `RUNNING` intervals / observed intervals;
 - Performance = `goodCount` delta / theoretical good units at nominal output;
-- Quality = `goodCount` delta / (`goodCount` delta + supplied NG count);
+- Quality = `goodCount` delta / (`goodCount` delta + recorded NG quantity);
 - OEE = Availability x Performance x Quality.
 
 The observed window is currently used as planned production time. Shift
 calendars, planned stops, changeovers, and speed loss need to be added before
 using this as a formal production OEE figure. If `ngCount` is omitted, the API
-returns a warning because quality would otherwise be overstated.
+uses recorded quality events; if none exist in the window it returns a warning
+because the quality feed may not be connected.
 
 The mock PLC exposes `GoodCount` but not `TotalProducedCount`, so Performance
 currently uses `GoodCount` as the production proxy. A real PLC mapping should
@@ -230,6 +261,8 @@ Example response shape:
 | `OEE_WINDOW_MS` | `300000` | Default OEE query window |
 | `RCA_WINDOW_MS` | `300000` | Default RCA +/- window |
 | `RCA_TEMPERATURE_THRESHOLD_C` | `70` | Temperature anomaly threshold |
+| `QUALITY_EVENT_RETENTION_MS` | `3600000` | In-memory NG event retention |
+| `QUALITY_EVENT_MAX_EVENTS` | `10000` | Maximum retained NG events |
 | `GATEWAY_HTTP_HOST` | `127.0.0.1` | HTTP bind address |
 | `GATEWAY_HTTP_PORT` | `8080` | HTTP port; `0` selects a free port |
 | `GATEWAY_API_TOKEN` | empty | Optional bearer token |
@@ -586,10 +619,11 @@ npm test
 
 The suite covers deterministic simulation, OEE input decomposition, downtime
 impact, RCA candidate/evidence behavior, the versioned process-context event,
-JSONL persistence, bearer-token enforcement, and an end-to-end runtime API. The
-OPC UA integration test starts an isolated mock server, connects through
-`OpcUaGatewayClient`, verifies variable data, injects a downtime, verifies the
-normalized native alarm event, and then cleans up the session and subscription.
+JSONL persistence, NG quality-event ingestion and idempotency, bearer-token
+enforcement, and an end-to-end runtime API. The OPC UA integration test starts
+an isolated mock server, connects through `OpcUaGatewayClient`, verifies variable
+data, injects a downtime, verifies the normalized native alarm event, and then
+cleans up the session and subscription.
 
 Run a complete server + client smoke test. This command starts its own server on
 port `48401`, verifies reads, variable subscriptions, native OPC UA events,
@@ -601,7 +635,8 @@ npm run e2e
 
 Run the full Gateway path against a live mock PLC. This starts the PLC, connects
 the real OPC UA client, samples process context, injects downtime plus a
-temperature spike, and verifies the HTTP OEE/RCA responses:
+temperature spike, posts an NG quality event, and verifies the HTTP OEE/RCA
+responses:
 
 ```bash
 npm run e2e:gateway

@@ -5,6 +5,7 @@ const { calculateOee, toMillis } = require("../analytics/oee");
 const { analyzeRca } = require("../analytics/rca");
 const { OpcUaGatewayClient } = require("./opcua-client");
 const { ProcessContextCollector } = require("./process-context");
+const { QualityEventNotFoundError, QualityEventStore } = require("./quality-events");
 const { createGatewayApi } = require("./http-api");
 
 const defaultLogger = {
@@ -39,6 +40,12 @@ class GatewayRuntime extends EventEmitter {
         ...config.identity,
         ...config.context,
         logger: this.logger
+      });
+    this.qualityEvents =
+      dependencies.qualityEvents ||
+      new QualityEventStore({
+        ...config.identity,
+        ...config.quality
       });
     this.api = dependencies.api || null;
     this.startedAt = null;
@@ -113,6 +120,9 @@ class GatewayRuntime extends EventEmitter {
         eventCount: this.collector.eventCount,
         alarmCount: this.collector.alarmCount,
         latestOccurredAt: latest?.occurredAt || null
+      },
+      quality: {
+        eventCount: this.qualityEvents.count
       }
     };
   }
@@ -134,6 +144,18 @@ class GatewayRuntime extends EventEmitter {
     return this.collector.options.correlationId;
   }
 
+  recordQualityEvent(input) {
+    return this.qualityEvents.record(input);
+  }
+
+  getQualityEvents(options = {}) {
+    return this.qualityEvents.list(options);
+  }
+
+  getQualityEvent(qualityEventId) {
+    return this.qualityEvents.get(qualityEventId);
+  }
+
   calculateOee(options = {}) {
     const to = options.to === undefined ? Date.now() : toMillis(options.to, "to");
     const windowMs = Number(options.windowMs ?? this.config.analytics.oeeWindowMs);
@@ -149,11 +171,28 @@ class GatewayRuntime extends EventEmitter {
     }
 
     const events = this.collector.getEvents({ from, to });
+    const qualityEvents = this.qualityEvents.list({ from, to });
+    const qualityEventNgCount = qualityEvents.reduce(
+      (total, qualityEvent) => total + qualityEvent.quantity,
+      0
+    );
     const analyticsOptions = {
       nominalOutputPerMinute: this.config.analytics.nominalOutputPerMinute
     };
     if (options.ngCount !== undefined) {
       analyticsOptions.ngCount = options.ngCount;
+    } else {
+      analyticsOptions.ngCount = qualityEventNgCount;
+    }
+
+    const result = calculateOee(events, analyticsOptions);
+    result.qualitySource = options.ngCount === undefined ? "quality-events" : "query";
+    result.qualityEventCount = qualityEvents.length;
+    result.qualityEventQuantity = qualityEventNgCount;
+    if (options.ngCount === undefined && qualityEvents.length === 0) {
+      result.warnings.push(
+        "No NG quality events were recorded in the window; verify the quality-event feed is connected."
+      );
     }
 
     return {
@@ -163,12 +202,22 @@ class GatewayRuntime extends EventEmitter {
         windowMs
       },
       eventCount: events.length,
-      ...calculateOee(events, analyticsOptions)
+      ...result
     };
   }
 
   analyzeRca(options = {}) {
-    const targetAt = toMillis(options.targetAt ?? Date.now(), "targetAt");
+    let qualityEvent = null;
+    let targetAt;
+    if (options.qualityEventId) {
+      qualityEvent = this.qualityEvents.get(options.qualityEventId);
+      if (!qualityEvent) {
+        throw new QualityEventNotFoundError(options.qualityEventId);
+      }
+      targetAt = toMillis(qualityEvent.occurredAt, "quality event occurredAt");
+    } else {
+      targetAt = toMillis(options.targetAt ?? Date.now(), "targetAt");
+    }
     const windowMs = Number(options.windowMs ?? this.config.analytics.rcaWindowMs);
     const temperatureThresholdC = Number(
       options.temperatureThresholdC ?? this.config.analytics.temperatureThresholdC
@@ -179,12 +228,18 @@ class GatewayRuntime extends EventEmitter {
 
     const from = targetAt - windowMs;
     const to = targetAt + windowMs;
-    return analyzeRca(this.collector.getEvents({ from, to }), {
+    const result = analyzeRca(this.collector.getEvents({ from, to }), {
       targetAt,
       windowMs,
       temperatureThresholdC,
       alarms: this.collector.getAlarmHistory({ from, to })
     });
+    if (qualityEvent) {
+      result.qualityEvent = qualityEvent;
+      result.targetQualityEventId = qualityEvent.qualityEventId;
+      result.correlationId = qualityEvent.correlationId || null;
+    }
+    return result;
   }
 }
 
