@@ -11,13 +11,20 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test test/*.test.js",
+    "check:contracts": "node scripts/check-contracts.js",
+    "check:docs": "node scripts/check-docs.js",
     "smoke": "node scripts/smoke-test.js",
     "doctor": "node scripts/gateway-doctor.js",
     "e2e": "node scripts/run-e2e.js",
     "e2e:gateway": "node scripts/gateway-e2e.js",
+    "soak": "node scripts/soak.js",
     "gateway": "node src/gateway/index.js"
   },
   "dependencies": {
     "node-opcua": "2.160.0"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
   }
 }

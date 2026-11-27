@@ -108,6 +108,8 @@ class ProcessContextCollector extends EventEmitter {
       retentionMs: options.retentionMs ?? DEFAULT_RETENTION_MS,
       maxEvents: options.maxEvents ?? DEFAULT_MAX_EVENTS,
       eventLogPath: options.eventLogPath || options.logPath || null,
+      eventLogMaxBytes: options.eventLogMaxBytes,
+      eventLogMaxFiles: options.eventLogMaxFiles,
       correlationId: options.correlationId || null,
       clock: options.clock || (() => Date.now()),
       createId: options.createId || randomUUID,

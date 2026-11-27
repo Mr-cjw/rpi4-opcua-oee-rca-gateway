@@ -919,6 +919,61 @@ responses:
 npm run e2e:gateway
 ```
 
+Validate the shared JSON contracts and local documentation links:
+
+```bash
+npm run check:contracts
+npm run check:docs
+```
+
+`check:contracts` generates real process-context and NG events, then validates
+them with the JSON Schemas in `contracts/`. `check:docs` verifies that relative
+Markdown links resolve to files in the repository.
+
+Run the repeatable soak harness with the built-in Mock PLC. It keeps the
+Gateway running while exercising HTTP reads, quality ingestion, work-context
+changes, fault injection, PLC restart/reconnect cycles, bounded event
+retention, JSONL rotation, and final OEE/RCA health:
+
+```bash
+npm run soak
+```
+
+The default run is 60 seconds. Increase `SOAK_DURATION_MS` for release or
+72-hour runs and archive the JSON report:
+
+```bash
+SOAK_DURATION_MS=259200000 \
+SOAK_API_INTERVAL_MS=1000 \
+SOAK_RECONNECT_INTERVAL_MS=3600000 \
+SOAK_REPORT_PATH=data/soak-72h.json \
+npm run soak
+```
+
+The report includes pass/fail checks, API latency, reconnect and fault counts,
+event-count bounds, log-byte budgets, final OEE data quality, and the preserved
+temporary run directory path when `SOAK_KEEP_RUN_DIR=1` or the run fails.
+
+GitHub Actions runs contract/docs checks and tests on Node 20 and 22, then runs
+the Mock PLC E2E, Gateway E2E, commissioning doctor, and a 20-second soak smoke
+on Node 20. The workflow is `.github/workflows/ci.yml`; the soak report is
+uploaded as an artifact.
+
+| Variable | Default | Description |
+|---|---:|---|
+| `SOAK_DURATION_MS` | `60000` | Main loop duration |
+| `SOAK_API_INTERVAL_MS` | `1000` | HTTP probe interval |
+| `SOAK_QUALITY_INTERVAL_MS` | `3000` | NG ingestion interval |
+| `SOAK_WORK_CONTEXT_INTERVAL_MS` | `10000` | Runtime product/work-order update interval |
+| `SOAK_FAULT_INTERVAL_MS` | `5000` | Downtime plus temperature fault interval |
+| `SOAK_RECONNECT_INTERVAL_MS` | `15000` | PLC stop/restart interval |
+| `SOAK_RECONNECT_DOWN_MS` | `500` | Time the PLC stays offline per reconnect cycle |
+| `SOAK_RECONNECT_TIMEOUT_MS` | `30000` | Disconnect/reconnect/context timeout |
+| `SOAK_API_TIMEOUT_MS` | `5000` | Per-request timeout |
+| `SOAK_MAX_API_P95_MS` | `2000` | Failure threshold for the worst endpoint p95 |
+| `SOAK_REPORT_PATH` | `data/soak-report.json` | JSON report destination |
+| `SOAK_KEEP_RUN_DIR` | unset | Set to `1` to preserve the temporary PLC/Gateway state directory |
+
 To test an already-running server:
 
 ```bash

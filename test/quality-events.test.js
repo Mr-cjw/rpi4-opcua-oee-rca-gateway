@@ -173,6 +173,35 @@ test("quality event store filters by occurrence time and sums quantity", () => {
   assert.equal(store.quantity({ from: iso(4), to: iso(9) }), 3);
 });
 
+test("quality event store rotates its JSONL by the configured size", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "quality-event-rotation-"));
+  const eventLogPath = path.join(directory, "quality-events.jsonl");
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const { store } = makeStore({
+    retentionMs: 600_000,
+    maxEvents: 1000,
+    eventLogPath,
+    eventLogMaxBytes: 1024,
+    eventLogMaxFiles: 1,
+    idempotencyPath: null
+  });
+
+  for (let index = 0; index < 30; index += 1) {
+    store.record({
+      sourceEventId: `QC-ROTATION-${index}`,
+      occurredAt: iso(index),
+      defectType: "ROTATION_TEST",
+      metadata: { index }
+    });
+  }
+  await store.flush();
+
+  const files = (await fs.readdir(directory)).sort();
+  assert.deepEqual(files, ["quality-events.jsonl", "quality-events.jsonl.1"]);
+  const sizes = await Promise.all(files.map((file) => fs.stat(path.join(directory, file))));
+  assert.ok(sizes.every((entry) => entry.size <= 4096));
+});
+
 test("quality event store filters by work order and correlation ID", () => {
   const { store } = makeStore();
   store.record({

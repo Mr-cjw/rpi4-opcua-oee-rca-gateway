@@ -189,6 +189,31 @@ test("process context filters and limits retained events", () => {
   );
 });
 
+test("process context rotates its JSONL by the configured size", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "process-context-rotation-"));
+  const eventLogPath = path.join(directory, "process-context.jsonl");
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const collector = makeCollector({
+    retentionMs: 600_000,
+    maxEvents: 1000,
+    eventLogPath,
+    eventLogMaxBytes: 1024,
+    eventLogMaxFiles: 1
+  });
+
+  for (let index = 0; index < 40; index += 1) {
+    collector.capture(snapshot(), {
+      occurredAt: new Date(Date.parse("2026-11-27T00:00:00.000Z") + index * 1000).toISOString()
+    });
+  }
+  await collector.flush();
+
+  const files = (await fs.readdir(directory)).sort();
+  assert.deepEqual(files, ["process-context.jsonl", "process-context.jsonl.1"]);
+  const sizes = await Promise.all(files.map((file) => fs.stat(path.join(directory, file))));
+  assert.ok(sizes.every((entry) => entry.size <= 4096));
+});
+
 test("process context filters retained events by work context", () => {
   const collector = makeCollector();
   collector.setWorkContext({ workOrderId: "WO-A", correlationId: "corr-a" });

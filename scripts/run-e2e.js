@@ -1,6 +1,8 @@
 "use strict";
 
 const { spawn } = require("node:child_process");
+const fs = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
@@ -84,9 +86,17 @@ function stopChild(child) {
 }
 
 async function main() {
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "rpi4-e2e-"));
+  const e2eEnv = {
+    ...env,
+    OPCUA_ENDPOINT: `opc.tcp://localhost:${port}/UA/MockPLC`,
+    OPCUA_PKI_ROOT: path.join(runDir, "server-pki"),
+    OPCUA_CLIENT_PKI_ROOT: path.join(runDir, "client-pki"),
+    GATEWAY_DOCTOR_SAMPLE_MS: "250"
+  };
   const server = spawn(process.execPath, ["src/index.js"], {
     cwd: root,
-    env,
+    env: e2eEnv,
     stdio: ["ignore", "pipe", "pipe"]
   });
 
@@ -94,12 +104,18 @@ async function main() {
     await waitForLine(server, /Raspberry Pi Mock PLC is running/, 30000);
     await run(process.execPath, ["scripts/smoke-test.js"], {
       cwd: root,
-      env,
+      env: e2eEnv,
+      stdio: "inherit"
+    });
+    await run(process.execPath, ["scripts/gateway-doctor.js"], {
+      cwd: root,
+      env: e2eEnv,
       stdio: "inherit"
     });
     console.log("E2E test passed.");
   } finally {
     await stopChild(server);
+    await fs.rm(runDir, { recursive: true, force: true });
   }
 }
 

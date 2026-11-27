@@ -195,7 +195,12 @@ Priority: release gate.
 
 Deliverables:
 
-- CI for Node 20 unit/integration/E2E tests, schema checks, and documentation checks.
+- Completed 2026-11-27: GitHub Actions CI for Node 20/22 unit/integration
+  tests, generated-event JSON Schema checks, documentation link checks, E2E,
+  doctor, and a 20-second soak smoke.
+- Completed 2026-11-27: repeatable soak harness covering API load, quality
+  ingestion, fault injection, PLC reconnect cycles, retention and log-budget
+  checks. A full 72-hour run remains a release gate.
 - Versioned release packaging, upgrade, rollback, and state-migration procedures.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 - Security review of OPC UA, HTTP, logs, secrets, and the systemd sandbox.
@@ -211,10 +216,11 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Add CI and a repeatable soak-test harness.
-2. Begin the M2 storage boundary and disk-pressure behavior.
-3. Add live health/metrics detection for stale values, Bad status, clock skew,
+1. Begin the M2 storage boundary and disk-pressure behavior.
+2. Add live health/metrics detection for stale values, Bad status, clock skew,
    reconnect gaps, and subscription recovery.
+3. Execute the 72-hour soak on Raspberry Pi hardware and add release packaging,
+   upgrade, and rollback procedures.
 
 M1 is complete. Prioritize M2 durability and M3 live PLC diagnostics before
 adding new outward integrations.
