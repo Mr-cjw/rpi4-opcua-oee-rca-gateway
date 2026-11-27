@@ -38,6 +38,13 @@ Quality source-event IDs live in `/var/lib/rpi4-gateway/quality-idempotency.json
 with a seven-day and 100,000-entry default horizon. The repository `data/`
 directory is also writable for development runs.
 
+Keep `GATEWAY_STORAGE_DISK_PATH` pointed at this state directory. The example
+environment file warns below 100 MiB free and marks storage critical below
+32 MiB. `GET /healthz` reports the resolved path, free/total bytes, disk usage,
+and per-component write failures; `GET /metrics` exports the same storage state.
+Size the thresholds for JSONL rotation, the idempotency ledger, and atomic
+temporary files, not only for the current log sizes.
+
 ## Operational notes
 
 - Keep `GATEWAY_HTTP_HOST=127.0.0.1` unless a reverse proxy and network policy
@@ -51,6 +58,11 @@ directory is also writable for development runs.
   10 MiB per file with three retained backups; tune
   `PROCESS_CONTEXT_LOG_MAX_*` and `QUALITY_EVENT_LOG_MAX_*` to the available SD
   card or SSD budget.
+- A storage warning degrades `/healthz` before the disk is full. If the quality
+  JSONL can no longer be appended, `POST /v1/quality-events` returns `503` and
+  the caller must retry with the same `sourceEventId`; do not treat the event as
+  accepted until a success response arrives. Free space and replace/expand the
+  state volume before restarting the service.
 - `OEE_NOMINAL_OUTPUT_PER_MIN` or `OEE_IDEAL_CYCLE_TIME_MS`, planned time, and
   quality-event connectivity must be validated before quoting OEE as a
   production metric. When `OEE_PRODUCT_CYCLE_TIMES` is used, validate every

@@ -9,6 +9,7 @@ const { QualityEventNotFoundError, QualityEventStore } = require("./quality-even
 const { createGatewayApi } = require("./http-api");
 const { WorkContextStore } = require("./work-context-store");
 const { workContextFilterFrom } = require("./work-context");
+const { StorageMonitor, StorageWriteError } = require("./storage-health");
 
 const defaultLogger = {
   info(record) {
@@ -30,6 +31,8 @@ class GatewayRuntime extends EventEmitter {
     }
     this.config = config;
     this.logger = config.logger || dependencies.logger || defaultLogger;
+    this.storageMonitor =
+      dependencies.storageMonitor || new StorageMonitor(config.storage || {});
     this.client =
       dependencies.client ||
       new OpcUaGatewayClient({
@@ -44,6 +47,10 @@ class GatewayRuntime extends EventEmitter {
         eventLogPath: config.context.logPath,
         eventLogMaxBytes: config.context.logMaxBytes,
         eventLogMaxFiles: config.context.logMaxFiles,
+        onStorageError: (error) =>
+          this.storageMonitor.recordError("process-context-log", error),
+        onStorageSuccess: () =>
+          this.storageMonitor.recordSuccess("process-context-log"),
         logger: this.logger
       });
     this.qualityEvents =
@@ -57,6 +64,14 @@ class GatewayRuntime extends EventEmitter {
         idempotencyMaxEntries: config.quality.idempotencyMaxEntries,
         eventLogMaxBytes: config.quality.logMaxBytes,
         eventLogMaxFiles: config.quality.logMaxFiles,
+        onStorageError: (error) =>
+          this.storageMonitor.recordError("quality-event-log", error),
+        onStorageSuccess: () =>
+          this.storageMonitor.recordSuccess("quality-event-log"),
+        onIdempotencyError: (error) =>
+          this.storageMonitor.recordError("quality-idempotency", error),
+        onIdempotencySuccess: () =>
+          this.storageMonitor.recordSuccess("quality-idempotency"),
         logger: this.logger
       });
     this.workContextStore =
@@ -77,6 +92,7 @@ class GatewayRuntime extends EventEmitter {
     }
 
     this.startedAt = new Date().toISOString();
+    await this.storageMonitor.start();
     await this._loadPersistedState();
     await this._loadWorkContextState();
     if (!this.api) {
@@ -115,14 +131,18 @@ class GatewayRuntime extends EventEmitter {
       await this.client.stop();
       this._started = false;
     } finally {
+      this.storageMonitor.stop();
       this._stopping = false;
     }
   }
 
   getStatus() {
     const latest = this.collector.getLatest();
+    const storage = this.storageMonitor.getStatus();
+    const healthy =
+      this._started && this.client.isConnected && storage.status === "ok";
     return {
-      status: this._started && this.client.isConnected ? "ok" : "degraded",
+      status: healthy ? "ok" : "degraded",
       opcuaConnected: Boolean(this.client.isConnected),
       startedAt: this.startedAt,
       uptimeSeconds: this.startedAt
@@ -140,7 +160,8 @@ class GatewayRuntime extends EventEmitter {
       },
       quality: {
         eventCount: this.qualityEvents.count
-      }
+      },
+      storage
     };
   }
 
@@ -161,15 +182,24 @@ class GatewayRuntime extends EventEmitter {
   }
 
   async updateWorkContext(update) {
+    const previousContext = this.collector.getWorkContext();
     const context = this.collector.setWorkContext(update);
     if (typeof this.qualityEvents.setWorkContext === "function") {
       this.qualityEvents.setWorkContext(context);
     }
     try {
       await this.workContextStore.save(context);
+      this.storageMonitor.recordSuccess("work-context");
     } catch (error) {
+      this.collector.setWorkContext(previousContext);
+      if (typeof this.qualityEvents.setWorkContext === "function") {
+        this.qualityEvents.setWorkContext(previousContext);
+      }
+      this.storageMonitor.recordError("work-context", error);
       this._log("error", "Unable to persist work context", { error: error.message });
-      throw error;
+      throw new StorageWriteError(`Unable to persist work context: ${error.message}`, {
+        cause: error
+      });
     }
     return context;
   }
@@ -225,6 +255,10 @@ class GatewayRuntime extends EventEmitter {
 
   recordQualityEvent(input) {
     return this.qualityEvents.record(input);
+  }
+
+  recordQualityEventDurable(input) {
+    return this.qualityEvents.recordDurably(input);
   }
 
   getQualityEvents(options = {}) {

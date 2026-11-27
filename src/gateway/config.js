@@ -132,6 +132,23 @@ function loadGatewayConfig(env = process.env) {
   );
   const changeoverAlarmCodes = alarmCodesFromEnv(env, "OEE_CHANGEOVER_ALARM_CODES");
   const productCycleTimes = productCycleTimesFromEnv(env, "OEE_PRODUCT_CYCLE_TIMES");
+  const storageWarnFreeBytes = integerFromEnv(
+    env,
+    "GATEWAY_STORAGE_WARN_FREE_BYTES",
+    100 * 1024 * 1024,
+    { min: 1024, max: Number.MAX_SAFE_INTEGER }
+  );
+  const storageCriticalFreeBytes = integerFromEnv(
+    env,
+    "GATEWAY_STORAGE_CRITICAL_FREE_BYTES",
+    32 * 1024 * 1024,
+    { min: 1024, max: Number.MAX_SAFE_INTEGER }
+  );
+  if (storageCriticalFreeBytes > storageWarnFreeBytes) {
+    throw new Error(
+      "GATEWAY_STORAGE_CRITICAL_FREE_BYTES must be less than or equal to GATEWAY_STORAGE_WARN_FREE_BYTES"
+    );
+  }
   const overlappingCode = plannedDowntimeAlarmCodes.find((code) =>
     changeoverAlarmCodes.includes(code)
   );
@@ -327,6 +344,17 @@ function loadGatewayConfig(env = process.env) {
         300000,
         { min: 1000, max: 30 * 24 * 60 * 60 * 1000 }
       )
+    }),
+    storage: Object.freeze({
+      diskPath: path.resolve(
+        env.GATEWAY_STORAGE_DISK_PATH || path.join(process.cwd(), "data")
+      ),
+      warnFreeBytes: storageWarnFreeBytes,
+      criticalFreeBytes: storageCriticalFreeBytes,
+      checkIntervalMs: integerFromEnv(env, "GATEWAY_STORAGE_CHECK_INTERVAL_MS", 60000, {
+        min: 1000,
+        max: 3600000
+      })
     }),
     quality: Object.freeze({
       retentionMs: integerFromEnv(env, "QUALITY_EVENT_RETENTION_MS", 3600000, {

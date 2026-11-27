@@ -114,6 +114,18 @@ Deliverables:
 - Add event sequence/watermark checks for gaps, duplicates, and out-of-order data.
 - Add backup/export and restore procedures for the Raspberry Pi state directory.
 
+Progress:
+
+- Completed 2026-11-27: configurable disk free-space monitoring, per-component
+  write health, storage fields in `/healthz`, and Prometheus metrics for disk
+  pressure and write failures.
+- Completed 2026-11-27: NG quality ingestion waits for JSONL durability, returns
+  `503` with in-memory rollback when the append fails, and serializes in-flight
+  duplicate requests. Work-context persistence failures also restore the prior
+  in-memory context.
+- Remaining: disk-full and slow-write fault injection, backup/export/restore
+  procedures, event watermarks, SQLite WAL evaluation, and migration fixtures.
+
 Acceptance:
 
 - Power-loss and forced-kill tests recover without corrupting the active store.
@@ -216,7 +228,8 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Begin the M2 storage boundary and disk-pressure behavior.
+1. Finish the M2 storage boundary with disk-full/slow-write simulations,
+   backup/export/restore procedures, and a SQLite WAL evaluation.
 2. Add live health/metrics detection for stale values, Bad status, clock skew,
    reconnect gaps, and subscription recovery.
 3. Execute the 72-hour soak on Raspberry Pi hardware and add release packaging,

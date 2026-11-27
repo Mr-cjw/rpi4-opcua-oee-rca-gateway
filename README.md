@@ -22,6 +22,7 @@ It provides:
 - Optional bearer-protected Prometheus metrics
 - Runtime-updatable work-order, serial-number, correlation, and product context
 - Durable quality-event idempotency independent of log rotation
+- Disk-pressure health checks and fail-closed NG quality ingestion
 - Configurable read-only PLC NodeIds with optional native-event/alarm sources
 - Time-zone-aware shift windows for planned production time
 - Classified stoppage and OEE loss breakdown
@@ -193,8 +194,15 @@ curl -X POST http://127.0.0.1:8080/v1/rca \
 
 `GET /metrics` exposes Prometheus text metrics for process uptime, OPC UA
 connectivity, retained context/alarm/quality counts, latest context timestamp,
-and the current line/work context. It uses the same `GATEWAY_API_TOKEN` check as
-the `/v1/*` endpoints; only `/healthz` is unauthenticated.
+the current line/work context, and storage health. Storage metrics include
+`rpi4_gateway_storage_healthy`,
+`rpi4_gateway_storage_disk_free_bytes`,
+`rpi4_gateway_storage_disk_total_bytes`,
+`rpi4_gateway_storage_disk_usage_ratio`,
+`rpi4_gateway_storage_component_healthy{component=...}`, and
+`rpi4_gateway_storage_write_errors_total{component=...}`. It uses the same
+`GATEWAY_API_TOKEN` check as the `/v1/*` endpoints; only `/healthz` is
+unauthenticated.
 
 `/v1/events`, `/v1/alarms`, `/v1/quality-events`, and `/v1/oee` accept optional
 `workOrderId`, `correlationId`, and `productId` query parameters. `/v1/rca`
@@ -249,6 +257,30 @@ rotation and Gateway restarts. The ledger is bounded by
 `QUALITY_EVENT_IDEMPOTENCY_RETENTION_MS` and
 `QUALITY_EVENT_IDEMPOTENCY_MAX_ENTRIES`; set
 `QUALITY_EVENT_IDEMPOTENCY_FILE=off` to disable durable deduplication.
+
+### Storage health and write failures
+
+The Gateway checks free space under `GATEWAY_STORAGE_DISK_PATH` at startup and
+every `GATEWAY_STORAGE_CHECK_INTERVAL_MS`. Free space at or below
+`GATEWAY_STORAGE_WARN_FREE_BYTES` reports `storage.status: "warning"`; free space
+at or below `GATEWAY_STORAGE_CRITICAL_FREE_BYTES` reports `"critical"`. Either
+condition makes the overall `/healthz` status `degraded`. `/healthz` also
+includes the resolved disk path, free/total bytes, usage ratio, and per-component
+consecutive/total write failures. A component returns to `ok` after its next
+successful write.
+
+`POST /v1/quality-events` waits for the quality JSONL append before returning
+success. If the append fails, the API returns `503`, removes the event and
+source-event key from memory, and leaves that component critical. The caller
+must retry with the same `sourceEventId`; a duplicate request that arrives while
+the original write is still in flight waits for that write instead of being
+acknowledged early. The idempotency ledger is a separate durability extension:
+if the event log write succeeds but the ledger update fails, the event remains
+accepted and durable, health is degraded, and the event log replay restores
+recent source-event keys after a restart.
+
+`POST /v1/work-context` also fails closed. If its atomic state-file replacement
+fails, it returns `503` and restores the previous in-memory work context.
 
 When `/v1/oee` is called without an explicit `ngCount`, the Gateway sums the NG
 quantity recorded in the same time window. `/v1/rca` accepts
@@ -522,6 +554,10 @@ report never includes the OPC UA password or private-key material.
 | `QUALITY_EVENT_IDEMPOTENCY_FILE` | `data/quality-idempotency.json` | Atomic source-event ID ledger; use `off` to disable |
 | `QUALITY_EVENT_IDEMPOTENCY_RETENTION_MS` | `604800000` | Deduplication horizon; must be at least `QUALITY_EVENT_RETENTION_MS` |
 | `QUALITY_EVENT_IDEMPOTENCY_MAX_ENTRIES` | `100000` | Maximum retained source-event IDs; must be at least `QUALITY_EVENT_MAX_EVENTS` |
+| `GATEWAY_STORAGE_DISK_PATH` | `data` | State volume checked for free space; point this at the JSONL/state directory on a Pi |
+| `GATEWAY_STORAGE_WARN_FREE_BYTES` | `104857600` | Free-space warning threshold in bytes; warning degrades `/healthz` |
+| `GATEWAY_STORAGE_CRITICAL_FREE_BYTES` | `33554432` | Free-space critical threshold in bytes; cannot exceed the warning threshold |
+| `GATEWAY_STORAGE_CHECK_INTERVAL_MS` | `60000` | Disk free-space sampling interval |
 | `GATEWAY_HTTP_HOST` | `127.0.0.1` | HTTP bind address |
 | `GATEWAY_HTTP_PORT` | `8080` | HTTP port; `0` selects a free port |
 | `GATEWAY_API_TOKEN` | empty | Optional bearer token |
@@ -539,6 +575,12 @@ work-context state file is replaced atomically on every update and is safe to
 back up independently. The quality-idempotency ledger is also replaced
 atomically and should be backed up with the quality JSONL when duplicate
 suppression matters across recovery.
+
+Set `GATEWAY_STORAGE_DISK_PATH` to the same filesystem that holds the JSONL and
+work-context state. Alert below the warning threshold and treat a critical
+threshold as a maintenance window: quality ingestion will return `503` once the
+event log can no longer be appended. Keep enough headroom for JSONL rotation and
+atomic temporary files, not only for the current file sizes.
 
 ### Gateway client configuration
 

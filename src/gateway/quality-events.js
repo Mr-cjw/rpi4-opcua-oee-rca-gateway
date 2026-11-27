@@ -5,6 +5,7 @@ const { randomUUID } = require("node:crypto");
 const { toMillis } = require("../analytics/oee");
 const { JsonlLog } = require("./jsonl");
 const { QualityIdempotencyStore } = require("./quality-idempotency");
+const { StorageWriteError } = require("./storage-health");
 const {
   matchesWorkContext,
   normalizeWorkContextUpdate,
@@ -125,6 +126,10 @@ class QualityEventStore extends EventEmitter {
       eventLogPath: options.eventLogPath || options.logPath || null,
       eventLogMaxBytes: options.eventLogMaxBytes,
       eventLogMaxFiles: options.eventLogMaxFiles,
+      onStorageError: options.onStorageError || null,
+      onStorageSuccess: options.onStorageSuccess || null,
+      onIdempotencyError: options.onIdempotencyError || null,
+      onIdempotencySuccess: options.onIdempotencySuccess || null,
       idempotencyPath: options.idempotencyPath || null,
       idempotencyRetentionMs:
         options.idempotencyRetentionMs ?? DEFAULT_IDEMPOTENCY_RETENTION_MS,
@@ -162,10 +167,16 @@ class QualityEventStore extends EventEmitter {
     this._logStore = new JsonlLog(this.options.eventLogPath, {
       logger: this.options.logger,
       maxBytes: this.options.eventLogMaxBytes,
-      maxFiles: this.options.eventLogMaxFiles
+      maxFiles: this.options.eventLogMaxFiles,
+      onStorageError: this.options.onStorageError,
+      onStorageSuccess: this.options.onStorageSuccess
     });
     this._idempotencyStore = new QualityIdempotencyStore(this.options.idempotencyPath);
     this._idempotencyWrite = Promise.resolve();
+    this._idempotencyError = null;
+    this._lastIdempotencyFailureAt = null;
+    this._lastIdempotencySuccessAt = null;
+    this._pendingDurability = new Map();
     this._loaded = false;
   }
 
@@ -185,6 +196,11 @@ class QualityEventStore extends EventEmitter {
   }
 
   record(input) {
+    const { logWrite, ...result } = this._record(input);
+    return result;
+  }
+
+  _record(input, { deferIdempotency = false } = {}) {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw new QualityEventValidationError("quality event body must be an object");
     }
@@ -284,10 +300,63 @@ class QualityEventStore extends EventEmitter {
       recordedAtMs: toMillis(event.recordedAt, "recordedAt")
     });
     this._prune();
-    this._logStore.append(event);
-    this._scheduleIdempotencyPersist();
+    const logWrite = this._logStore.append(event);
+    if (!deferIdempotency) {
+      this._scheduleIdempotencyPersist();
+    }
     this.emit("event", event);
-    return { event, duplicate: false };
+    return { event, duplicate: false, logWrite };
+  }
+
+  async recordDurably(input) {
+    const result = this._record(input, { deferIdempotency: true });
+    if (result.duplicate) {
+      const pending = this._pendingDurability.get(result.event.sourceEventId);
+      if (pending) {
+        try {
+          const persisted = await pending;
+          return { event: persisted.event, duplicate: true, retained: true };
+        } catch {
+          return this.recordDurably(input);
+        }
+      }
+      return result;
+    }
+
+    const persistence = this._persistRecordedEvent(result);
+    this._pendingDurability.set(result.event.sourceEventId, persistence);
+    try {
+      return await persistence;
+    } finally {
+      if (this._pendingDurability.get(result.event.sourceEventId) === persistence) {
+        this._pendingDurability.delete(result.event.sourceEventId);
+      }
+    }
+  }
+
+  async _persistRecordedEvent(result) {
+    const logResult = await result.logWrite;
+    if (!logResult?.ok) {
+      this._rollbackRecordedEvent(result.event);
+      const error = logResult?.error || new Error("JSONL write did not complete");
+      throw new StorageWriteError(`Unable to persist quality event: ${error.message}`, {
+        cause: error
+      });
+    }
+
+    this._scheduleIdempotencyPersist();
+    await this._idempotencyWrite;
+    return { event: result.event, duplicate: false };
+  }
+
+  _rollbackRecordedEvent(event) {
+    this._events = this._events.filter(
+      (candidate) => candidate.qualityEventId !== event.qualityEventId
+    );
+    const entry = this._bySourceEventId.get(event.sourceEventId);
+    if (entry?.event.qualityEventId === event.qualityEventId) {
+      this._bySourceEventId.delete(event.sourceEventId);
+    }
   }
 
   get(qualityEventId) {
@@ -367,9 +436,29 @@ class QualityEventStore extends EventEmitter {
     };
   }
 
-  async flush() {
-    await this._logStore.flush();
+  async flush(options = {}) {
+    await this._logStore.flush(options);
     await this._idempotencyWrite;
+    if (options.throwOnError && this._idempotencyError) {
+      throw this._idempotencyError;
+    }
+  }
+
+  getStorageStatus() {
+    return {
+      eventLog: this._logStore.getStatus(),
+      idempotency: {
+        enabled: this._idempotencyStore.enabled,
+        status: !this._idempotencyStore.enabled
+          ? "disabled"
+          : this._idempotencyError
+            ? "critical"
+            : "ok",
+        lastError: this._idempotencyError?.message || null,
+        lastFailureAt: this._lastIdempotencyFailureAt,
+        lastSuccessAt: this._lastIdempotencySuccessAt
+      }
+    };
   }
 
   _isValidStoredEvent(event) {
@@ -476,8 +565,20 @@ class QualityEventStore extends EventEmitter {
     }
     const entries = [...this._bySourceEventId.values()].map((entry) => entry.event);
     this._idempotencyWrite = this._idempotencyWrite
-      .then(() => this._idempotencyStore.save(entries))
+      .then(async () => {
+        await this._idempotencyStore.save(entries);
+        this._idempotencyError = null;
+        this._lastIdempotencySuccessAt = new Date(this.options.clock()).toISOString();
+        if (typeof this.options.onIdempotencySuccess === "function") {
+          this.options.onIdempotencySuccess();
+        }
+      })
       .catch((error) => {
+        this._idempotencyError = error;
+        this._lastIdempotencyFailureAt = new Date(this.options.clock()).toISOString();
+        if (typeof this.options.onIdempotencyError === "function") {
+          this.options.onIdempotencyError(error, { component: "quality-idempotency" });
+        }
         this._log("error", "Unable to persist quality idempotency state", {
           error: error.message
         });

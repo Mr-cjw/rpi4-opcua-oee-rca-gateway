@@ -110,6 +110,8 @@ class ProcessContextCollector extends EventEmitter {
       eventLogPath: options.eventLogPath || options.logPath || null,
       eventLogMaxBytes: options.eventLogMaxBytes,
       eventLogMaxFiles: options.eventLogMaxFiles,
+      onStorageError: options.onStorageError || null,
+      onStorageSuccess: options.onStorageSuccess || null,
       correlationId: options.correlationId || null,
       clock: options.clock || (() => Date.now()),
       createId: options.createId || randomUUID,
@@ -137,7 +139,9 @@ class ProcessContextCollector extends EventEmitter {
     this._logStore = new JsonlLog(this.options.eventLogPath, {
       logger: this.options.logger,
       maxBytes: this.options.eventLogMaxBytes,
-      maxFiles: this.options.eventLogMaxFiles
+      maxFiles: this.options.eventLogMaxFiles,
+      onStorageError: this.options.onStorageError,
+      onStorageSuccess: this.options.onStorageSuccess
     });
     this._loaded = false;
   }
@@ -356,6 +360,10 @@ class ProcessContextCollector extends EventEmitter {
 
   async flush() {
     await this._logStore.flush();
+  }
+
+  getStorageStatus() {
+    return this._logStore.getStatus();
   }
 
   async load() {

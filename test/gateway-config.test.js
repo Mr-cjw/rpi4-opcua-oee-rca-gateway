@@ -168,6 +168,28 @@ test("gateway config validates doctor sampling and timeout settings", () => {
   );
 });
 
+test("gateway config validates storage pressure thresholds", () => {
+  const config = loadGatewayConfig({
+    GATEWAY_STORAGE_DISK_PATH: "/var/lib/rpi4-gateway",
+    GATEWAY_STORAGE_WARN_FREE_BYTES: "104857600",
+    GATEWAY_STORAGE_CRITICAL_FREE_BYTES: "33554432",
+    GATEWAY_STORAGE_CHECK_INTERVAL_MS: "30000"
+  });
+
+  assert.equal(config.storage.diskPath, "/var/lib/rpi4-gateway");
+  assert.equal(config.storage.warnFreeBytes, 104857600);
+  assert.equal(config.storage.criticalFreeBytes, 33554432);
+  assert.equal(config.storage.checkIntervalMs, 30000);
+  assert.throws(
+    () =>
+      loadGatewayConfig({
+        GATEWAY_STORAGE_WARN_FREE_BYTES: "1024",
+        GATEWAY_STORAGE_CRITICAL_FREE_BYTES: "2048"
+      }),
+    /GATEWAY_STORAGE_CRITICAL_FREE_BYTES/
+  );
+});
+
 test("gateway config refuses to disable a required PLC point", () => {
   assert.throws(
     () => loadGatewayConfig({ OPCUA_DEVICE_STATUS_NODE: "off" }),

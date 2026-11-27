@@ -436,6 +436,72 @@ test("gateway API enforces a bearer token when configured", async (t) => {
   assert.equal(authorizedMetrics.status, 200);
 });
 
+test("gateway API fails closed and degrades health when quality storage is unavailable", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-storage-fail-"));
+  const { runtime } = makeRuntime({
+    QUALITY_EVENT_LOG: directory,
+    QUALITY_EVENT_IDEMPOTENCY_FILE: "off"
+  });
+  t.after(async () => {
+    await runtime.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  await runtime.start();
+
+  const response = await fetch(`${runtime.api.address}/v1/quality-events`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      sourceEventId: "QC-RUNTIME-STORAGE-FAIL",
+      occurredAt: new Date().toISOString()
+    })
+  });
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /Unable to persist quality event/);
+  assert.equal(runtime.getQualityEvents().length, 0);
+
+  const health = await (await fetch(`${runtime.api.address}/healthz`)).json();
+  assert.equal(health.status, "degraded");
+  assert.equal(health.storage.status, "critical");
+  assert.equal(health.storage.components["quality-event-log"].status, "critical");
+
+  const metrics = await (await fetch(`${runtime.api.address}/metrics`)).text();
+  assert.match(metrics, /^rpi4_gateway_storage_healthy 0$/m);
+  assert.match(
+    metrics,
+    /^rpi4_gateway_storage_component_healthy\{component="quality-event-log"\} 0$/m
+  );
+  assert.match(
+    metrics,
+    /^rpi4_gateway_storage_write_errors_total\{component="quality-event-log"\} 1$/m
+  );
+});
+
+test("gateway API rolls back work context when persistence fails", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-work-context-fail-"));
+  const { runtime } = makeRuntime({
+    GATEWAY_WORK_CONTEXT_FILE: directory
+  });
+  t.after(async () => {
+    await runtime.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  await runtime.start();
+
+  const response = await fetch(`${runtime.api.address}/v1/work-context`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ workOrderId: "WO-UNPERSISTED" })
+  });
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /Unable to persist work context/);
+  assert.equal(runtime.getWorkContext().workOrderId, null);
+
+  const health = await (await fetch(`${runtime.api.address}/healthz`)).json();
+  assert.equal(health.status, "degraded");
+  assert.equal(health.storage.components["work-context"].status, "critical");
+});
+
 test("gateway runtime exposes and applies runtime work context updates", async (t) => {
   const { runtime } = makeRuntime();
   t.after(async () => runtime.stop());

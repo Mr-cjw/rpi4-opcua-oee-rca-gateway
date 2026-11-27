@@ -14,8 +14,16 @@ class JsonlLog {
     this.logger = options.logger || null;
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
+    this.onStorageError = options.onStorageError || null;
+    this.onStorageSuccess = options.onStorageSuccess || null;
     this._writeQueue = Promise.resolve();
     this._size = null;
+    this._consecutiveFailures = 0;
+    this._totalFailures = 0;
+    this._totalWrites = 0;
+    this._lastError = null;
+    this._lastFailureAt = null;
+    this._lastSuccessAt = null;
   }
 
   get enabled() {
@@ -24,32 +32,66 @@ class JsonlLog {
 
   append(record) {
     if (!this.filePath) {
-      return;
+      return Promise.resolve({ ok: true, enabled: false, bytes: 0 });
     }
     const line = `${JSON.stringify(record)}\n`;
     const lineBytes = Buffer.byteLength(line, "utf8");
     if (this.filePath === "stdout") {
-      process.stdout.write(line);
-      return;
+      try {
+        process.stdout.write(line);
+        this._markSuccess(lineBytes);
+        return Promise.resolve({ ok: true, enabled: true, bytes: lineBytes });
+      } catch (error) {
+        this._markFailure(error);
+        return Promise.resolve({ ok: false, enabled: true, error });
+      }
     }
 
-    this._writeQueue = this._writeQueue
+    const write = this._writeQueue
       .then(async () => {
         await fsp.mkdir(path.dirname(this.filePath), { recursive: true });
         await this._rotateIfNeeded(lineBytes);
         await fsp.appendFile(this.filePath, line, "utf8");
         this._size += lineBytes;
+        this._markSuccess(lineBytes);
+        return { ok: true, enabled: true, bytes: lineBytes };
       })
       .catch((error) => {
+        this._markFailure(error);
         this._log("error", "Unable to append JSONL record", {
           path: this.filePath,
           error: error.message
         });
+        return { ok: false, enabled: true, error };
       });
+    this._writeQueue = write;
+    return write;
   }
 
-  async flush() {
-    await this._writeQueue;
+  async flush(options = {}) {
+    const result = await this._writeQueue;
+    if (options.throwOnError && result?.ok === false) {
+      throw result.error;
+    }
+    return result;
+  }
+
+  getStatus() {
+    return {
+      enabled: this.enabled,
+      path: this.filePath,
+      status: !this.enabled
+        ? "disabled"
+        : this._consecutiveFailures > 0
+          ? "critical"
+          : "ok",
+      consecutiveFailures: this._consecutiveFailures,
+      totalFailures: this._totalFailures,
+      totalWrites: this._totalWrites,
+      lastError: this._lastError?.message || null,
+      lastFailureAt: this._lastFailureAt,
+      lastSuccessAt: this._lastSuccessAt
+    };
   }
 
   async read(onRecord) {
@@ -151,6 +193,31 @@ class JsonlLog {
         throw error;
       }
     }
+  }
+
+  _markSuccess(bytes) {
+    this._consecutiveFailures = 0;
+    this._lastError = null;
+    this._totalWrites += 1;
+    this._lastSuccessAt = new Date().toISOString();
+    this._notify(this.onStorageSuccess, { path: this.filePath, bytes });
+  }
+
+  _markFailure(error) {
+    this._consecutiveFailures += 1;
+    this._totalFailures += 1;
+    this._lastError = error;
+    this._lastFailureAt = new Date().toISOString();
+    this._notify(this.onStorageError, error, { path: this.filePath });
+  }
+
+  _notify(callback, ...args) {
+    if (typeof callback !== "function") {
+      return;
+    }
+    try {
+      callback(...args);
+    } catch {}
   }
 
   _log(level, message, data = {}) {

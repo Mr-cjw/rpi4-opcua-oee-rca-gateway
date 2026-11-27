@@ -42,10 +42,21 @@ function prometheusLabel(value) {
 
 function metricsPayload(runtime) {
   const status = runtime.getStatus();
+  const storage = status.storage || {
+    healthy: true,
+    disk: {},
+    components: {}
+  };
   const latestAt = status.context.latestOccurredAt
     ? Date.parse(status.context.latestOccurredAt) / 1000
     : 0;
   const identity = status.identity;
+  const storageComponentLines = Object.entries(storage.components || {}).flatMap(
+    ([component, componentStatus]) => [
+      `rpi4_gateway_storage_component_healthy{component="${prometheusLabel(component)}"} ${componentStatus.status === "ok" ? 1 : 0}`,
+      `rpi4_gateway_storage_write_errors_total{component="${prometheusLabel(component)}"} ${componentStatus.totalFailures}`
+    ]
+  );
   return [
     "# HELP rpi4_gateway_up Gateway process is running.",
     "# TYPE rpi4_gateway_up gauge",
@@ -68,6 +79,19 @@ function metricsPayload(runtime) {
     "# HELP rpi4_gateway_last_context_timestamp_seconds Latest context timestamp.",
     "# TYPE rpi4_gateway_last_context_timestamp_seconds gauge",
     `rpi4_gateway_last_context_timestamp_seconds ${latestAt}`,
+    "# HELP rpi4_gateway_storage_healthy Whether disk and configured write paths are healthy.",
+    "# TYPE rpi4_gateway_storage_healthy gauge",
+    `rpi4_gateway_storage_healthy ${storage.healthy ? 1 : 0}`,
+    "# HELP rpi4_gateway_storage_disk_free_bytes Available bytes on the configured state volume.",
+    "# TYPE rpi4_gateway_storage_disk_free_bytes gauge",
+    `rpi4_gateway_storage_disk_free_bytes ${Number.isFinite(storage.disk?.freeBytes) ? storage.disk.freeBytes : 0}`,
+    "# HELP rpi4_gateway_storage_disk_total_bytes Total bytes on the configured state volume.",
+    "# TYPE rpi4_gateway_storage_disk_total_bytes gauge",
+    `rpi4_gateway_storage_disk_total_bytes ${Number.isFinite(storage.disk?.totalBytes) ? storage.disk.totalBytes : 0}`,
+    "# HELP rpi4_gateway_storage_disk_usage_ratio Used bytes divided by total bytes.",
+    "# TYPE rpi4_gateway_storage_disk_usage_ratio gauge",
+    `rpi4_gateway_storage_disk_usage_ratio ${Number.isFinite(storage.disk?.usageRatio) ? storage.disk.usageRatio : 0}`,
+    ...storageComponentLines,
     "# HELP rpi4_gateway_work_order_info Current line and work context.",
     "# TYPE rpi4_gateway_work_order_info gauge",
     `rpi4_gateway_work_order_info{line_id="${prometheusLabel(identity.lineId)}",` +
@@ -229,7 +253,7 @@ function createGatewayApi(runtime, options = {}) {
 
     if (pathname === "/v1/quality-events" && request.method === "POST") {
       const body = await readJsonBody(request);
-      const result = runtime.recordQualityEvent(body);
+      const result = await runtime.recordQualityEventDurable(body);
       sendJson(response, result.duplicate ? 200 : 201, result);
       return;
     }
