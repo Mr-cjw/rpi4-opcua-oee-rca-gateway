@@ -126,6 +126,7 @@ class QualityEventStore extends EventEmitter {
       retentionMs: options.retentionMs ?? DEFAULT_RETENTION_MS,
       maxEvents: options.maxEvents ?? DEFAULT_MAX_EVENTS,
       eventLogPath: options.eventLogPath || options.logPath || null,
+      eventLogFsync: options.eventLogFsync ?? true,
       eventLogMaxBytes: options.eventLogMaxBytes,
       eventLogMaxFiles: options.eventLogMaxFiles,
       onStorageError: options.onStorageError || null,
@@ -168,6 +169,7 @@ class QualityEventStore extends EventEmitter {
     this._bySourceEventId = new Map();
     this._logStore = new JsonlLog(this.options.eventLogPath, {
       logger: this.options.logger,
+      fsync: this.options.eventLogFsync,
       maxBytes: this.options.eventLogMaxBytes,
       maxFiles: this.options.eventLogMaxFiles,
       onStorageError: this.options.onStorageError,

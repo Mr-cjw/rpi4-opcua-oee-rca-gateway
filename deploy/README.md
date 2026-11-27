@@ -108,6 +108,11 @@ after restoring an older snapshot.
   `Isolated a partial JSONL record before appending`. Complete records replay
   normally; the interrupted record is skipped and a resulting event-sequence
   gap remains visible in `/healthz` and Prometheus.
+- Keep `QUALITY_EVENT_LOG_FSYNC=true` in production so an accepted NG event has
+  crossed the disk barrier before the API responds. Process-context sync is
+  disabled by default to limit SD-card write amplification; enable
+  `PROCESS_CONTEXT_LOG_FSYNC` when losing the newest sample after power loss is
+  not acceptable.
 - `OEE_NOMINAL_OUTPUT_PER_MIN` or `OEE_IDEAL_CYCLE_TIME_MS`, planned time, and
   quality-event connectivity must be validated before quoting OEE as a
   production metric. When `OEE_PRODUCT_CYCLE_TIMES` is used, validate every

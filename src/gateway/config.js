@@ -35,6 +35,21 @@ function numberFromEnv(env, name, fallback, { min = -Infinity, max = Infinity } 
   return value;
 }
 
+function booleanFromEnv(env, name, fallback) {
+  const raw = env[name];
+  if (raw === undefined || raw === "") {
+    return fallback;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  throw new Error(`${name} must be a boolean; received "${raw}"`);
+}
+
 function jsonlPathFromEnv(env, name, defaultFile) {
   const raw = env[name];
   if (raw === "off" || raw === "none") {
@@ -278,6 +293,7 @@ function loadGatewayConfig(env = process.env) {
         max: 1000000
       }),
       logPath: jsonlPathFromEnv(env, "PROCESS_CONTEXT_LOG", "process-context.jsonl"),
+      logFsync: booleanFromEnv(env, "PROCESS_CONTEXT_LOG_FSYNC", false),
       logMaxBytes: integerFromEnv(
         env,
         "PROCESS_CONTEXT_LOG_MAX_BYTES",
@@ -366,6 +382,7 @@ function loadGatewayConfig(env = process.env) {
         max: 1000000
       }),
       logPath: jsonlPathFromEnv(env, "QUALITY_EVENT_LOG", "quality-events.jsonl"),
+      logFsync: booleanFromEnv(env, "QUALITY_EVENT_LOG_FSYNC", true),
       idempotencyPath: statePathFromEnv(
         env,
         "QUALITY_EVENT_IDEMPOTENCY_FILE",

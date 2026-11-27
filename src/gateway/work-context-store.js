@@ -1,8 +1,7 @@
 "use strict";
 
-const { randomUUID } = require("node:crypto");
 const fs = require("node:fs/promises");
-const path = require("node:path");
+const { writeFileAtomic } = require("./durable-file");
 const {
   normalizeWorkContextUpdate,
   workContextFrom
@@ -53,24 +52,15 @@ class WorkContextStore {
       return false;
     }
 
-    const directory = path.dirname(this.filePath);
-    const tempPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     const payload = {
       schemaVersion: "1.0",
       updatedAt: new Date().toISOString(),
       ...workContextFrom(context)
     };
 
-    await fs.mkdir(directory, { recursive: true });
-    try {
-      await fs.writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, {
-        encoding: "utf8",
-        mode: 0o600
-      });
-      await fs.rename(tempPath, this.filePath);
-    } finally {
-      await fs.rm(tempPath, { force: true }).catch(() => undefined);
-    }
+    await writeFileAtomic(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, {
+      mode: 0o600
+    });
     return true;
   }
 }

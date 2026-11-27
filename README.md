@@ -280,17 +280,21 @@ consecutive/total write failures. A component returns to `ok` after its next
 successful write.
 
 `POST /v1/quality-events` waits for the quality JSONL append before returning
-success. If the append fails, the API returns `503`, removes the event and
-source-event key from memory, and leaves that component critical. The caller
-must retry with the same `sourceEventId`; a duplicate request that arrives while
-the original write is still in flight waits for that write instead of being
-acknowledged early. The idempotency ledger is a separate durability extension:
-if the event log write succeeds but the ledger update fails, the event remains
-accepted and durable, health is degraded, and the event log replay restores
-recent source-event keys after a restart.
+success. `QUALITY_EVENT_LOG_FSYNC` defaults to `true`, so the response waits for
+the file and parent directory to reach the storage device rather than only the
+operating-system page cache. If the append or sync fails, the API returns `503`,
+removes the event and source-event key from memory, and leaves that component
+critical. The caller must retry with the same `sourceEventId`; a duplicate
+request that arrives while the original write is still in flight waits for that
+write instead of being acknowledged early. The idempotency ledger is a separate
+durability extension: if the event log write succeeds but the ledger update
+fails, the event remains accepted and durable, health is degraded, and the event
+log replay restores recent source-event keys after a restart.
 
 `POST /v1/work-context` also fails closed. If its atomic state-file replacement
-fails, it returns `503` and restores the previous in-memory work context.
+or filesystem sync fails, it returns `503` and restores the previous in-memory
+work context. State-file and idempotency-ledger replacement fsync the temporary
+file before rename and the parent directory after rename.
 
 ### State backup and restore
 
@@ -602,6 +606,7 @@ report never includes the OPC UA password or private-key material.
 | `PROCESS_CONTEXT_RETENTION_MS` | `3600000` | In-memory retention window |
 | `PROCESS_CONTEXT_MAX_EVENTS` | `10000` | Maximum retained events/alarms |
 | `PROCESS_CONTEXT_LOG` | `data/process-context.jsonl` | JSONL path; use `off` to disable or `stdout` to stream |
+| `PROCESS_CONTEXT_LOG_FSYNC` | `false` | Sync every context append to disk; enable when every sample must survive power loss |
 | `PROCESS_CONTEXT_LOG_MAX_BYTES` | `10485760` | Rotate the active context log after this many bytes |
 | `PROCESS_CONTEXT_LOG_MAX_FILES` | `3` | Number of rotated context-log backups to retain |
 | `OEE_NOMINAL_OUTPUT_PER_MIN` | `120` | Fallback theoretical output for Performance |
@@ -617,6 +622,7 @@ report never includes the OPC UA password or private-key material.
 | `QUALITY_EVENT_RETENTION_MS` | `3600000` | In-memory NG event retention |
 | `QUALITY_EVENT_MAX_EVENTS` | `10000` | Maximum retained NG events |
 | `QUALITY_EVENT_LOG` | `data/quality-events.jsonl` | NG JSONL path; use `off` to disable or `stdout` to stream |
+| `QUALITY_EVENT_LOG_FSYNC` | `true` | Sync every accepted NG append before acknowledging it; leave enabled in production |
 | `QUALITY_EVENT_LOG_MAX_BYTES` | `10485760` | Rotate the active quality log after this many bytes |
 | `QUALITY_EVENT_LOG_MAX_FILES` | `3` | Number of rotated quality-log backups to retain |
 | `QUALITY_EVENT_IDEMPOTENCY_FILE` | `data/quality-idempotency.json` | Atomic source-event ID ledger; use `off` to disable |

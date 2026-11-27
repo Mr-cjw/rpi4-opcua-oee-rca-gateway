@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const readline = require("node:readline");
+const { syncDirectory } = require("./durable-file");
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_FILES = 3;
@@ -14,6 +15,7 @@ class JsonlLog {
     this.logger = options.logger || null;
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
+    this.fsync = options.fsync === true;
     this.onStorageError = options.onStorageError || null;
     this.onStorageSuccess = options.onStorageSuccess || null;
     this._writeQueue = Promise.resolve();
@@ -26,6 +28,7 @@ class JsonlLog {
     this._lastSuccessAt = null;
     this._needsNewlineRecovery = true;
     this._recoveredPartialLines = 0;
+    this._directorySynced = false;
   }
 
   get enabled() {
@@ -57,7 +60,7 @@ class JsonlLog {
           await this._ensureTrailingNewline();
           this._needsNewlineRecovery = false;
         }
-        await fsp.appendFile(this.filePath, line, "utf8");
+        await this._appendText(line);
         this._size += lineBytes;
         this._markSuccess(lineBytes);
         return { ok: true, enabled: true, bytes: lineBytes };
@@ -94,6 +97,7 @@ class JsonlLog {
       consecutiveFailures: this._consecutiveFailures,
       totalFailures: this._totalFailures,
       totalWrites: this._totalWrites,
+      fsync: this.fsync,
       recoveredPartialLines: this._recoveredPartialLines,
       lastError: this._lastError?.message || null,
       lastFailureAt: this._lastFailureAt,
@@ -190,6 +194,7 @@ class JsonlLog {
     }
     await this._renameIfExists(this.filePath, `${this.filePath}.1`);
     this._size = 0;
+    this._directorySynced = false;
   }
 
   async _renameIfExists(from, to) {
@@ -229,12 +234,30 @@ class JsonlLog {
       await handle.close();
     }
 
-    await fsp.appendFile(this.filePath, "\n", "utf8");
+    await this._appendText("\n");
     this._size += 1;
     this._recoveredPartialLines += 1;
     this._log("warn", "Isolated a partial JSONL record before appending", {
       path: this.filePath
     });
+  }
+
+  async _appendText(text) {
+    if (!this.fsync) {
+      await fsp.appendFile(this.filePath, text, "utf8");
+      return;
+    }
+    const handle = await fsp.open(this.filePath, "a");
+    try {
+      await handle.writeFile(text, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (!this._directorySynced) {
+      await syncDirectory(path.dirname(this.filePath));
+      this._directorySynced = true;
+    }
   }
 
   _markSuccess(bytes) {

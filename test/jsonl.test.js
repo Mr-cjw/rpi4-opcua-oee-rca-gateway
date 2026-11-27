@@ -72,3 +72,47 @@ test("JSONL log isolates a partial trailing record after a crash", async (t) => 
   assert.equal(log.getStatus().recoveredPartialLines, 1);
   assert.equal(log.getStatus().status, "ok");
 });
+
+test("JSONL fsync mode recovers after a durability-barrier failure", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "jsonl-fsync-"));
+  const logPath = path.join(directory, "events.jsonl");
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const originalOpen = fs.open;
+  let syncCalls = 0;
+  let failSync = true;
+  t.mock.method(fs, "open", async (filePath, flags, mode) => {
+    const handle = await originalOpen.call(fs, filePath, flags, mode);
+    if (flags !== "a") {
+      return handle;
+    }
+    return {
+      writeFile: (...args) => handle.writeFile(...args),
+      sync: async () => {
+        syncCalls += 1;
+        if (failSync) {
+          throw new Error("simulated fsync failure");
+        }
+        await handle.sync();
+      },
+      close: () => handle.close()
+    };
+  });
+
+  const log = new JsonlLog(logPath, { fsync: true, maxBytes: 0, maxFiles: 0 });
+  const failed = await log.append({ value: 1 });
+  assert.equal(failed.ok, false);
+  assert.match(failed.error.message, /simulated fsync failure/);
+  await assert.rejects(log.flush({ throwOnError: true }), /simulated fsync failure/);
+  assert.equal(log.getStatus().status, "critical");
+  assert.equal(log.getStatus().fsync, true);
+
+  failSync = false;
+  await log.append({ value: 2 });
+  await log.flush({ throwOnError: true });
+  assert.ok(syncCalls >= 2);
+  assert.equal(log.getStatus().status, "ok");
+
+  const records = [];
+  await log.read((record) => records.push(record.value));
+  assert.deepEqual(records, [1, 2]);
+});

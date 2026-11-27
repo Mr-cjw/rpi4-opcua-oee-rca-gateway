@@ -140,8 +140,12 @@ Progress:
 - Completed 2026-11-27: checked-in legacy JSONL migration fixtures covering
   rotated segments, records without `sequence`, and idempotency entries whose
   source events have left the retained event window.
-- Remaining: explicit power-loss write guarantees, multi-day retention/disk
-  budget validation, and the gated SQLite importer/backend if adoption proceeds.
+- Completed 2026-11-27: fsync durability contract for acknowledged quality
+  events, atomic work-context/idempotency state, and optional process-context
+  sync; sync-barrier failure recovery is covered by tests.
+- Remaining: multi-day retention/disk-budget validation, physical power-cut
+  validation on Raspberry Pi storage, and the gated SQLite importer/backend if
+  adoption proceeds.
 
 Acceptance:
 
@@ -245,9 +249,9 @@ Acceptance:
 
 The next implementation-sized units are:
 
-1. Finish the M2 storage boundary with explicit power-loss write guarantees,
-   multi-day retention validation, and the gated SQLite importer/backend if the
-   documented adoption gates are met.
+1. Finish the M2 storage boundary with multi-day retention validation, physical
+   power-cut validation on Raspberry Pi hardware, and the gated SQLite
+   importer/backend if the documented adoption gates are met.
 2. Add live health/metrics detection for stale values, Bad status, clock skew,
    reconnect gaps, and subscription recovery.
 3. Execute the 72-hour soak on Raspberry Pi hardware and add release packaging,

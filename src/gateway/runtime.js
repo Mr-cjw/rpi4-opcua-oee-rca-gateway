@@ -45,6 +45,7 @@ class GatewayRuntime extends EventEmitter {
         ...config.identity,
         ...config.context,
         eventLogPath: config.context.logPath,
+        eventLogFsync: config.context.logFsync,
         eventLogMaxBytes: config.context.logMaxBytes,
         eventLogMaxFiles: config.context.logMaxFiles,
         onStorageError: (error) =>
@@ -59,6 +60,7 @@ class GatewayRuntime extends EventEmitter {
         ...config.identity,
         ...config.quality,
         eventLogPath: config.quality.logPath,
+        eventLogFsync: config.quality.logFsync,
         idempotencyPath: config.quality.idempotencyPath,
         idempotencyRetentionMs: config.quality.idempotencyRetentionMs,
         idempotencyMaxEntries: config.quality.idempotencyMaxEntries,

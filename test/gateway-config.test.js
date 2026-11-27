@@ -201,14 +201,21 @@ test("gateway config tunes bounded JSONL rotation independently", () => {
   const config = loadGatewayConfig({
     PROCESS_CONTEXT_LOG_MAX_BYTES: "2048",
     PROCESS_CONTEXT_LOG_MAX_FILES: "2",
+    PROCESS_CONTEXT_LOG_FSYNC: "true",
     QUALITY_EVENT_LOG_MAX_BYTES: "4096",
-    QUALITY_EVENT_LOG_MAX_FILES: "4"
+    QUALITY_EVENT_LOG_MAX_FILES: "4",
+    QUALITY_EVENT_LOG_FSYNC: "false"
   });
 
+  assert.equal(config.context.logFsync, true);
   assert.equal(config.context.logMaxBytes, 2048);
   assert.equal(config.context.logMaxFiles, 2);
+  assert.equal(config.quality.logFsync, false);
   assert.equal(config.quality.logMaxBytes, 4096);
   assert.equal(config.quality.logMaxFiles, 4);
+  const defaults = loadGatewayConfig({});
+  assert.equal(defaults.context.logFsync, false);
+  assert.equal(defaults.quality.logFsync, true);
   assert.throws(
     () => loadGatewayConfig({ PROCESS_CONTEXT_LOG_MAX_BYTES: "512" }),
     /PROCESS_CONTEXT_LOG_MAX_BYTES/
@@ -216,6 +223,10 @@ test("gateway config tunes bounded JSONL rotation independently", () => {
   assert.throws(
     () => loadGatewayConfig({ QUALITY_EVENT_LOG_MAX_FILES: "0" }),
     /QUALITY_EVENT_LOG_MAX_FILES/
+  );
+  assert.throws(
+    () => loadGatewayConfig({ QUALITY_EVENT_LOG_FSYNC: "sometimes" }),
+    /QUALITY_EVENT_LOG_FSYNC/
   );
 });
 

@@ -16,7 +16,7 @@ a distributed database or a second source of truth.
 
 | Option | Advantages | Costs and risks |
 | --- | --- | --- |
-| Current JSONL | Human-readable, append-only, simple rotation, existing replay and backup | No indexes, no transactions across files, buffered appends are not power-loss durable, replay cost grows with retained history |
+| Current JSONL | Human-readable, append-only, simple rotation, existing replay and backup, configurable fsync durability | No indexes, no transactions across files, fsync reduces throughput and increases SD-card wear, replay cost grows with retained history |
 | `node:sqlite` WAL | No third-party package, transactions, indexes, bounded SQL retention, crash-safe WAL | Requires a newer Node.js baseline, synchronous API can block the event loop, backup must include WAL state, database schema migrations become part of the release contract |
 | `better-sqlite3` | Mature API and similar WAL behavior | Native addon build and ABI management on Raspberry Pi, larger deployment and upgrade surface |
 | External time-series database | Strong query and retention capabilities | Adds another service to operate, back up, authenticate, and monitor; not proportionate for one station |
@@ -56,6 +56,12 @@ SQLite `NORMAL` keeps the database consistent across power loss but can lose
 recently committed transactions. It is not sufficient for an NG ingestion
 request that has already returned success. Acknowledged quality events require
 `FULL`, or an equivalent explicitly synced WAL policy.
+
+The current JSONL path now has the equivalent policy: quality-event appends and
+their parent directory are fsynced by default before a successful API response,
+while process-context appends default to buffered writes and can opt into fsync
+with `PROCESS_CONTEXT_LOG_FSYNC=true`. Work-context and idempotency-ledger state
+files fsync their temporary file and parent directory around the atomic rename.
 
 ## Decision
 
