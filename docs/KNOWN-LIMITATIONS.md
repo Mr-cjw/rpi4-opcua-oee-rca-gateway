@@ -163,10 +163,17 @@ deployment depends on behavior the Gateway does not provide.
 - `release:rehearse` simulates service commands, health transitions, and npm
   installation. It exercises release and state code paths, but it does not prove
   systemd behavior, real network health checks, reboot recovery, power-loss
-  durability, or Raspberry Pi hardware compatibility.
-- Rollback restores code and the `current`/`previous` links. It does not undo a
-  state-format migration unless the release note explicitly defines one and the
-  verified pre-upgrade state backup is restored.
+  durability, or Raspberry Pi hardware compatibility. Its synthetic v2 scenario
+  proves rejection and backup recovery only; it does not execute a migration.
+- The current runtime supports only state format `1.0`. A v2 release or backup
+  is rejected with a specific diagnostic even when the migration contract is
+  complete. There is no production migration executor yet.
+- Rollback restores code and the `current`/`previous` links. A release manifest
+  with `rollback.mode: "state-restore-required"` also requires restoring the
+  verified pre-upgrade state backup; rollback does not perform that restore
+  automatically.
+- Power loss, disk-full behavior, and storage durability during a real state
+  migration remain hardware qualification gates.
 
 ## Observability and Operations
 

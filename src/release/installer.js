@@ -376,12 +376,12 @@ async function installRelease(options) {
     failure.cause = error;
     failure.rollback = rollback;
     failure.rollbackError = rollbackError;
-    failure.releaseId = manifest.releaseId;
+    failure.releaseId = manifest?.releaseId || null;
     await writeOperationReport(releaseRoot, {
       schemaVersion: "1.0",
       action: "install-failed",
       at: new Date((options.clock || Date.now)()).toISOString(),
-      releaseId: manifest.releaseId,
+      releaseId: manifest?.releaseId || null,
       attemptedPreviousReleaseId: previous?.id || null,
       service,
       healthUrl: options.healthUrl ?? null,

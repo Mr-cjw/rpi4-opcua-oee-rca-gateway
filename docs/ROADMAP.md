@@ -334,6 +334,10 @@ Deliverables:
   key states, rotation overlap, explicit historical verification, policy-digest
   and sequence pinning, install-phase rollback rejection, policy-bound evidence,
   and field-drill policy continuity.
+- Completed 2026-11-28: state-format migration boundary with a validated
+  migration contract, release-bound rollback mode, synthetic v2 rejection
+  fixtures, and offline rehearsal proof that a rejected v2 candidate leaves
+  accepted v1 state unchanged and restorable.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 
 Acceptance:

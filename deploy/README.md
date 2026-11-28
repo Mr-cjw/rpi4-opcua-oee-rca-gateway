@@ -355,12 +355,14 @@ sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-relea
   --release-root /opt/rpi4-opcua-oee-rca-gateway
 ```
 
-Code rollback does not modify `/var/lib/rpi4-gateway`. If a future release note
-declares a state-format migration, stop the service, restore the verified
+Code rollback does not modify `/var/lib/rpi4-gateway`. Check
+`release-manifest.json` for `rollback.mode`. `code-only` means state can remain
+in place. `state-restore-required` means stop the service, restore the verified
 pre-upgrade backup with the state restore command, then run the code rollback so
-the old release starts only after its data format is restored. Keep the failed
-release directory and `last-release.json` for diagnosis until the incident is
-closed.
+the old release starts only after its data format is restored. A release with a
+non-initial state format must contain `state-migration.json`; the current v1
+runtime rejects a v2 candidate before switching. Keep the failed release
+directory and `last-release.json` for diagnosis until the incident is closed.
 
 ### Live PLC diagnostics and alerts
 

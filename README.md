@@ -435,10 +435,11 @@ SHA-256 checksum, byte count, and file mode for every file in
 `state-manifest.json`; missing optional files and zero-byte logs are listed
 explicitly. The manifest also declares the Gateway state format version.
 Verification rejects missing files, size/checksum changes, unsupported state
-formats, and unsafe manifest paths. Restore verifies the complete backup before
-replacing any destination, stages all copies first, and atomically renames each
-file into place. Unrelated files already present in the state directory are left
-alone.
+formats, and unsafe manifest paths. The current runtime accepts only format
+`1.0`; a synthetic `2.0` backup is rejected with a diagnostic naming the
+supported version. Restore verifies the complete backup before replacing any
+destination, stages all copies first, and atomically renames each file into
+place. Unrelated files already present in the state directory are left alone.
 
 OPC UA PKI material is deliberately excluded from the state backup and should
 be backed up separately under the certificate-management procedure. Copy the
@@ -505,9 +506,13 @@ dependencies, and an external `<archive>.tar.gz.sha256`. Untracked files,
 `node_modules`, state, credentials, and PKI material are excluded. Packaging
 fails when tracked files are modified; `--allow-dirty` is only for diagnostic
 builds and marks the release ID as dirty. The manifest declares the Gateway
-state format version; verification rejects an unsupported format. Increment the
-state format version whenever persisted event, idempotency, work-context, or
-backup semantics change, and pair any migration with an explicit rollback plan.
+state format version and whether rollback is code-only or requires a verified
+state restore. Verification rejects an unsupported format before installation or
+release switching. A non-initial state format also requires a tracked
+`state-migration.json` with preflight, backup, post-migration validation, and
+rollback controls. See the
+[state-format migration procedure](docs/STATE-MIGRATION.md) before changing
+persisted event, idempotency, work-context, or backup semantics.
 
 The embedded SBOM is listed in the release manifest, covered by the internal
 checksums, and authenticated by the archive signature. Extract a sidecar for
@@ -637,6 +642,9 @@ and `npm ci` simulated. It covers:
 
 - release manifest schema, runtime metadata, SBOM format, and declared
   state-format compatibility between base and candidate;
+- a synthetic v2 candidate with a complete migration contract, rejected before
+  release switching, followed by proof that accepted v1 state is unchanged and
+  that its verified backup restores with matching hashes and modes;
 - base install followed by candidate upgrade and explicit rollback to base;
 - candidate upgrade with a failing health check and automatic restoration of
   base;
@@ -703,11 +711,13 @@ sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-relea
   --release-root /opt/rpi4-opcua-oee-rca-gateway
 ```
 
-Current releases have no on-disk state-format migration, so rollback only
-changes code and leaves accepted events untouched. For a future release that
-migrates state, the release note must identify the migration and rollback
-procedure. Restore the verified pre-upgrade state backup while the service is
-stopped, then perform the code rollback before starting the old release.
+Current releases have no on-disk state-format migration, so their manifests
+declare `rollback.mode: "code-only"` and rollback leaves accepted events
+untouched. A future migrated release must include `state-migration.json` and
+declare `rollback.mode: "state-restore-required"`. In that case restore the
+verified pre-upgrade state backup while the service is stopped, then perform the
+code rollback before starting the old release. The current v1 runtime rejects a
+v2 candidate even when its migration contract is structurally valid.
 
 ### Event sequence integrity
 

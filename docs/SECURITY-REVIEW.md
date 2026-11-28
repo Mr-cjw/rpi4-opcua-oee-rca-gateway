@@ -275,12 +275,14 @@ monitoring platform outside the Gateway.
   and detached signature it binds.
 - `release:rehearse` exercises signed install, explicit rollback, failed-health
   automatic rollback, manifest-schema and declared state-format compatibility,
-  state backup/restore, and records runtime and SBOM metadata in an isolated
-  directory. CI builds separately versioned base and candidate archives, signs
-  both with the same ephemeral key, requires both signatures, and retains the
-  mode-`0600` report. Service commands and package installation are simulated,
-  so its report is marked as an offline software gate rather than field
-  acceptance.
+  state backup/restore, and a synthetic v2 migration boundary that must fail
+  before release switching. It records runtime and SBOM metadata in an isolated
+  directory and verifies that rejected v2 handling leaves accepted v1 state
+  unchanged and restorable. CI builds separately versioned base and candidate
+  archives, signs both with the same ephemeral key, requires both signatures, and
+  retains the mode-`0600` report. Service commands and package installation are
+  simulated, so its report is marked as an offline software gate rather than
+  field acceptance.
 - `current` and `previous` are switched atomically. A failed health check
   automatically restores and restarts the previous release.
 - The minimum runtime is `Node.js 22.13.0`, matching the upgraded OPC UA

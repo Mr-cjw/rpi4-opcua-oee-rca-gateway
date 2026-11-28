@@ -197,6 +197,7 @@ test("offline release rehearsal covers upgrade, rollback, auto-rollback, and sta
     [
       ["manifest-compatibility", "passed"],
       ["state-backup-restore", "passed"],
+      ["state-format-migration-boundary", "passed"],
       ["upgrade-and-explicit-rollback", "passed"],
       ["failed-upgrade-auto-rollback", "passed"]
     ]
@@ -212,10 +213,18 @@ test("offline release rehearsal covers upgrade, rollback, auto-rollback, and sta
   const stateScenario = result.report.scenarios[1];
   assert.equal(stateScenario.details.backupFileCount, 5);
   assert.equal(stateScenario.details.restoredFiles.length, 5);
-  const explicit = result.report.scenarios[2].details;
+  const boundary = result.report.scenarios[2].details;
+  assert.equal(boundary.runtimeStateFormatVersion, "1.0");
+  assert.equal(boundary.candidateStateFormatVersion, "2.0");
+  assert.equal(boundary.rejectedBeforeReleaseSwitch, true);
+  assert.equal(boundary.acceptedStateUnchanged, true);
+  assert.equal(boundary.backupStateFormatVersion, "1.0");
+  assert.equal(boundary.restoredStateMatchesAcceptedV1, true);
+  assert.match(boundary.rejection, /unsupported release state format: 2\.0/);
+  const explicit = result.report.scenarios[3].details;
   assert.equal(explicit.finalCurrent, explicit.baseReleaseId);
   assert.equal(explicit.finalPrevious, explicit.candidateReleaseId);
-  const automatic = result.report.scenarios[3].details;
+  const automatic = result.report.scenarios[4].details;
   assert.equal(automatic.finalCurrent, automatic.baseReleaseId);
   assert.equal(automatic.restoredReleaseId, automatic.baseReleaseId);
   assert.equal((await fs.stat(outputPath)).mode & 0o777, 0o600);

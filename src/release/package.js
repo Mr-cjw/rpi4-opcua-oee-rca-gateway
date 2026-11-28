@@ -17,7 +17,18 @@ const {
   generateReleaseSbom,
   validateCycloneDxSbom
 } = require("./sbom");
-const { STATE_FORMAT_VERSION } = require("../gateway/state-format");
+const {
+  INITIAL_STATE_FORMAT_VERSION,
+  STATE_FORMAT_VERSION
+} = require("../gateway/state-format");
+const {
+  STATE_MIGRATION_FILE,
+  assertRuntimeStateFormatCompatibility,
+  compareStateFormatVersions,
+  loadStateMigrationManifest,
+  stateFormatMismatchMessage,
+  validateStateFormatVersion
+} = require("./state-migration");
 
 const RELEASE_SCHEMA_VERSION = "1.0";
 const MANIFEST_FILE = "release-manifest.json";
@@ -44,6 +55,97 @@ function validateReleaseId(value) {
     throw new Error(`release id is invalid: ${value}`);
   }
   return value;
+}
+
+function rollbackMetadataForStateFormat(stateFormatVersion, stateMigration) {
+  if (stateMigration) {
+    return {
+      mode: "state-restore-required",
+      codeOnly: false,
+      stateRestoreRequired: true,
+      verifiedBackupRequired: true,
+      note: `Restore the verified ${stateMigration.fromVersion} pre-migration backup before starting the previous release.`
+    };
+  }
+  return {
+    mode: "code-only",
+    codeOnly: true,
+    stateRestoreRequired: false,
+    verifiedBackupRequired: false,
+    note: `State format ${stateFormatVersion} is unchanged; rollback changes code only.`
+  };
+}
+
+function validateRollbackMetadata(rollback, required) {
+  if (rollback === undefined) {
+    if (required) {
+      throw new Error("release manifest must declare rollback mode for a state-format change");
+    }
+    return null;
+  }
+  if (!rollback || typeof rollback !== "object" || Array.isArray(rollback)) {
+    throw new Error("release manifest rollback metadata must be an object");
+  }
+  if (rollback.mode !== "code-only" && rollback.mode !== "state-restore-required") {
+    throw new Error(`release manifest rollback mode is invalid: ${rollback.mode || "missing"}`);
+  }
+  const stateRestoreRequired = rollback.mode === "state-restore-required";
+  if (stateRestoreRequired !== required) {
+    throw new Error(
+      `release manifest rollback mode ${rollback.mode} does not match the state-format change`
+    );
+  }
+  if (rollback.codeOnly !== !stateRestoreRequired) {
+    throw new Error("release manifest rollback codeOnly flag is inconsistent");
+  }
+  if (rollback.stateRestoreRequired !== stateRestoreRequired) {
+    throw new Error("release manifest rollback stateRestoreRequired flag is inconsistent");
+  }
+  if (rollback.verifiedBackupRequired !== stateRestoreRequired) {
+    throw new Error("release manifest rollback verifiedBackupRequired flag is inconsistent");
+  }
+  if (typeof rollback.note !== "string" || rollback.note.trim() === "") {
+    throw new Error("release manifest rollback note must be a non-empty string");
+  }
+  return { ...rollback };
+}
+
+function validateStateMigrationDescriptor(descriptor, required) {
+  if (descriptor === undefined) {
+    if (required) {
+      throw new Error("state-format change requires a migration manifest");
+    }
+    return null;
+  }
+  if (!descriptor || typeof descriptor !== "object" || Array.isArray(descriptor)) {
+    throw new Error("release manifest stateMigration must be an object");
+  }
+  if (descriptor.path !== STATE_MIGRATION_FILE) {
+    throw new Error(`release manifest stateMigration path must be ${STATE_MIGRATION_FILE}`);
+  }
+  if (
+    typeof descriptor.migrationId !== "string" ||
+    !/^[0-9A-Za-z][0-9A-Za-z._-]{0,159}$/.test(descriptor.migrationId)
+  ) {
+    throw new Error(
+      `release manifest stateMigration migrationId is invalid: ${descriptor.migrationId || "missing"}`
+    );
+  }
+  validateStateFormatVersion(
+    descriptor.fromVersion,
+    "release manifest stateMigration fromVersion"
+  );
+  validateStateFormatVersion(
+    descriptor.toVersion,
+    "release manifest stateMigration toVersion"
+  );
+  if (descriptor.fromVersion === descriptor.toVersion) {
+    throw new Error("release manifest stateMigration fromVersion and toVersion must differ");
+  }
+  if (compareStateFormatVersions(descriptor.fromVersion, descriptor.toVersion) > 0) {
+    throw new Error("release manifest stateMigration cannot move to an older state format");
+  }
+  return { ...descriptor };
 }
 
 async function gitOutput(rootDir, args, run) {
@@ -156,6 +258,11 @@ async function createReleasePackage(options) {
     options.releaseId ||
       `${version}-${(commit || "nogit").slice(0, 12)}${dirty ? "-dirty" : ""}`
   );
+  const stateFormatVersion = validateStateFormatVersion(
+    options.stateFormatVersion || STATE_FORMAT_VERSION,
+    "release state format version"
+  );
+  const stateMigrationRequired = stateFormatVersion !== INITIAL_STATE_FORMAT_VERSION;
   const files = [...new Set(source.files || [])]
     .map((filePath) => safeRelativePath(filePath, "release file path"))
     .sort();
@@ -170,6 +277,26 @@ async function createReleasePackage(options) {
   if (files.includes(SBOM_FILE)) {
     throw new Error(`release source must not contain generated file: ${SBOM_FILE}`);
   }
+  let stateMigration = null;
+  if (stateMigrationRequired) {
+    if (!files.includes(STATE_MIGRATION_FILE)) {
+      throw new Error(
+        `state format ${stateFormatVersion} requires ${STATE_MIGRATION_FILE} in the release source`
+      );
+    }
+    stateMigration = await loadStateMigrationManifest(
+      resolveWithin(rootDir, STATE_MIGRATION_FILE, "state migration path"),
+      {
+        releaseId,
+        toVersion: stateFormatVersion
+      }
+    );
+  } else if (files.includes(STATE_MIGRATION_FILE)) {
+    throw new Error(
+      `${STATE_MIGRATION_FILE} is only valid when the release changes the initial state format`
+    );
+  }
+  const rollback = rollbackMetadataForStateFormat(stateFormatVersion, stateMigration);
 
   const archiveName = `${packageJson.name}-${releaseId}.tar.gz`;
   const archivePath = path.join(outputDir, archiveName);
@@ -207,7 +334,18 @@ async function createReleasePackage(options) {
       product: packageJson.name,
       version,
       releaseId,
-      stateFormatVersion: STATE_FORMAT_VERSION,
+      stateFormatVersion,
+      rollback,
+      ...(stateMigration
+        ? {
+            stateMigration: {
+              path: STATE_MIGRATION_FILE,
+              migrationId: stateMigration.migrationId,
+              fromVersion: stateMigration.fromVersion,
+              toVersion: stateMigration.toVersion
+            }
+          }
+        : {}),
       createdAt,
       git: { commit, dirty },
       runtime: {
@@ -302,7 +440,7 @@ function parseManifestChecksums(content) {
   return entries;
 }
 
-function validateManifest(manifest) {
+function validateManifest(manifest, options = {}) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     throw new Error("release manifest must be an object");
   }
@@ -316,14 +454,11 @@ function validateManifest(manifest) {
   if (!Number.isFinite(Date.parse(manifest.createdAt))) {
     throw new Error("release manifest createdAt is invalid");
   }
-  if (
-    manifest.stateFormatVersion !== undefined &&
-    manifest.stateFormatVersion !== STATE_FORMAT_VERSION
-  ) {
-    throw new Error(
-      `unsupported release state format: ${manifest.stateFormatVersion || "missing"}`
-    );
-  }
+  const stateFormatVersion = validateStateFormatVersion(
+    manifest.stateFormatVersion,
+    "release state format version"
+  );
+  const stateMigrationRequired = stateFormatVersion !== INITIAL_STATE_FORMAT_VERSION;
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
     throw new Error("release manifest must contain at least one file");
   }
@@ -363,6 +498,21 @@ function validateManifest(manifest) {
       throw new Error(`release manifest is missing required file: ${required}`);
     }
   }
+  const stateMigration = validateStateMigrationDescriptor(
+    manifest.stateMigration,
+    stateMigrationRequired
+  );
+  if (stateMigration) {
+    if (!seen.has(STATE_MIGRATION_FILE)) {
+      throw new Error(
+        `release manifest stateMigration is missing from files: ${STATE_MIGRATION_FILE}`
+      );
+    }
+    if (stateMigration.toVersion !== stateFormatVersion) {
+      throw new Error("release manifest stateMigration toVersion does not match stateFormatVersion");
+    }
+  }
+  const rollback = validateRollbackMetadata(manifest.rollback, stateMigrationRequired);
   if (manifest.sbom !== undefined) {
     if (!manifest.sbom || typeof manifest.sbom !== "object" || Array.isArray(manifest.sbom)) {
       throw new Error("release manifest sbom must be an object");
@@ -392,7 +542,23 @@ function validateManifest(manifest) {
       throw new Error("release manifest sbom dependencyCount is invalid");
     }
   }
-  return { ...manifest, files };
+  const validated = {
+    ...manifest,
+    stateFormatVersion,
+    files,
+    ...(rollback ? { rollback } : {}),
+    ...(stateMigration ? { stateMigration } : {})
+  };
+  if (!options.deferStateFormatCheck && stateFormatVersion !== STATE_FORMAT_VERSION) {
+    throw new Error(
+      stateFormatMismatchMessage({
+        releaseVersion: stateFormatVersion,
+        runtimeVersion: STATE_FORMAT_VERSION,
+        migration: stateMigration
+      })
+    );
+  }
+  return validated;
 }
 
 async function walkFiles(rootDir, currentDir = rootDir) {
@@ -478,7 +644,9 @@ async function verifyReleasePackage(options) {
     } catch (error) {
       throw new Error(`release manifest is not valid JSON: ${error.message}`);
     }
-    const manifest = validateManifest(parsedManifest);
+    const manifest = validateManifest(parsedManifest, {
+      deferStateFormatCheck: true
+    });
     const expected = new Map(manifest.files.map((entry) => [entry.path, entry]));
     for (const entry of manifest.files) {
       const filePath = resolveWithin(extractDir, entry.path, "release manifest path");
@@ -567,6 +735,32 @@ async function verifyReleasePackage(options) {
       }
     }
 
+    let stateMigration = null;
+    if (manifest.stateMigration) {
+      stateMigration = await loadStateMigrationManifest(
+        resolveWithin(
+          extractDir,
+          manifest.stateMigration.path,
+          "state migration path"
+        ),
+        {
+          releaseId: manifest.releaseId,
+          fromVersion: manifest.stateMigration.fromVersion,
+          toVersion: manifest.stateMigration.toVersion
+        }
+      );
+      if (stateMigration.migrationId !== manifest.stateMigration.migrationId) {
+        throw new Error("release state migration id does not match the manifest");
+      }
+    }
+    if (manifest.stateFormatVersion !== STATE_FORMAT_VERSION) {
+      assertRuntimeStateFormatCompatibility({
+        releaseVersion: manifest.stateFormatVersion,
+        runtimeVersion: STATE_FORMAT_VERSION,
+        migration: stateMigration
+      });
+    }
+
     return {
       archivePath,
       archiveSha256,
@@ -574,6 +768,7 @@ async function verifyReleasePackage(options) {
       checksum,
       extractDir,
       manifest,
+      stateMigration,
       sbom,
       cleanup: ownedExtractDir
         ? async () => fsp.rm(extractDir, { recursive: true, force: true })

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "stateFormatVersion": "2.0",
+  "createdAt": "2026-11-28T06:00:00.000Z",
+  "sourceStateDir": "/var/lib/rpi4-gateway",
+  "fileCount": 1,
+  "totalBytes": 60,
+  "files": [
+    {
+      "path": "work-context.json",
+      "bytes": 60,
+      "sha256": "da727f8fb6909f88e953682848e6a99f6b84080dba25f988df52a1a1d3285cbb",
+      "mode": 384
+    }
+  ],
+  "missingFiles": []
+}

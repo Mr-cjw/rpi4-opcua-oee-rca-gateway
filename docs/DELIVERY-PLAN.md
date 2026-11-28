@@ -102,6 +102,13 @@ Deliverables:
 - Add a restore test proving that a v1 backup can be restored after a rejected
   v2 rehearsal without altering accepted state.
 
+Completed software portion 2026-11-28: validated migration-contract schema and
+release binding, explicit code-only versus state-restore rollback metadata,
+synthetic v1-to-v2 release and backup fixtures, rejection diagnostics for both
+release and backup formats, and an offline rehearsal that rejects the synthetic
+v2 release before switching and restores the verified v1 backup. The procedure
+is documented in [state-format migration](STATE-MIGRATION.md).
+
 Acceptance:
 
 - A state-format mismatch fails with a specific diagnostic.

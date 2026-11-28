@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "rpi4-gateway-state-migration",
+  "migrationId": "state-format-1-0-to-2-0",
+  "fromVersion": "1.0",
+  "toVersion": "2.0",
+  "releaseId": "2.0.0-state-v2-fixture",
+  "preflight": {
+    "ruleId": "exact-source-format-and-verified-backup",
+    "requiredStateFormatVersion": "1.0",
+    "requireVerifiedBackup": true
+  },
+  "backup": {
+    "required": true,
+    "verification": "sha256-manifest",
+    "offDeviceCopyRequired": true
+  },
+  "postMigrationValidation": {
+    "ruleId": "state-format-file-integrity-and-backup-provenance",
+    "checks": [
+      "state-format-version",
+      "state-file-integrity",
+      "pre-migration-backup-provenance"
+    ]
+  },
+  "rollback": {
+    "procedureId": "restore-verified-pre-migration-backup",
+    "codeOnly": false,
+    "stateRestoreRequired": true,
+    "verifiedBackupRequired": true
+  }
+}

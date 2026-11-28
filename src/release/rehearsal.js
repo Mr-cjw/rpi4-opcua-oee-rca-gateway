@@ -17,6 +17,11 @@ const {
   statePathsFromConfig,
   verifyStateBackup
 } = require("../gateway/state-backup");
+const { STATE_FORMAT_VERSION } = require("../gateway/state-format");
+const {
+  STATE_MIGRATION_FILE,
+  validateStateMigrationManifest
+} = require("./state-migration");
 
 const REHEARSAL_SCHEMA_VERSION = "1.0";
 const REHEARSAL_KIND = "rpi4-gateway-offline-release-rehearsal";
@@ -205,6 +210,256 @@ async function preflightArchive({ archivePath, signature }) {
   } finally {
     await verified.cleanup();
   }
+}
+
+async function snapshotState(stateDir) {
+  const resolvedStateDir = path.resolve(stateDir);
+  const config = await inferStateConfig(resolvedStateDir);
+  const entries = [];
+  for (const filePath of statePathsFromConfig(config)) {
+    if (!(await pathExists(filePath))) {
+      continue;
+    }
+    const stats = await fsp.lstat(filePath);
+    if (!stats.isFile()) {
+      throw new Error(`rehearsal state path is not a regular file: ${filePath}`);
+    }
+    entries.push({
+      path: path.relative(resolvedStateDir, filePath).split(path.sep).join("/"),
+      bytes: stats.size,
+      sha256: await hashFile(filePath),
+      mode: stats.mode & 0o777
+    });
+  }
+  entries.sort((left, right) => left.path.localeCompare(right.path));
+  return entries;
+}
+
+function assertStateSnapshotEqual(left, right, label) {
+  if (JSON.stringify(left) !== JSON.stringify(right)) {
+    throw new Error(`${label} changed Gateway state`);
+  }
+}
+
+function nextStateFormatVersion(version) {
+  const major = Number(String(version).split(".")[0]);
+  if (!Number.isInteger(major) || major < 1) {
+    throw new Error(`cannot synthesize a state-format fixture from version ${version}`);
+  }
+  return `${major + 1}.0`;
+}
+
+function renderChecksums(entries) {
+  return `${entries
+    .slice()
+    .sort((left, right) => left.path.localeCompare(right.path))
+    .map((entry) => `${entry.sha256}  ${entry.path}`)
+    .join("\n")}\n`;
+}
+
+async function createIncompatibleStateFormatArchive({ candidateArchivePath, workDir }) {
+  const extractDir = path.join(workDir, "state-format-v2-fixture-content");
+  await fsp.rm(extractDir, { recursive: true, force: true });
+  const verified = await verifyReleasePackage({
+    archivePath: candidateArchivePath,
+    extractDir
+  });
+  const manifestPath = path.join(extractDir, "release-manifest.json");
+  const manifest = JSON.parse(await fsp.readFile(manifestPath, "utf8"));
+  if (manifest.stateFormatVersion !== STATE_FORMAT_VERSION) {
+    throw new Error(
+      `cannot synthesize fixture from candidate state format ${manifest.stateFormatVersion || "missing"}`
+    );
+  }
+  if (manifest.stateMigration) {
+    throw new Error("candidate already declares a state migration manifest");
+  }
+
+  const fromVersion = verified.manifest.stateFormatVersion;
+  const toVersion = nextStateFormatVersion(fromVersion);
+  const suffix = `-state-${toVersion.replaceAll(".", "-")}-fixture`;
+  const releaseId = `${manifest.releaseId.slice(0, 160 - suffix.length)}${suffix}`;
+  const migrationId = `state-format-${fromVersion.replaceAll(".", "-")}-to-${toVersion.replaceAll(".", "-")}`;
+  const migration = validateStateMigrationManifest(
+    {
+      schemaVersion: "1.0",
+      kind: "rpi4-gateway-state-migration",
+      migrationId,
+      fromVersion,
+      toVersion,
+      releaseId,
+      preflight: {
+        ruleId: "exact-source-format-and-verified-backup",
+        requiredStateFormatVersion: fromVersion,
+        requireVerifiedBackup: true
+      },
+      backup: {
+        required: true,
+        verification: "sha256-manifest",
+        offDeviceCopyRequired: true
+      },
+      postMigrationValidation: {
+        ruleId: "state-format-file-integrity-and-backup-provenance",
+        checks: [
+          "state-format-version",
+          "state-file-integrity",
+          "pre-migration-backup-provenance"
+        ]
+      },
+      rollback: {
+        procedureId: "restore-verified-pre-migration-backup",
+        codeOnly: false,
+        stateRestoreRequired: true,
+        verifiedBackupRequired: true
+      }
+    },
+    { releaseId, fromVersion, toVersion }
+  );
+  const migrationPath = path.join(extractDir, STATE_MIGRATION_FILE);
+  await writeJsonAtomic(migrationPath, migration, { mode: 0o644 });
+  const migrationStats = await fsp.stat(migrationPath);
+  manifest.releaseId = releaseId;
+  manifest.stateFormatVersion = toVersion;
+  manifest.stateMigration = {
+    path: STATE_MIGRATION_FILE,
+    migrationId,
+    fromVersion,
+    toVersion
+  };
+  manifest.rollback = {
+    mode: "state-restore-required",
+    codeOnly: false,
+    stateRestoreRequired: true,
+    verifiedBackupRequired: true,
+    note: `Restore the verified ${fromVersion} pre-migration backup before starting the previous release.`
+  };
+  manifest.files.push({
+    path: STATE_MIGRATION_FILE,
+    bytes: migrationStats.size,
+    sha256: await hashFile(migrationPath),
+    mode: 0o644
+  });
+  manifest.files.sort((left, right) => left.path.localeCompare(right.path));
+  manifest.fileCount = manifest.files.length;
+  manifest.totalBytes = manifest.files.reduce((total, entry) => total + entry.bytes, 0);
+  await writeJsonAtomic(manifestPath, manifest, { mode: 0o644 });
+  const checksums = renderChecksums([
+    ...manifest.files.map((entry) => ({ path: entry.path, sha256: entry.sha256 })),
+    { path: "release-manifest.json", sha256: await hashFile(manifestPath) }
+  ]);
+  await fsp.writeFile(path.join(extractDir, "SHA256SUMS"), checksums, {
+    encoding: "utf8",
+    mode: 0o644
+  });
+
+  const archivePath = path.join(workDir, `synthetic-state-format-${toVersion}.tar.gz`);
+  await fsp.rm(archivePath, { force: true });
+  await runProcess("tar", ["-czf", archivePath, "-C", extractDir, "."], {
+    timeoutMs: 120000
+  });
+  const archiveSha256 = await hashFile(archivePath);
+  await fsp.writeFile(
+    `${archivePath}.sha256`,
+    `${archiveSha256}  ${path.basename(archivePath)}\n`,
+    { encoding: "utf8", mode: 0o644 }
+  );
+  return {
+    archivePath,
+    archiveSha256,
+    releaseId,
+    fromVersion,
+    toVersion,
+    migrationId
+  };
+}
+
+async function rehearseStateFormatMigrationBoundary({
+  baseArchivePath,
+  candidateArchivePath,
+  stateDir,
+  workDir,
+  baseSignature,
+  clock
+}) {
+  const releaseRoot = path.join(workDir, "release-root-state-format-boundary");
+  const commands = [];
+  const base = await installRelease(
+    installerOptions({ archivePath: baseArchivePath, releaseRoot, commands, signature: baseSignature, clock })
+  );
+  const before = await snapshotState(stateDir);
+  const config = await inferStateConfig(stateDir);
+  const backupDir = path.join(workDir, "state-format-migration-backup");
+  const backup = await createStateBackup({
+    stateDir,
+    outputPath: backupDir,
+    config,
+    clock
+  });
+  const fixture = await createIncompatibleStateFormatArchive({
+    candidateArchivePath,
+    workDir
+  });
+
+  let rejection = null;
+  try {
+    await installRelease(
+      installerOptions({
+        archivePath: fixture.archivePath,
+        releaseRoot,
+        commands,
+        clock
+      })
+    );
+  } catch (error) {
+    rejection = error;
+  }
+  if (!rejection) {
+    throw new Error("incompatible state-format candidate was accepted");
+  }
+  if (
+    !new RegExp(
+      `unsupported release state format: ${fixture.toVersion.replaceAll(".", "\\.")} \\(runtime supports ${STATE_FORMAT_VERSION.replaceAll(".", "\\.")}\\); migration ${fixture.migrationId}`
+    ).test(rejection.message)
+  ) {
+    throw new Error(`unexpected state-format rejection: ${rejection.message}`);
+  }
+
+  const status = await listReleases({ releaseRoot });
+  if (status.current !== base.releaseId) {
+    throw new Error(`state-format rejection changed current release to ${status.current || "none"}`);
+  }
+  const afterRejection = await snapshotState(stateDir);
+  assertStateSnapshotEqual(before, afterRejection, "rejected state-format release");
+
+  const restoreDir = path.join(workDir, "state-format-migration-restored-state");
+  const restored = await restoreStateBackup({
+    backupDir,
+    stateDir: restoreDir
+  });
+  for (const entry of backup.manifest.files) {
+    if ((await hashFile(path.join(restoreDir, entry.path))) !== entry.sha256) {
+      throw new Error(`restored v1 state checksum mismatch for ${entry.path}`);
+    }
+  }
+  const restoredSnapshot = await snapshotState(restoreDir);
+  assertStateSnapshotEqual(before, restoredSnapshot, "v1 state restore");
+  const afterRestore = await snapshotState(stateDir);
+  assertStateSnapshotEqual(before, afterRestore, "v1 state restore against accepted state");
+
+  return {
+    baseReleaseId: base.releaseId,
+    rejectedReleaseId: fixture.releaseId,
+    runtimeStateFormatVersion: STATE_FORMAT_VERSION,
+    candidateStateFormatVersion: fixture.toVersion,
+    migrationId: fixture.migrationId,
+    rejection: rejection.message,
+    rejectedBeforeReleaseSwitch: status.current === base.releaseId,
+    acceptedStateUnchanged: true,
+    backupStateFormatVersion: backup.manifest.stateFormatVersion,
+    backupFileCount: backup.manifest.fileCount,
+    restoredFiles: restored.restoredFiles.length,
+    restoredStateMatchesAcceptedV1: true
+  };
 }
 
 function rehearseManifestCompatibility(base, candidate) {
@@ -412,6 +667,18 @@ async function runReleaseRehearsal(options) {
     );
     scenarios.push(stateRehearsal);
     scenarios.push(
+      await runScenario("state-format-migration-boundary", () =>
+        rehearseStateFormatMigrationBoundary({
+          baseArchivePath,
+          candidateArchivePath,
+          stateDir,
+          workDir,
+          baseSignature,
+          clock
+        })
+      )
+    );
+    scenarios.push(
       await runScenario("upgrade-and-explicit-rollback", () =>
         rehearseUpgradeAndRollback({
           baseArchivePath,
@@ -462,7 +729,9 @@ async function runReleaseRehearsal(options) {
       scenarios,
       limitations: [
         "No systemd unit, real service process, network health endpoint, or Raspberry Pi hardware was exercised.",
-        "Archive installation uses the production release code with service commands and npm installation simulated."
+        "Archive installation uses the production release code with service commands and npm installation simulated.",
+        "The synthetic state-format v2 archive is intentionally rejected before release switching; no data migration is executed.",
+        "Power loss during a real state migration remains a hardware qualification gate."
       ]
     };
     await writeJsonAtomic(outputPath, report, { mode: 0o600 });
@@ -485,5 +754,6 @@ module.exports = {
   REHEARSAL_SCHEMA_VERSION,
   inferStateConfig,
   rehearseManifestCompatibility,
+  rehearseStateFormatMigrationBoundary,
   runReleaseRehearsal
 };

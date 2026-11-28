@@ -16,6 +16,7 @@ const {
   validateManifest,
   verifyReleasePackage
 } = require("../src/release/package");
+const { STATE_MIGRATION_FILE } = require("../src/release/state-migration");
 
 const execFileAsync = promisify(execFile);
 const NOW = Date.parse("2026-11-28T06:00:00.000Z");
@@ -36,6 +37,12 @@ const RELEASE_FILES = [
   "src/gateway/index.js",
   "src/hardware/check.js"
 ];
+const MIGRATION_FIXTURE = path.join(
+  __dirname,
+  "fixtures",
+  "state-format-v2",
+  "state-migration.json"
+);
 
 async function makeFixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "gateway-release-package-"));
@@ -95,6 +102,15 @@ async function sha256(filePath) {
   return createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
 }
 
+async function writeMigrationFixture(root, releaseId) {
+  const migration = JSON.parse(await fs.readFile(MIGRATION_FIXTURE, "utf8"));
+  migration.releaseId = releaseId;
+  await fs.writeFile(
+    path.join(root, STATE_MIGRATION_FILE),
+    `${JSON.stringify(migration, null, 2)}\n`
+  );
+}
+
 test("release package includes a manifest, internal checksums, and archive checksum", async (t) => {
   const root = await makeFixture(t);
   const outputDir = path.join(root, "dist");
@@ -107,6 +123,9 @@ test("release package includes a manifest, internal checksums, and archive check
 
   assert.equal(result.manifest.schemaVersion, "1.0");
   assert.equal(result.manifest.stateFormatVersion, "1.0");
+  assert.equal(result.manifest.rollback.mode, "code-only");
+  assert.equal(result.manifest.rollback.codeOnly, true);
+  assert.equal(result.manifest.stateMigration, undefined);
   assert.equal(result.manifest.releaseId, "1.2.3-aaaaaaaaaaaa");
   assert.equal(result.manifest.fileCount, RELEASE_FILES.length + 1);
   assert.equal(result.manifest.createdAt, new Date(NOW).toISOString());
@@ -121,7 +140,7 @@ test("release package includes a manifest, internal checksums, and archive check
   );
   assert.throws(
     () => validateManifest({ ...result.manifest, stateFormatVersion: "2.0" }),
-    /unsupported release state format/
+    /state-format change requires a migration manifest/
   );
 
   const verified = await verifyReleasePackage({ archivePath: result.archivePath });
@@ -164,6 +183,41 @@ test("release package rejects dirty tracked changes and missing required files",
       source: source({ files: RELEASE_FILES.filter((file) => file !== "src/gateway/index.js") })
     }),
     /missing required file: src\/gateway\/index.js/
+  );
+});
+
+test("release package requires a valid migration manifest for a state-format change", async (t) => {
+  const root = await makeFixture(t);
+  const releaseId = "2.0.0-aaaaaaaaaaaa";
+
+  await assert.rejects(
+    createReleasePackage({
+      rootDir: root,
+      outputDir: path.join(root, "missing-migration"),
+      version: "2.0.0",
+      stateFormatVersion: "2.0",
+      source: source()
+    }),
+    /state format 2\.0 requires state-migration\.json/
+  );
+
+  await writeMigrationFixture(root, releaseId);
+  const result = await createReleasePackage({
+    rootDir: root,
+    outputDir: path.join(root, "v2-fixture"),
+    version: "2.0.0",
+    stateFormatVersion: "2.0",
+    source: source({ files: [...RELEASE_FILES, STATE_MIGRATION_FILE] })
+  });
+  assert.equal(result.manifest.stateFormatVersion, "2.0");
+  assert.equal(result.manifest.rollback.mode, "state-restore-required");
+  assert.equal(result.manifest.rollback.verifiedBackupRequired, true);
+  assert.equal(result.manifest.stateMigration.migrationId, "state-format-1-0-to-2-0");
+  assert.equal(result.manifest.stateMigration.fromVersion, "1.0");
+  assert.equal(result.manifest.stateMigration.toVersion, "2.0");
+  await assert.rejects(
+    verifyReleasePackage({ archivePath: result.archivePath }),
+    /unsupported release state format: 2\.0 \(runtime supports 1\.0\); migration state-format-1-0-to-2-0/
   );
 });
 

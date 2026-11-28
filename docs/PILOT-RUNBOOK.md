@@ -213,9 +213,13 @@ sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-relea
 curl -s http://127.0.0.1:8080/healthz | jq .status
 ```
 
-Code rollback does not change `/var/lib/rpi4-gateway`. If the release note
-declares a state-format migration, restore the verified pre-upgrade backup only
-after stopping the service and before starting the older release.
+Code rollback does not change `/var/lib/rpi4-gateway`. Inspect the release
+manifest's `rollback.mode`. `code-only` leaves state untouched. Any
+`state-restore-required` release must restore the verified pre-upgrade backup
+after stopping the service and before starting the older release. The current
+v1 runtime rejects a v2 candidate before release switching. Follow the
+[state-format migration procedure](STATE-MIGRATION.md) for the contract and
+operator sequence.
 
 ### 5.3 Staged Release and Certificate Drill
 
@@ -496,7 +500,8 @@ and CycloneDX VEX sidecar with the archive checksum and signature. Confirm the
 extracted SBOM identifies the expected application version and production
 component set, and that every high or critical advisory has an active disposition
 or no longer appears. Confirm the release manifest declares the expected Gateway
-state format version and that the rehearsal reports it as compatible. Record the
+state format version and rollback mode, and that the rehearsal reports it as
+compatible. Record the
 public-key SHA-256 fingerprint from the signature report and pass it through
 `--signer-fingerprint` during verification, evidence, rehearsal, and signed
 install. Also pass the approved trust policy with `--trust-policy`, pin its
@@ -513,9 +518,13 @@ candidate archives plus a copy of the target state directory. It verifies signed
 installation, manifest-schema and declared state-format compatibility, explicit
 rollback, failed-health automatic rollback, and state backup/restore in an
 isolated work directory. Keep its mode-`0600` report as pre-hardware regression
-evidence. CI repeats the signed rehearsal with separately versioned base and
-candidate archives and an ephemeral key. This rehearsal does not satisfy the Pi
-reboot, power-cut, systemd, network, or 72-hour soak gates.
+evidence. The report also proves that a synthetic v2 candidate with a complete
+migration contract is rejected before release switching, that accepted v1 state
+is unchanged, and that its verified backup restores into an isolated directory
+with matching hashes and modes. CI repeats the signed rehearsal with separately
+versioned base and candidate archives and an ephemeral key. This rehearsal does
+not satisfy the Pi reboot, power-cut, systemd, network, real state migration, or
+72-hour soak gates.
 
 `commission` produces a single point-in-time acceptance report covering release
 and rollback readiness, systemd state, health/PLC/clock/storage, the OPC UA

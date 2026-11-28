@@ -111,7 +111,7 @@ function validateManifest(manifest) {
     manifest.stateFormatVersion !== STATE_FORMAT_VERSION
   ) {
     throw new Error(
-      `unsupported state format: ${manifest.stateFormatVersion || "missing"}`
+      `unsupported state format: ${manifest.stateFormatVersion || "missing"} (runtime supports ${STATE_FORMAT_VERSION})`
     );
   }
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
