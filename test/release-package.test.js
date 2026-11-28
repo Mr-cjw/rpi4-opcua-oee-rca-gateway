@@ -27,10 +27,12 @@ const RELEASE_FILES = [
   "scripts/gateway-commission.js",
   "scripts/gateway-edge-verify.js",
   "scripts/gateway-field-drill.js",
+  "scripts/gateway-hardware-check.js",
   "src/commission/report.js",
   "src/edge/verify.js",
   "src/field-drill/drill.js",
-  "src/gateway/index.js"
+  "src/gateway/index.js",
+  "src/hardware/check.js"
 ];
 
 async function makeFixture(t) {
@@ -40,6 +42,7 @@ async function makeFixture(t) {
   await fs.mkdir(path.join(root, "src", "edge"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "commission"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "field-drill"), { recursive: true });
+  await fs.mkdir(path.join(root, "src", "hardware"), { recursive: true });
   await fs.mkdir(path.join(root, "scripts"), { recursive: true });
   await fs.mkdir(path.join(root, "deploy"), { recursive: true });
   await fs.writeFile(
@@ -63,9 +66,11 @@ async function makeFixture(t) {
   await fs.writeFile(path.join(root, "scripts", "gateway-commission.js"), '"use strict";\n');
   await fs.writeFile(path.join(root, "scripts", "gateway-edge-verify.js"), '"use strict";\n');
   await fs.writeFile(path.join(root, "scripts", "gateway-field-drill.js"), '"use strict";\n');
+  await fs.writeFile(path.join(root, "scripts", "gateway-hardware-check.js"), '"use strict";\n');
   await fs.writeFile(path.join(root, "src", "commission", "report.js"), '"use strict";\n');
   await fs.writeFile(path.join(root, "src", "edge", "verify.js"), '"use strict";\n');
   await fs.writeFile(path.join(root, "src", "field-drill", "drill.js"), '"use strict";\n');
+  await fs.writeFile(path.join(root, "src", "hardware", "check.js"), '"use strict";\n');
   await fs.writeFile(path.join(root, "src", "gateway", "index.js"), '"use strict";\n');
   return root;
 }

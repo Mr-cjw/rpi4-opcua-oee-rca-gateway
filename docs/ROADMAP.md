@@ -59,6 +59,9 @@ correctness gap in an earlier phase.
 - A staged Pi field drill that verifies a signed release install, host reboot,
   edge-certificate rotation, rollback to the original release, and a
   checksummed evidence bundle without automating reboot or certificate changes.
+- A Pi hardware-readiness report for board/architecture profile, temperature,
+  under-voltage/throttling history, firmware telemetry, NTP, and storage
+  headroom, with strict exit semantics for missing evidence.
 - Node.js 22.13+ runtime baseline, patched `node-opcua` dependency, production
   dependency audit in CI, and an expanded systemd sandbox.
 - Field-pilot runbook, known-limitations register, and conditional security
@@ -228,6 +231,10 @@ Deliverables:
   rollback workflow with protected persistent state, boot-ID and certificate-
   fingerprint gates, retry-safe rollback commissioning, and a checksummed
   evidence manifest.
+- Completed 2026-11-28: `npm run hardware:check` records Pi 4 model/runtime,
+  temperature, current and historical throttle/under-voltage flags, firmware,
+  NTP, and storage headroom in a mode-`0600` report, with explicit warnings for
+  missing `vcgencmd` telemetry.
 
 Acceptance:
 
@@ -320,7 +327,8 @@ The next implementation-sized units are:
    Raspberry Pi hardware and the gated SQLite importer/backend if the documented
    adoption gates are met.
 2. Validate NTP synchronization and run the long-duration injected fault matrix
-   alongside the 72-hour soak on Raspberry Pi hardware.
+   alongside the 72-hour soak on Raspberry Pi hardware; retain strict hardware
+   readiness reports before and after the run.
 3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
    hardware with the staged `field:drill` workflow; define release-key custody,
    rotation, and revocation procedures; add advisory/VEX reconciliation for the

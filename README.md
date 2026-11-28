@@ -198,6 +198,14 @@ authenticated metrics and `/v1` endpoints, and unknown-path behavior. Use
 mTLS. The verifier never disables certificate validation and does not accept
 tokens on the command line.
 
+Before accepting a Pi for the pilot, run
+`npm run hardware:check -- --strict --json` on the target. It records the board
+model, 64-bit runtime, CPU temperature, active and historical under-voltage or
+throttling flags, firmware/voltage telemetry, NTP state, and free space for the
+selected storage path. Missing telemetry is a warning rather than a pass, and
+`--strict` makes warnings fail the run. Use `--output` for a mode-`0600` JSON
+record and `--storage-path /var/lib/rpi4-gateway` to check the state filesystem.
+
 For one field-acceptance artifact, run
 `npm run commission -- --url https://<gateway-name> --strict --json`. It combines
 release and rollback readiness, systemd state, health/PLC/clock/storage status,

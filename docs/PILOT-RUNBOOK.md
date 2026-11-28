@@ -70,6 +70,13 @@ Gateway defect.
 - `/var/lib/rpi4-gateway` has enough free space for logs, rotation, temporary
   writes, and the idempotency ledger.
 - The systemd unit passes `systemd-analyze verify deploy/rpi4-gateway.service`.
+- `npm run hardware:check -- --strict --json` passes with the state filesystem
+  selected through `--storage-path /var/lib/rpi4-gateway`. The Pi must report an
+  approved Pi 4-class model, an arm64 runtime, a temperature below the warning
+  threshold, no active under-voltage/throttling flags, and synchronized NTP.
+  Historical under-voltage or throttling flags require a reboot and a clean
+  repeat before acceptance. Missing `vcgencmd` telemetry is a warning and fails
+  `--strict`.
 
 ### 3.2 Network and Security
 
@@ -440,6 +447,8 @@ SOAK_DURATION_MS=20000 npm run soak
 npm run security:audit
 # Remote deployments only, against the approved DNS name:
 npm run edge:verify -- --url https://<gateway-name> --strict
+# Target Pi hardware and installed-Gateway acceptance evidence:
+npm run hardware:check -- --storage-path /var/lib/rpi4-gateway --strict --json
 # Installed Pi acceptance evidence:
 npm run commission -- --url https://<gateway-name> --strict --json \
   --output commissioning-report.json
@@ -471,6 +480,9 @@ exit, but it does not replace the 72-hour soak or physical power-cut test.
 The software gates are not a field acceptance. The following remain mandatory
 before declaring the pilot production-ready:
 
+- A passing strict hardware report on the target Pi with a clean boot, no
+  under-voltage/throttling flags, acceptable temperature, synchronized NTP, and
+  sufficient storage headroom.
 - 72-hour soak with API load, quality ingestion, fault injection, reconnect
   cycles, retention, and log-budget checks on the target Pi.
 - Commissioning reports after install, reboot, power-cut recovery, certificate

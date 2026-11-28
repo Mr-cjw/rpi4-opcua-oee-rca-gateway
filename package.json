@@ -16,6 +16,7 @@
     "smoke": "node scripts/smoke-test.js",
     "doctor": "node scripts/gateway-doctor.js",
     "commission": "node scripts/gateway-commission.js",
+    "hardware:check": "node scripts/gateway-hardware-check.js",
     "field:drill": "node scripts/gateway-field-drill.js",
     "state:backup": "node scripts/gateway-state.js backup",
     "state:verify": "node scripts/gateway-state.js verify",

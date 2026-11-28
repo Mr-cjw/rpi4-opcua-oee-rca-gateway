@@ -175,6 +175,23 @@ restarted within that window. `--skip-doctor` and `--skip-edge` are partial
 diagnostics only: the resulting warnings make `--strict` exit non-zero. Strict
 acceptance also requires a previous release as the rollback target.
 
+Record the host hardware baseline before accepting the Pi:
+
+```bash
+sudo sh -c 'cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run hardware:check -- \
+    --storage-path /var/lib/rpi4-gateway \
+    --strict --json \
+    --output "/var/backups/rpi4-gateway/hardware-$(date -u +%Y%m%dT%H%M%SZ).json"'
+```
+
+The report covers the Pi model and 64-bit runtime, CPU temperature,
+under-voltage/throttling flags, firmware/voltage telemetry, NTP state, and free
+space. `vcgencmd` must be installed for power/thermal evidence; if it is missing,
+the report warns and `--strict` exits non-zero. The output is mode `0600` and
+refuses to overwrite an existing file unless `--force` is supplied. This is a
+point-in-time acceptance check, not continuous host monitoring.
+
 For a staged hardware drill, use one protected state directory across the
 phases. Run the drill as root because install and rollback restart systemd
 services; the state directory and evidence files are created mode `0700` and

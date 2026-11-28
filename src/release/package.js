@@ -29,10 +29,12 @@ const REQUIRED_RELEASE_FILES = Object.freeze([
   "scripts/gateway-commission.js",
   "scripts/gateway-edge-verify.js",
   "scripts/gateway-field-drill.js",
+  "scripts/gateway-hardware-check.js",
   "src/commission/report.js",
   "src/edge/verify.js",
   "src/field-drill/drill.js",
-  "src/gateway/index.js"
+  "src/gateway/index.js",
+  "src/hardware/check.js"
 ]);
 
 function validateReleaseId(value) {

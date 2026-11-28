@@ -140,6 +140,10 @@ security material, not ordinary application data.
   `--execute` for install and rollback, stores state mode `0600` in a mode-`0700`
   directory, and emits a checksummed evidence manifest without recording API or
   client secrets.
+- `npm run hardware:check` records point-in-time Pi model, architecture,
+  temperature, under-voltage/throttling flags, firmware, NTP, and storage
+  headroom. It reads no credentials, treats missing `vcgencmd` telemetry as a
+  warning, and writes an optional mode-`0600` JSON report.
 - `GATEWAY_API_TOKEN` protects `/metrics` and `/v1/*` when configured. Bearer
   comparison uses `crypto.timingSafeEqual` after a length check.
 - `/healthz` is intentionally unauthenticated and contains status/identity
@@ -308,6 +312,7 @@ npm run e2e:clock
 SOAK_DURATION_MS=20000 npm run soak
 npm run edge:verify -- --url https://<gateway-name> --strict
 npm run commission -- --url https://<gateway-name> --strict --json
+npm run hardware:check -- --storage-path /var/lib/rpi4-gateway --strict --json
 npm run security:audit
 npm audit
 systemd-analyze verify deploy/rpi4-gateway.service

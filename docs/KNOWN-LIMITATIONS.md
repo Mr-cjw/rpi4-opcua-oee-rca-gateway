@@ -164,7 +164,11 @@ deployment depends on behavior the Gateway does not provide.
   prove that a PLC value is physically correct or that the downstream QA/MES
   system has durably accepted a record.
 - The Gateway does not monitor its own host power quality, enclosure
-  temperature, SD/SSD wear indicators, or physical tamper state.
+  temperature, SD/SSD wear indicators, or physical tamper state continuously.
+  `npm run hardware:check` provides a point-in-time Pi temperature,
+  under-voltage/throttling, firmware, NTP, and storage report, but it cannot
+  prove power quality over time, read SD/SSD endurance registers, or replace
+  external power and thermal monitoring.
 - Clock-sync checks depend on available `timedatectl`/`chronyc`/project-specific
   providers. A missing provider produces an explicit unknown/degraded state, not
   an estimate.
@@ -176,6 +180,8 @@ open for the Raspberry Pi pilot:
 
 - 72-hour soak with fault injection, reconnect cycles, storage pressure, and API
   load on the target hardware.
+- Strict Pi hardware-readiness reports before and after the soak, including a
+  clean reboot after any historical under-voltage/throttling flag.
 - Physical power-cut and forced-kill recovery on the target SD card/SSD.
 - Disk-full and storage-I/O-failure behavior at the configured thresholds.
 - NTP loss, offset, and recovery validation on the plant network.
