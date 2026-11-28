@@ -198,12 +198,29 @@ Deliverables:
   date.
 - Validate Node.js baseline coverage before changing the minimum runtime.
 
+Completed software portion 2026-11-28: a tracked supply-chain baseline now
+binds the lockfile digest, direct dependency ranges, normalized production
+dependency inventory, VEX disposition digest, and Node.js minimum runtime to CI
+matrix coverage. `npm run check:supply-chain` rejects unreviewed dependency
+changes, stale VEX dispositions, missing minimum-runtime coverage, and runtime
+matrices weaker than the declared baseline. A flaky-test quarantine registry
+requires an owner, tracking issue, evidence, quarantine date, and future removal
+date; expired records fail `npm run check:quarantine`. A weekly reliability
+workflow reruns governance checks, production audit, the full suite, and a
+five-minute accelerated soak. The operating policy is in
+[reliability and supply-chain maintenance](RELIABILITY.md).
+
 Acceptance:
 
 - No unexpired high or critical advisory is untriaged.
 - A known flaky test cannot silently block or bypass release promotion without a
   recorded decision.
 - The release evidence bundle remains reproducible from the same source commit.
+
+Still missing: the five-minute weekly soak is a regression signal, not the
+72-hour target-hardware endurance run. Physical power loss, storage-device
+failure, plant-network NTP, real PLC/certificate acceptance, and site-governed
+CI duration/flaky-test exceptions remain part of the hardware and pilot gates.
 
 ## 5. Hardware Qualification Campaign
 

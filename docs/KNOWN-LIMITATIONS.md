@@ -181,6 +181,12 @@ deployment depends on behavior the Gateway does not provide.
   L1/L2 simulation artifacts. They cannot close hardware, network, power-loss,
   certificate, or site-acceptance gates, and a passing result does not replace
   the staged `field:drill` or target-hardware fault matrix.
+- The weekly five-minute accelerated soak is a software regression signal and
+  cannot substitute for the 72-hour target-hardware soak. GitHub scheduled
+  workflows are best-effort. The supply-chain baseline and weekly audit detect
+  reviewed-input drift, but they do not replace site approval of advisory
+  dispositions, signer custody, dependency provenance, or package-registry
+  trust.
 - The current runtime supports only state format `1.0`. A v2 release or backup
   is rejected with a specific diagnostic even when the migration contract is
   complete. There is no production migration executor yet.

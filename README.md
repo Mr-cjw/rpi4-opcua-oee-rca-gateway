@@ -34,6 +34,7 @@ The phased plan from the current prototype to a field pilot is documented in
 [`docs/ROADMAP.md`](docs/ROADMAP.md), with execution sequencing in the
 [delivery plan](docs/DELIVERY-PLAN.md). Field operations use the
 [pilot runbook](docs/PILOT-RUNBOOK.md), [offline operational tabletop](docs/OFFLINE-TABLETOP.md),
+[reliability and supply-chain maintenance](docs/RELIABILITY.md),
 [known limitations](docs/KNOWN-LIMITATIONS.md), [security review](docs/SECURITY-REVIEW.md),
 and [release key management](docs/RELEASE-KEY-MANAGEMENT.md).
 The software work through M6 is
@@ -1556,6 +1557,26 @@ npm audit
 `security:audit` fails on high or critical production vulnerabilities. CI runs
 it before building a release archive, then runs `release:audit` against the
 verified archive and uploads the audit report and CycloneDX VEX sidecars.
+
+Validate the reviewed dependency and runtime baseline plus the flaky-test
+quarantine registry:
+
+```bash
+npm run check:supply-chain
+npm run check:quarantine
+```
+
+`check:supply-chain` verifies the lockfile digest, direct dependency ranges,
+normalized production inventory, VEX disposition expiry, and Node.js minimum
+runtime coverage against `security/supply-chain-baseline.json`. After an
+approved dependency review, regenerate it with `npm run supply-chain:baseline`
+and review the diff. `check:quarantine` requires an owner, tracking issue,
+evidence, and future removal date for every entry in
+`security/flaky-tests.json`. A weekly
+[reliability workflow](.github/workflows/reliability.yml) repeats these checks,
+the production audit, the full test suite, and a five-minute accelerated soak.
+The policy and cadence are documented in
+[reliability and supply-chain maintenance](docs/RELIABILITY.md).
 
 Validate the shared JSON contracts and local documentation links:
 

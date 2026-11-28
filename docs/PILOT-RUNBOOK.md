@@ -15,6 +15,7 @@ Companion documents:
 - [Roadmap and release gates](ROADMAP.md)
 - [Delivery plan and hardware qualification sequence](DELIVERY-PLAN.md)
 - [Offline operational tabletop](OFFLINE-TABLETOP.md)
+- [Reliability and supply-chain maintenance](RELIABILITY.md)
 - [Release signing key and trust policy](RELEASE-KEY-MANAGEMENT.md)
 
 ## 1. Scope and Responsibilities

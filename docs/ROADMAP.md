@@ -346,6 +346,11 @@ Deliverables:
   recovery scenarios, recorded commands/observations/decision points, per-
   scenario mode-`0600` evidence, equipment-versus-Gateway fault guidance, and
   explicit L1/L2 hardware handoffs that cannot close an L3/L4 gate.
+- Completed 2026-11-28: reliability and supply-chain maintenance with a
+  tracked lockfile/production-inventory/VEX/runtime baseline, CI coverage for
+  the minimum Node.js runtime, owner-and-removal-date flaky-test quarantine,
+  and a weekly five-minute accelerated soak with uploaded governance and soak
+  reports.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 
 Acceptance:

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "rpi4-gateway-supply-chain-baseline",
+  "generatedAt": "2026-11-28T15:20:23.867Z",
+  "runtime": {
+    "nodeEngine": ">=22.13.0",
+    "minimumNodeVersion": "22.13.0",
+    "ciNodeVersions": [
+      "22.13.0",
+      "24"
+    ]
+  },
+  "lockfile": {
+    "version": 3,
+    "sha256": "1f61064ea4cef8f54378223c4c59f0e08aeaa96e9df64e2939b38042b01d6e71"
+  },
+  "manifest": {
+    "dependencies": {
+      "node-opcua": "2.188.1"
+    },
+    "devDependencies": {
+      "ajv": "^8.20.0",
+      "ajv-formats": "^3.0.1"
+    },
+    "optionalDependencies": {},
+    "engines": {
+      "node": ">=22.13.0"
+    }
+  },
+  "production": {
+    "componentCount": 147,
+    "inventorySha256": "1b2f464b791659317eb85ca97e50cc935446d87781e47a42daa566d94a4e07ee",
+    "directDependencies": [
+      {
+        "name": "node-opcua",
+        "spec": "2.188.1",
+        "version": "2.188.1"
+      }
+    ]
+  },
+  "dispositions": {
+    "schemaVersion": "1.0",
+    "count": 0,
+    "sha256": "819d066b4c6f7658a5b8e695e676e5709f100522bf10aad492b0422d5348f041"
+  }
+}

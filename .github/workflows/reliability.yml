@@ -1,0 +1,93 @@
+name: Reliability
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Supply-chain and test-governance checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify supply-chain baseline
+        run: npm run check:supply-chain -- --output dist/supply-chain/review.json
+
+      - name: Verify flaky-test quarantine registry
+        run: npm run check:quarantine -- --output dist/reliability/quarantine.json
+
+      - name: Audit production dependencies
+        run: npm run security:audit
+
+      - name: Run unit and integration tests
+        run: npm test
+
+      - name: Upload governance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability-governance
+          path: |
+            dist/supply-chain/review.json
+            dist/reliability/quarantine.json
+          if-no-files-found: warn
+
+  accelerated-soak:
+    name: Accelerated soak and fault injection
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run accelerated soak
+        env:
+          SOAK_DURATION_MS: 300000
+          SOAK_API_INTERVAL_MS: 250
+          SOAK_QUALITY_INTERVAL_MS: 1000
+          SOAK_WORK_CONTEXT_INTERVAL_MS: 3000
+          SOAK_FAULT_INTERVAL_MS: 2000
+          SOAK_RECONNECT_INTERVAL_MS: 10000
+          SOAK_RECONNECT_DOWN_MS: 1000
+          SOAK_RECONNECT_TIMEOUT_MS: 30000
+          SOAK_MAX_API_P95_MS: 3000
+          SOAK_REPORT_PATH: ${{ github.workspace }}/data/reliability-soak-report.json
+        run: npm run soak
+
+      - name: Upload accelerated soak report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accelerated-soak-report
+          path: data/reliability-soak-report.json
+          if-no-files-found: warn

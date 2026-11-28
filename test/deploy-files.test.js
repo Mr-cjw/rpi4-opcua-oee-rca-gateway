@@ -187,6 +187,18 @@ test("package scripts expose state, release, and storage operations", async () =
     "node scripts/gateway-hardware-check.js"
   );
   assert.equal(packageJson.scripts["field:drill"], "node scripts/gateway-field-drill.js");
+  assert.equal(
+    packageJson.scripts["check:supply-chain"],
+    "node scripts/check-supply-chain.js"
+  );
+  assert.equal(
+    packageJson.scripts["check:quarantine"],
+    "node scripts/check-test-quarantine.js"
+  );
+  assert.equal(
+    packageJson.scripts["supply-chain:baseline"],
+    "node scripts/check-supply-chain.js --write-baseline"
+  );
   assert.equal(packageJson.scripts["edge:verify"], "node scripts/gateway-edge-verify.js");
   assert.equal(packageJson.scripts["e2e:security"], "node scripts/gateway-security-e2e.js");
   assert.equal(packageJson.scripts["e2e:clock"], "node scripts/gateway-clock-e2e.js");
