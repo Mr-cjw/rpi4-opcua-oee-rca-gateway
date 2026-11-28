@@ -436,10 +436,27 @@ only the release public key on the Pi, for example at
 
 The archive contains tracked source, `package-lock.json`, deploy files, a
 `release-manifest.json` with file hashes and Git provenance, internal
-`SHA256SUMS`, and an external `<archive>.tar.gz.sha256`. Untracked files,
+`SHA256SUMS`, an embedded CycloneDX 1.5 `sbom.cdx.json` for production
+dependencies, and an external `<archive>.tar.gz.sha256`. Untracked files,
 `node_modules`, state, credentials, and PKI material are excluded. Packaging
 fails when tracked files are modified; `--allow-dirty` is only for diagnostic
 builds and marks the release ID as dirty.
+
+The embedded SBOM is listed in the release manifest, covered by the internal
+checksums, and authenticated by the archive signature. Extract a sidecar for
+supply-chain review without re-generating dependency data:
+
+```bash
+npm run release:sbom -- \
+  --archive dist/release/<archive>.tar.gz \
+  --output dist/release/<release>.sbom.cdx.json
+```
+
+The extracted sidecar is a convenience copy; the embedded `sbom.cdx.json` is the
+authoritative signed copy. The SBOM is an inventory, not a vulnerability-free
+declaration or a VEX statement. Packaging requires an npm release that provides
+`npm sbom --sbom-format=cyclonedx`; the supported Node.js 22.13 baseline ships a
+compatible npm.
 
 The archive intentionally excludes `node_modules`; the Pi installer runs
 `npm ci --omit=dev`. For an offline site, pre-populate the npm cache or use an
@@ -471,10 +488,11 @@ curl http://127.0.0.1:8080/healthz
 Production installs must use `--require-signature`. Signature verification
 happens before extraction or release switching. `last-release.json` records the
 verified algorithm and public-key SHA-256 fingerprint in its additive
-`signature` field, but never records the private key or its path. Installation
-without those options remains available for backward compatibility and is
-reported as not verified. Key rotation, HSM/KMS custody, and automated OTA
-signing are not built in; rotate the public key through change control.
+`signature` field and an SBOM format/component summary, but never records the
+private key or its path. Installation without those options remains available
+for backward compatibility and is reported as not verified. Key rotation,
+HSM/KMS custody, and automated OTA signing are not built in; rotate the public
+key through change control.
 
 Rollback switches back to `previous` with the same stop, health-check, and
 automatic restore behavior. Use `release:status` to inspect installed,

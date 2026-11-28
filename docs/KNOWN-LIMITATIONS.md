@@ -113,6 +113,10 @@ deployment depends on behavior the Gateway does not provide.
 - Signing-key generation, offline custody, rotation, revocation, HSM/KMS use, and
   public-key distribution are manual. There is no built-in OTA signing service
   or automatic trust-store update.
+- The embedded CycloneDX SBOM is a dependency inventory generated from the
+  production lockfile. It is not a vulnerability report, VEX statement, license
+  legal opinion, or proof that optional platform-specific dependencies were
+  exercised on a Raspberry Pi.
 - There is no automatic over-the-air update service. Installation and rollback
   are operator-driven systemd operations.
 - `npm ci --omit=dev` requires either network access to the approved registry or

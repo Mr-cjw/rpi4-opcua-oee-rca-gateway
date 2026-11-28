@@ -45,7 +45,8 @@ correctness gap in an earlier phase.
 - Immutable release archives with manifest/checksum verification, atomic
   `current` switching, health-checked upgrade, automatic rollback, and explicit
   rollback/status commands, plus optional detached SHA-256 signatures and
-  fail-closed required-signature installs.
+  fail-closed required-signature installs, and an embedded CycloneDX SBOM for
+  production dependencies.
 - Node.js 22.13+ runtime baseline, patched `node-opcua` dependency, production
   dependency audit in CI, and an expanded systemd sandbox.
 - Field-pilot runbook, known-limitations register, and conditional security
@@ -270,6 +271,9 @@ Deliverables:
 - Completed 2026-11-28: detached release signing and verification commands,
   mandatory-signature installation gate, public-key fingerprint recording, and
   CI signing smoke coverage.
+- Completed 2026-11-28: native npm CycloneDX 1.5 SBOM generation embedded in
+  release archives, covered by manifest checksums and archive signatures, with
+  verified sidecar extraction and CI artifact export.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 
 Acceptance:
@@ -288,7 +292,8 @@ The next implementation-sized units are:
 2. Validate NTP synchronization and run the long-duration injected fault matrix
    alongside the 72-hour soak on Raspberry Pi hardware.
 3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
-   hardware; define release-key custody, rotation, and revocation procedures.
+   hardware; define release-key custody, rotation, and revocation procedures;
+   add advisory/VEX reconciliation for the embedded SBOM.
 4. Complete a real-PLC certificate-rotation drill and define the remote-access
    reverse-proxy/TLS architecture before exposing the API beyond loopback.
 

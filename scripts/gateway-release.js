@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
+const fsp = require("node:fs/promises");
 const path = require("node:path");
 const {
   createReleasePackage,
@@ -16,6 +17,8 @@ const {
   signaturePathFor,
   verifyReleaseArchiveSignature
 } = require("../src/release/signature");
+const { sbomSidecarPathForArchive } = require("../src/release/sbom");
+const { hashFile, pathExists, resolveWithin } = require("../src/release/common");
 const { verifyStateBackup } = require("../src/gateway/state-backup");
 
 const DEFAULT_RELEASE_ROOT = "/opt/rpi4-opcua-oee-rca-gateway";
@@ -29,13 +32,14 @@ function usage() {
       "  npm run release:verify -- --archive <file.tar.gz> [--checksum <file.sha256>] [--json]",
       "  npm run release:sign -- --archive <file.tar.gz> --private-key <file.pem> [--signature <file.sig>] [--json]",
       "  npm run release:verify-signature -- --archive <file.tar.gz> --public-key <file.pem> [--signature <file.sig>] [--json]",
+      "  npm run release:sbom -- --archive <file.tar.gz> [--output <file.cdx.json>] [--force] [--json]",
       "  npm run release:install -- --archive <file.tar.gz> [--checksum <file.sha256>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--release-root <directory>] [--state-backup <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:rollback -- [--to <release-id>] [--release-root <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:status -- [--release-root <directory>] [--json]",
       "",
       "Release archives contain tracked source files, package-lock.json, deploy",
-      "files, a release manifest, and SHA256SUMS. State, node_modules, secrets,",
-      "and untracked files are not included.",
+      "files, a release manifest, SHA256SUMS, and an embedded CycloneDX SBOM.",
+      "State, node_modules, secrets, and untracked files are not included.",
       "",
       "  --allow-dirty  Build a diagnostic archive from tracked working-tree changes.",
       "  --force        Replace an existing output archive.",
@@ -140,6 +144,9 @@ function printPackage(result) {
   console.log(`Release: ${result.manifest.releaseId}`);
   console.log(`Files: ${result.manifest.fileCount}`);
   console.log(`Bytes: ${result.manifest.totalBytes}`);
+  console.log(
+    `SBOM: ${result.sbom.format} ${result.sbom.specVersion}, ${result.sbom.componentCount} components (embedded)`
+  );
 }
 
 function printVerification(result) {
@@ -150,6 +157,11 @@ function printVerification(result) {
   console.log(`Commit: ${result.manifest.git?.commit || "unknown"}`);
   console.log(`Files: ${result.manifest.fileCount}`);
   console.log(`Archive SHA-256: ${result.archiveSha256}`);
+  if (result.sbom) {
+    console.log(
+      `SBOM: ${result.sbom.format} ${result.sbom.specVersion}, ${result.sbom.componentCount} components`
+    );
+  }
 }
 
 function printSignature(result) {
@@ -184,6 +196,7 @@ async function main() {
     "verify",
     "sign",
     "verify-signature",
+    "sbom",
     "install",
     "rollback",
     "status"
@@ -211,6 +224,7 @@ async function main() {
             archivePath: result.archivePath,
             checksumPath: result.checksumPath,
             archiveSha256: result.archiveSha256,
+            sbom: result.sbom,
             manifest: {
               releaseId: result.manifest.releaseId,
               version: result.manifest.version,
@@ -245,6 +259,7 @@ async function main() {
             {
               archivePath: result.archivePath,
               archiveSha256: result.archiveSha256,
+              sbom: result.sbom,
               manifest: result.manifest
             },
             null,
@@ -288,6 +303,56 @@ async function main() {
     } else {
       printSignature(result);
       console.log("Signature verified: yes");
+    }
+    return;
+  }
+
+  if (options.command === "sbom") {
+    if (!options.archive) {
+      throw new Error("sbom requires --archive <file.tar.gz>");
+    }
+    const verified = await verifyReleasePackage({
+      archivePath: options.archive,
+      checksumPath: options.checksum
+    });
+    try {
+      if (!verified.manifest.sbom) {
+        throw new Error("release archive does not contain an SBOM");
+      }
+      const outputPath = path.resolve(
+        options.output || sbomSidecarPathForArchive(verified.archivePath)
+      );
+      if (
+        outputPath === verified.archivePath ||
+        outputPath === path.resolve(verified.checksumPath)
+      ) {
+        throw new Error("SBOM output must differ from the archive and checksum file");
+      }
+      if (!options.force && (await pathExists(outputPath))) {
+        throw new Error(`SBOM output already exists: ${outputPath}`);
+      }
+      const sourcePath = resolveWithin(verified.extractDir, verified.manifest.sbom.path, "SBOM path");
+      await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+      await fsp.copyFile(sourcePath, outputPath);
+      await fsp.chmod(outputPath, 0o644);
+      const result = {
+        archivePath: verified.archivePath,
+        outputPath,
+        sha256: await hashFile(outputPath),
+        ...verified.sbom
+      };
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Release archive: ${result.archivePath}`);
+        console.log(`SBOM output: ${result.outputPath}`);
+        console.log(`Format: ${result.format} ${result.specVersion}`);
+        console.log(`Components: ${result.componentCount}`);
+        console.log(`Dependencies: ${result.dependencyCount}`);
+        console.log(`SBOM SHA-256: ${result.sha256}`);
+      }
+    } finally {
+      await verified.cleanup();
     }
     return;
   }

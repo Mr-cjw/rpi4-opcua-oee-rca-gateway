@@ -101,6 +101,12 @@ test("package scripts expose state, release, and storage operations", async () =
     "node scripts/gateway-release.js package"
   );
   assert.equal(packageJson.scripts["release:verify"], "node scripts/gateway-release.js verify");
+  assert.equal(packageJson.scripts["release:sign"], "node scripts/gateway-release.js sign");
+  assert.equal(
+    packageJson.scripts["release:verify-signature"],
+    "node scripts/gateway-release.js verify-signature"
+  );
+  assert.equal(packageJson.scripts["release:sbom"], "node scripts/gateway-release.js sbom");
   assert.equal(packageJson.scripts["release:install"], "node scripts/gateway-release.js install");
   assert.equal(packageJson.scripts["release:rollback"], "node scripts/gateway-release.js rollback");
   assert.equal(packageJson.scripts["release:status"], "node scripts/gateway-release.js status");

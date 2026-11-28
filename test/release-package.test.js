@@ -11,6 +11,7 @@ const { promisify } = require("node:util");
 const {
   CHECKSUM_FILE,
   MANIFEST_FILE,
+  SBOM_FILE,
   createReleasePackage,
   verifyReleasePackage
 } = require("../src/release/package");
@@ -78,10 +79,13 @@ test("release package includes a manifest, internal checksums, and archive check
 
   assert.equal(result.manifest.schemaVersion, "1.0");
   assert.equal(result.manifest.releaseId, "1.2.3-aaaaaaaaaaaa");
-  assert.equal(result.manifest.fileCount, RELEASE_FILES.length);
+  assert.equal(result.manifest.fileCount, RELEASE_FILES.length + 1);
   assert.equal(result.manifest.createdAt, new Date(NOW).toISOString());
   assert.equal(result.manifest.runtime.minimumNodeMajor, 22);
   assert.equal(result.manifest.runtime.minimumNodeVersion, "22.13.0");
+  assert.equal(result.manifest.sbom.path, SBOM_FILE);
+  assert.equal(result.manifest.sbom.format, "CycloneDX");
+  assert.equal(result.sbom.componentCount, 0);
   assert.match(
     await fs.readFile(result.checksumPath, "utf8"),
     new RegExp(`^${result.archiveSha256}  ${path.basename(result.archivePath)}$`, "m")
@@ -90,14 +94,21 @@ test("release package includes a manifest, internal checksums, and archive check
   const verified = await verifyReleasePackage({ archivePath: result.archivePath });
   try {
     assert.equal(verified.manifest.releaseId, result.manifest.releaseId);
-    assert.equal(verified.manifest.files.length, RELEASE_FILES.length);
+    assert.equal(verified.manifest.files.length, RELEASE_FILES.length + 1);
     assert.equal(verified.archiveSha256, result.archiveSha256);
+    assert.equal(verified.sbom.componentCount, result.manifest.sbom.componentCount);
     assert.ok(
       await fs.stat(path.join(verified.extractDir, MANIFEST_FILE)).then((stats) => stats.isFile())
     );
     assert.ok(
       await fs.stat(path.join(verified.extractDir, CHECKSUM_FILE)).then((stats) => stats.isFile())
     );
+    const sbom = JSON.parse(
+      await fs.readFile(path.join(verified.extractDir, SBOM_FILE), "utf8")
+    );
+    assert.equal(sbom.bomFormat, "CycloneDX");
+    assert.equal(sbom.metadata.component.name, "rpi4-release-fixture");
+    assert.equal(sbom.metadata.component.version, "1.2.3");
   } finally {
     await verified.cleanup();
   }

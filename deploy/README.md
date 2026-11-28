@@ -189,6 +189,17 @@ Sign on a trusted administrative host with `npm run release:sign -- --archive
 pass `--require-signature`; the verified public-key SHA-256 fingerprint is
 recorded in `last-release.json`.
 
+Each release also embeds a CycloneDX 1.5 `sbom.cdx.json` covering production
+dependencies. It is included in the manifest checksums and the signed archive.
+Extract a sidecar from the verified archive when a downstream review system needs
+one:
+
+```bash
+npm run release:sbom -- \
+  --archive /var/tmp/<archive>.tar.gz \
+  --output /var/tmp/<release>.sbom.cdx.json
+```
+
 Upgrade procedure:
 
 ```bash

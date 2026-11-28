@@ -181,20 +181,26 @@ monitoring platform outside the Gateway.
 ## 8. Release and Dependency Integrity
 
 - Release archives contain tracked source, `package-lock.json`, deploy files,
-  `release-manifest.json`, and `SHA256SUMS`.
+  `release-manifest.json`, `SHA256SUMS`, and an embedded CycloneDX 1.5
+  `sbom.cdx.json` inventory of production dependencies.
 - Packaging refuses dirty tracked files unless an operator explicitly requests a
   diagnostic dirty build. The manifest records Git commit, dirty state, release
   ID, Node engine, file hashes, and sizes.
 - Installation verifies archive and file checksums, the minimum Node.js version,
   optional required detached signatures, creates an immutable release directory,
   and runs `npm ci --omit=dev`.
+- Packaging generates the SBOM from the production lockfile graph with npm's
+  native CycloneDX output, adds it to manifest hashes and `SHA256SUMS`, and
+  authenticates it through the archive signature. `release:sbom` exports the
+  signed embedded copy without re-resolving dependencies.
 - `release:sign` signs the exact archive bytes with SHA-256 and writes a binary
   `<archive>.sig` file. The private key remains on the trusted signing host; only
   the public key is provisioned on the Pi.
 - When `--require-signature` is set, or a public-key/signature path is supplied,
   installation verifies the signature before extraction or release switching.
   Failure is closed and leaves `current` unchanged. `last-release.json` records
-  the verified algorithm and public-key SHA-256 fingerprint, not the key path.
+  the verified algorithm, public-key SHA-256 fingerprint, and SBOM summary, not
+  the key path.
 - CI generates an ephemeral key pair and exercises signing plus verification as a
   smoke test. That key is not a production trust anchor and is not uploaded.
 - `current` and `previous` are switched atomically. A failed health check
@@ -220,6 +226,9 @@ Residual risks:
   defeats verification.
 - There is no automatic signing-key rotation, revocation, HSM/KMS integration,
   or OTA signing service. Key lifecycle operations remain manual.
+- The SBOM is an inventory. It does not include vulnerability status, exploit
+  reachability, VEX statements, or a legal license determination, and it does
+  not prove that optional platform-specific packages were exercised on the Pi.
 - `npm ci` trusts the configured registry and lockfile. A compromised registry,
   build runner, or npm account remains a supply-chain risk.
 - Audit results are point-in-time. Re-run the audit and review advisories before
@@ -289,7 +298,7 @@ clock degradation.
 | Manual certificate trust | Medium | Unknown certs rejected; explicit fingerprint update and restart | Include certificate rotation in change control and pilot drills |
 | No HA or central queue | Medium | Local durable logs, fsync for accepted quality, idempotent retries | Define station outage tolerance and downstream retry/reconciliation |
 | No per-request audit | Low/Medium | Structured error and process logs | Add reverse-proxy access logging for remote deployments |
-| Dependency or registry compromise | Medium | Exact lockfile, `npm ci`, CI audit, immutable artifact with optional detached signature | Protect CI credentials, review advisories, add SBOM and stronger key custody |
+| Dependency or registry compromise | Medium | Exact lockfile, `npm ci`, CI audit, embedded CycloneDX SBOM, immutable signed artifact | Protect CI credentials, review advisories, add VEX/advisory reconciliation and stronger key custody |
 | Host or physical compromise | High | systemd sandbox, least-privilege account | Harden OS/SSH, restrict physical access, monitor host integrity |
 
 ## 12. Security Incident Response

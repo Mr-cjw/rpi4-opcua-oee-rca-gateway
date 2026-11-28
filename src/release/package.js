@@ -11,6 +11,12 @@ const {
   runProcess,
   safeRelativePath
 } = require("./common");
+const {
+  SBOM_FILE,
+  SBOM_FORMAT,
+  generateReleaseSbom,
+  validateCycloneDxSbom
+} = require("./sbom");
 
 const RELEASE_SCHEMA_VERSION = "1.0";
 const MANIFEST_FILE = "release-manifest.json";
@@ -151,6 +157,9 @@ async function createReleasePackage(options) {
       throw new Error(`release source is missing required file: ${required}`);
     }
   }
+  if (files.includes(SBOM_FILE)) {
+    throw new Error(`release source must not contain generated file: ${SBOM_FILE}`);
+  }
 
   const archiveName = `${packageJson.name}-${releaseId}.tar.gz`;
   const archivePath = path.join(outputDir, archiveName);
@@ -163,6 +172,26 @@ async function createReleasePackage(options) {
   try {
     const fileEntries = await copyReleaseFiles(rootDir, stagingDir, files);
     const createdAt = new Date((options.clock || Date.now)()).toISOString();
+    const sbom = await generateReleaseSbom({
+      rootDir,
+      outputPath: path.join(stagingDir, SBOM_FILE),
+      packageJson,
+      version,
+      releaseId,
+      commit: commit || "nogit",
+      dirty,
+      createdAt,
+      run,
+      npmCommand: options.npmCommand
+    });
+    const sbomStats = await fsp.stat(sbom.path);
+    fileEntries.push({
+      path: SBOM_FILE,
+      bytes: sbomStats.size,
+      sha256: await hashFile(sbom.path),
+      mode: 0o644
+    });
+    fileEntries.sort((left, right) => left.path.localeCompare(right.path));
     const manifest = {
       schemaVersion: RELEASE_SCHEMA_VERSION,
       product: packageJson.name,
@@ -177,6 +206,14 @@ async function createReleasePackage(options) {
       },
       fileCount: fileEntries.length,
       totalBytes: fileEntries.reduce((total, entry) => total + entry.bytes, 0),
+      sbom: {
+        path: SBOM_FILE,
+        format: sbom.format,
+        specVersion: sbom.specVersion,
+        serialNumber: sbom.serialNumber,
+        componentCount: sbom.componentCount,
+        dependencyCount: sbom.dependencyCount
+      },
       files: fileEntries
     };
     const manifestPath = path.join(stagingDir, MANIFEST_FILE);
@@ -208,7 +245,8 @@ async function createReleasePackage(options) {
       archivePath,
       checksumPath,
       archiveSha256,
-      manifest
+      manifest,
+      sbom
     };
   } catch (error) {
     await fsp.rm(archivePath, { force: true }).catch(() => undefined);
@@ -304,6 +342,35 @@ function validateManifest(manifest) {
   for (const required of REQUIRED_RELEASE_FILES) {
     if (!seen.has(required)) {
       throw new Error(`release manifest is missing required file: ${required}`);
+    }
+  }
+  if (manifest.sbom !== undefined) {
+    if (!manifest.sbom || typeof manifest.sbom !== "object" || Array.isArray(manifest.sbom)) {
+      throw new Error("release manifest sbom must be an object");
+    }
+    if (manifest.sbom.path !== SBOM_FILE) {
+      throw new Error(`release manifest sbom path must be ${SBOM_FILE}`);
+    }
+    if (!seen.has(SBOM_FILE)) {
+      throw new Error(`release manifest sbom is missing from files: ${SBOM_FILE}`);
+    }
+    if (manifest.sbom.format !== SBOM_FORMAT) {
+      throw new Error(`release manifest sbom format must be ${SBOM_FORMAT}`);
+    }
+    if (
+      typeof manifest.sbom.specVersion !== "string" ||
+      !/^1\.\d+$/.test(manifest.sbom.specVersion)
+    ) {
+      throw new Error("release manifest sbom specVersion is invalid");
+    }
+    if (!Number.isInteger(manifest.sbom.componentCount) || manifest.sbom.componentCount < 0) {
+      throw new Error("release manifest sbom componentCount is invalid");
+    }
+    if (
+      manifest.sbom.dependencyCount !== undefined &&
+      (!Number.isInteger(manifest.sbom.dependencyCount) || manifest.sbom.dependencyCount < 0)
+    ) {
+      throw new Error("release manifest sbom dependencyCount is invalid");
     }
   }
   return { ...manifest, files };
@@ -450,6 +517,37 @@ async function verifyReleasePackage(options) {
       }
     }
 
+    let sbom = null;
+    if (manifest.sbom) {
+      let parsedSbom;
+      try {
+        parsedSbom = JSON.parse(
+          await fsp.readFile(resolveWithin(extractDir, manifest.sbom.path, "SBOM path"), "utf8")
+        );
+      } catch (error) {
+        throw new Error(`release SBOM is not valid JSON: ${error.message}`);
+      }
+      sbom = validateCycloneDxSbom(parsedSbom, {
+        product: manifest.product,
+        version: manifest.version
+      });
+      if (sbom.componentCount !== manifest.sbom.componentCount) {
+        throw new Error("release SBOM component count does not match the manifest");
+      }
+      if (
+        manifest.sbom.dependencyCount !== undefined &&
+        sbom.dependencyCount !== manifest.sbom.dependencyCount
+      ) {
+        throw new Error("release SBOM dependency count does not match the manifest");
+      }
+      if (manifest.sbom.serialNumber && sbom.serialNumber !== manifest.sbom.serialNumber) {
+        throw new Error("release SBOM serial number does not match the manifest");
+      }
+      if (sbom.format !== manifest.sbom.format || sbom.specVersion !== manifest.sbom.specVersion) {
+        throw new Error("release SBOM format does not match the manifest");
+      }
+    }
+
     return {
       archivePath,
       archiveSha256,
@@ -457,6 +555,7 @@ async function verifyReleasePackage(options) {
       checksum,
       extractDir,
       manifest,
+      sbom,
       cleanup: ownedExtractDir
         ? async () => fsp.rm(extractDir, { recursive: true, force: true })
         : async () => undefined
@@ -474,6 +573,7 @@ module.exports = {
   MANIFEST_FILE,
   RELEASE_SCHEMA_VERSION,
   REQUIRED_RELEASE_FILES,
+  SBOM_FILE,
   collectReleaseSource,
   createReleasePackage,
   parseChecksumContent,

@@ -322,11 +322,12 @@ npm run security:audit
 ```
 
 The release archive must also pass `release:package`, `release:verify`,
-`release:sign`, `release:verify-signature`, and a test
-install/health-check/rollback cycle. Record the public-key SHA-256 fingerprint
-from the signature report and require it during the signed install. The release
-private key must remain on the trusted signing host and must not be copied to
-the Pi.
+`release:sign`, `release:verify-signature`, `release:sbom`, and a test
+install/health-check/rollback cycle. Confirm the extracted SBOM identifies the
+expected application version and production component set. Record the public-key
+SHA-256 fingerprint from the signature report and require it during the signed
+install. The release private key must remain on the trusted signing host and
+must not be copied to the Pi.
 
 ### 8.2 Hardware and Field Gates
 
@@ -353,5 +354,5 @@ before declaring the pilot production-ready:
 
 The pilot exit record must include the release ID, configuration checksum or
 diff, release-signing public-key fingerprint, validation evidence, incidents,
-accepted-event counts, OEE reconciliation, open risks, and sign-off from the
-production, PLC, Gateway, security, and QA/MES owners.
+SBOM review result, accepted-event counts, OEE reconciliation, open risks, and
+sign-off from the production, PLC, Gateway, security, and QA/MES owners.

@@ -126,7 +126,10 @@ jobs:
           npm run release:package -- --output dist/release
           ARCHIVE=$(find dist/release -maxdepth 1 -name '*.tar.gz' -print -quit)
           npm run release:verify -- --archive "$ARCHIVE"
+          SBOM="${ARCHIVE%.tar.gz}.sbom.cdx.json"
+          npm run release:sbom -- --archive "$ARCHIVE" --output "$SBOM"
           echo "RELEASE_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          echo "RELEASE_SBOM=$SBOM" >> "$GITHUB_ENV"
 
       - name: Sign and verify release smoke
         run: |
@@ -151,4 +154,5 @@ jobs:
           path: |
             ${{ env.RELEASE_ARCHIVE }}
             ${{ env.RELEASE_ARCHIVE }}.sha256
+            ${{ env.RELEASE_SBOM }}
           if-no-files-found: error

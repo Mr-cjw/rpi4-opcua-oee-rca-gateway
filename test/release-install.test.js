@@ -219,7 +219,10 @@ test("release installer records a verified detached signature", async (t) => {
     algorithm: "sha256",
     keyFingerprint: signed.keyFingerprint
   });
+  assert.equal(installed.sbom.format, "CycloneDX");
+  assert.equal(installed.sbom.componentCount, 0);
   assert.equal(installed.report.signature.keyFingerprint, signed.keyFingerprint);
+  assert.equal(installed.report.sbom.format, "CycloneDX");
   const report = JSON.parse(
     await fs.readFile(path.join(workspace.releaseRoot, RELEASE_OPERATION_FILE), "utf8")
   );

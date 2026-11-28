@@ -182,6 +182,7 @@ async function installRelease(options) {
   let manifest;
   let targetDir;
   let archiveSha256 = null;
+  let sbom = null;
   const verifiedSignature = signatureMetadata(signature);
   try {
     const verified = await verifyReleasePackage({
@@ -193,6 +194,16 @@ async function installRelease(options) {
     });
     manifest = verified.manifest;
     archiveSha256 = verified.archiveSha256;
+    sbom = verified.sbom
+      ? {
+          path: manifest.sbom.path,
+          format: verified.sbom.format,
+          specVersion: verified.sbom.specVersion,
+          serialNumber: verified.sbom.serialNumber,
+          componentCount: verified.sbom.componentCount,
+          dependencyCount: verified.sbom.dependencyCount
+        }
+      : null;
     checkRuntime(manifest);
     targetDir = path.join(releasesDir, manifest.releaseId);
     if (await pathExists(targetDir)) {
@@ -242,6 +253,7 @@ async function installRelease(options) {
       healthUrl: options.healthUrl ?? null,
       archiveSha256,
       stateBackup,
+      sbom,
       signature: verifiedSignature
     };
     await writeOperationReport(releaseRoot, report);
@@ -250,6 +262,7 @@ async function installRelease(options) {
       releaseId: manifest.releaseId,
       releaseDir: targetDir,
       previousReleaseId: previous?.id || null,
+      sbom,
       signature: verifiedSignature,
       report
     };
@@ -320,6 +333,7 @@ async function installRelease(options) {
       healthUrl: options.healthUrl ?? null,
       archiveSha256,
       stateBackup,
+      sbom,
       signature: verifiedSignature,
       error: error.message,
       rollback: rollback?.restoredReleaseId || null,
