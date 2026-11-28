@@ -168,7 +168,10 @@ deployment depends on behavior the Gateway does not provide.
   `npm run hardware:check` provides a point-in-time Pi temperature,
   under-voltage/throttling, firmware, NTP, and storage report, but it cannot
   prove power quality over time, read SD/SSD endurance registers, or replace
-  external power and thermal monitoring.
+  external power and thermal monitoring. Soak hardware sampling records
+  temperature and latched throttle flags for the test window only; the Gateway
+  does not continuously monitor host power or thermal state during normal
+  operation.
 - Clock-sync checks depend on available `timedatectl`/`chronyc`/project-specific
   providers. A missing provider produces an explicit unknown/degraded state, not
   an estimate.
@@ -178,8 +181,8 @@ deployment depends on behavior the Gateway does not provide.
 The software suite is not a field qualification. The following gates remain
 open for the Raspberry Pi pilot:
 
-- 72-hour soak with fault injection, reconnect cycles, storage pressure, and API
-  load on the target hardware.
+- 72-hour soak with fault injection, reconnect cycles, storage pressure, API
+  load, and hardware telemetry sampling on the target hardware.
 - Strict Pi hardware-readiness reports before and after the soak, including a
   clean reboot after any historical under-voltage/throttling flag.
 - Physical power-cut and forced-kill recovery on the target SD card/SSD.

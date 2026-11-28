@@ -8,6 +8,7 @@ const { loadConfig } = require("../src/config");
 const { createMockPlcServer } = require("../src/server");
 const { loadGatewayConfig } = require("../src/gateway/config");
 const { GatewayRuntime } = require("../src/gateway/runtime");
+const { HardwareSampler } = require("../src/hardware/telemetry");
 
 function envInteger(name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
   const raw = process.env[name];
@@ -110,10 +111,26 @@ function createOptions() {
     }),
     apiTimeoutMs: envInteger("SOAK_API_TIMEOUT_MS", 5000, { min: 100, max: 60000 }),
     maxApiP95Ms: envInteger("SOAK_MAX_API_P95_MS", 2000, { min: 1, max: 60000 }),
+    hardwareIntervalMs: envInteger("SOAK_HARDWARE_INTERVAL_MS", 0, {
+      min: 0,
+      max: 3600000
+    }),
+    hardwareWarnTemperatureC: envInteger("SOAK_HARDWARE_WARN_TEMP_C", 70, {
+      min: 1,
+      max: 200
+    }),
+    hardwareMaxTemperatureC: envInteger("SOAK_HARDWARE_MAX_TEMP_C", 80, {
+      min: 1,
+      max: 200
+    }),
     reportPath: path.resolve(
       process.env.SOAK_REPORT_PATH || path.join(process.cwd(), "data", "soak-report.json")
     )
   };
+  if (options.hardwareWarnTemperatureC >= options.hardwareMaxTemperatureC) {
+    throw new Error("SOAK_HARDWARE_WARN_TEMP_C must be less than SOAK_HARDWARE_MAX_TEMP_C");
+  }
+  return options;
 }
 
 async function startServer(serverConfig, attempts = 5) {
@@ -265,6 +282,7 @@ function createRunner() {
     const idempotencyPath = path.join(runDir, "quality-idempotency.json");
     let server = null;
     let runtime = null;
+    let hardwareSampler = null;
     let fatalError = null;
     let stopRequested = false;
     let latestAt = 0;
@@ -339,16 +357,29 @@ function createRunner() {
       startedAt = Date.now();
       initialLatestAt = Date.parse(runtime.getLatestContext().occurredAt);
       latestAt = initialLatestAt;
+      if (options.hardwareIntervalMs > 0) {
+        hardwareSampler = new HardwareSampler({
+          warnTemperatureC: options.hardwareWarnTemperatureC,
+          maxTemperatureC: options.hardwareMaxTemperatureC
+        });
+        await hardwareSampler.sample();
+      }
       let nextApiAt = startedAt;
       let nextQualityAt = startedAt;
       let nextWorkContextAt = startedAt;
       let nextFaultAt = startedAt + options.faultIntervalMs;
       let nextReconnectAt = startedAt + options.reconnectIntervalMs;
+      let nextHardwareAt = startedAt + options.hardwareIntervalMs;
       let nextProgressAt = startedAt + 10000;
 
       while (!interrupted && !stopRequested && Date.now() - startedAt < options.durationMs) {
         const now = Date.now();
         sequence += 1;
+
+        if (hardwareSampler && now >= nextHardwareAt) {
+          await hardwareSampler.sample();
+          nextHardwareAt = Date.now() + options.hardwareIntervalMs;
+        }
 
         if (now >= nextReconnectAt && options.reconnectIntervalMs <= options.durationMs) {
           const contextBeforeRestart = Date.parse(runtime.getLatestContext()?.occurredAt);
@@ -475,6 +506,9 @@ function createRunner() {
       fatalError = error;
       finishedAt = Date.now();
     } finally {
+      if (hardwareSampler) {
+        await hardwareSampler.sample();
+      }
       if (runtime) {
         await runtime.stop().catch((error) => {
           fatalError = fatalError || error;
@@ -518,6 +552,9 @@ function createRunner() {
     const reconnectExpected = options.reconnectIntervalMs <= options.durationMs;
     const faultExpected = options.faultIntervalMs <= options.durationMs;
     const qualityExpected = options.qualityIntervalMs <= options.durationMs;
+    const hardware = hardwareSampler
+      ? hardwareSampler.getStatus()
+      : { enabled: false, healthy: null };
 
     check("no_runtime_error", fatalError === null, fatalError?.message || null);
     check("no_api_failures", counters.apiFailures === 0, failures);
@@ -562,6 +599,29 @@ function createRunner() {
     check("final_connectivity", finalHealth?.opcuaConnected === true, {
       connected: finalHealth?.opcuaConnected ?? null
     });
+    if (hardware.enabled) {
+      check(
+        "hardware_telemetry",
+        hardware.successfulSamples > 0 &&
+          hardware.failedSamples === 0 &&
+          hardware.partialSamples === 0 &&
+          hardware.temperature.available &&
+          hardware.power.available,
+        hardware
+      );
+      check(
+        "hardware_temperature",
+        hardware.temperature.available && hardware.temperature.failureSamples === 0,
+        hardware.temperature
+      );
+      check(
+        "hardware_power",
+        hardware.power.available &&
+          hardware.power.current.length === 0 &&
+          hardware.power.occurred.length === 0,
+        hardware.power
+      );
+    }
 
     const report = {
       schemaVersion: "1.0",
@@ -577,6 +637,7 @@ function createRunner() {
       logger: loggerCounts,
       failures,
       checks,
+      hardware,
       storage: {
         contextLogBytes,
         qualityLogBytes,
@@ -611,12 +672,24 @@ function createRunner() {
 
     if (options.reportPath) {
       await fs.mkdir(path.dirname(options.reportPath), { recursive: true });
-      await fs.writeFile(options.reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+      await fs.writeFile(options.reportPath, `${JSON.stringify(report, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600
+      });
+      await fs.chmod(options.reportPath, 0o600);
     }
 
     console.log(
       `soak: ${report.status.toUpperCase()} duration=${report.durationMs}ms context=${counters.maxContextEvents} quality=${counters.qualityEventsAccepted} reconnects=${counters.reconnectCycles} apiFailures=${counters.apiFailures}`
     );
+    if (hardware.enabled) {
+      console.log(
+        `soak: hardware samples=${hardware.successfulSamples} ` +
+          `temperature=${hardware.temperature.minC}-${hardware.temperature.maxC}C ` +
+          `currentFlags=${hardware.power.current.length} ` +
+          `historicalFlags=${hardware.power.occurred.length}`
+      );
+    }
     console.log(`soak: report ${options.reportPath}`);
     for (const entry of checks.filter((item) => item.status === "fail")) {
       console.error(`soak: failed check ${entry.name}: ${JSON.stringify(entry.details)}`);

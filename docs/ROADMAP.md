@@ -297,6 +297,9 @@ Deliverables:
 - Completed 2026-11-27: repeatable soak harness covering API load, quality
   ingestion, fault injection, PLC reconnect cycles, retention and log-budget
   checks. A full 72-hour run remains a release gate.
+- Completed 2026-11-28: optional hardware sampling in the soak harness records
+  minimum/maximum CPU temperature and current/historical under-voltage or
+  throttling flags, and fails the run when Pi telemetry is missing or unhealthy.
 - Completed 2026-11-28: versioned release packaging with per-file SHA-256,
   archive checksums, Git/runtime provenance, Node engine checks, immutable
   release directories, health-checked upgrades with automatic rollback, explicit
@@ -327,8 +330,8 @@ The next implementation-sized units are:
    Raspberry Pi hardware and the gated SQLite importer/backend if the documented
    adoption gates are met.
 2. Validate NTP synchronization and run the long-duration injected fault matrix
-   alongside the 72-hour soak on Raspberry Pi hardware; retain strict hardware
-   readiness reports before and after the run.
+   alongside the 72-hour soak on Raspberry Pi hardware with hardware sampling
+   enabled; retain strict hardware readiness reports before and after the run.
 3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
    hardware with the staged `field:drill` workflow; define release-key custody,
    rotation, and revocation procedures; add advisory/VEX reconciliation for the

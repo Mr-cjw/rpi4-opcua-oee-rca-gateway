@@ -144,6 +144,10 @@ security material, not ordinary application data.
   temperature, under-voltage/throttling flags, firmware, NTP, and storage
   headroom. It reads no credentials, treats missing `vcgencmd` telemetry as a
   warning, and writes an optional mode-`0600` JSON report.
+- Target-hardware soak runs can sample CPU temperature and latched
+  under-voltage/throttling flags. Sampling reads only local host telemetry and
+  contains no API, PLC, or release-signing credentials; run it as root on the
+  Pi and protect the resulting report with the other field evidence.
 - `GATEWAY_API_TOKEN` protects `/metrics` and `/v1/*` when configured. Bearer
   comparison uses `crypto.timingSafeEqual` after a length check.
 - `/healthz` is intentionally unauthenticated and contains status/identity

@@ -1406,13 +1406,19 @@ The default run is 60 seconds. Increase `SOAK_DURATION_MS` for release or
 SOAK_DURATION_MS=259200000 \
 SOAK_API_INTERVAL_MS=1000 \
 SOAK_RECONNECT_INTERVAL_MS=3600000 \
+SOAK_HARDWARE_INTERVAL_MS=30000 \
 SOAK_REPORT_PATH=data/soak-72h.json \
 npm run soak
 ```
 
 The report includes pass/fail checks, API latency, reconnect and fault counts,
 event-count bounds, log-byte budgets, final OEE data quality, and the preserved
-temporary run directory path when `SOAK_KEEP_RUN_DIR=1` or the run fails.
+temporary run directory path when `SOAK_KEEP_RUN_DIR=1` or the run fails. When
+hardware sampling is enabled, the report also records minimum/maximum CPU
+temperature and current/historical under-voltage and throttling flags. Missing
+`vcgencmd` telemetry or any observed power/thermal condition fails the soak, so
+run a target-hardware soak as root with the Pi firmware tools installed. Soak
+reports are written with mode `0600`.
 
 GitHub Actions runs contract/docs checks and tests on Node 22.13 and 24, then runs
 the Mock PLC E2E, Gateway E2E, commissioning doctor, PLC diagnostics, OPC UA
@@ -1434,6 +1440,9 @@ artifacts.
 | `SOAK_RECONNECT_TIMEOUT_MS` | `30000` | Disconnect/reconnect/context timeout |
 | `SOAK_API_TIMEOUT_MS` | `5000` | Per-request timeout |
 | `SOAK_MAX_API_P95_MS` | `2000` | Failure threshold for the worst endpoint p95 |
+| `SOAK_HARDWARE_INTERVAL_MS` | `0` | Temperature/under-voltage sampling interval; `0` disables sampling |
+| `SOAK_HARDWARE_WARN_TEMP_C` | `70` | Warning temperature recorded in the hardware summary |
+| `SOAK_HARDWARE_MAX_TEMP_C` | `80` | Maximum sampled temperature before the soak fails |
 | `SOAK_REPORT_PATH` | `data/soak-report.json` | JSON report destination |
 | `SOAK_KEEP_RUN_DIR` | unset | Set to `1` to preserve the temporary PLC/Gateway state directory |
 

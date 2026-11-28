@@ -454,6 +454,24 @@ npm run commission -- --url https://<gateway-name> --strict --json \
   --output commissioning-report.json
 ```
 
+For the release-gate soak on the target Pi, run as root with hardware sampling
+enabled so the report retains power and thermal evidence:
+
+```bash
+sudo env SOAK_DURATION_MS=259200000 \
+  SOAK_API_INTERVAL_MS=1000 \
+  SOAK_RECONNECT_INTERVAL_MS=3600000 \
+  SOAK_HARDWARE_INTERVAL_MS=30000 \
+  SOAK_REPORT_PATH=/var/backups/rpi4-gateway/soak-72h.json \
+  npm run soak
+```
+
+Hardware sampling fails the soak if CPU temperature reaches the configured
+limit, any current or historical under-voltage/throttling flag is observed, or
+`vcgencmd` evidence is incomplete. A historical flag means the Pi experienced a
+power event since boot; reboot it and repeat the hardware baseline before
+accepting the soak. The report is written with mode `0600`.
+
 The release archive must also pass `release:package`, `release:verify`,
 `release:sign`, `release:verify-signature`, `release:sbom`, and a test
 install/health-check/rollback cycle. Confirm the extracted SBOM identifies the
@@ -484,7 +502,8 @@ before declaring the pilot production-ready:
   under-voltage/throttling flags, acceptable temperature, synchronized NTP, and
   sufficient storage headroom.
 - 72-hour soak with API load, quality ingestion, fault injection, reconnect
-  cycles, retention, and log-budget checks on the target Pi.
+  cycles, retention, log-budget checks, and temperature/under-voltage sampling
+  on the target Pi.
 - Commissioning reports after install, reboot, power-cut recovery, certificate
   rotation, upgrade, and rollback, with all strict gates passing.
 - Verified NTP behavior and clock-failure degradation on the target network.

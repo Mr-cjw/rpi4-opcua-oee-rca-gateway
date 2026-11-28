@@ -723,6 +723,7 @@ module.exports = {
   MODEL_PATH,
   OS_RELEASE_PATH,
   THERMAL_PATH,
+  defaultRunCommand,
   decodeThrottleFlags,
   formatHardwareReport,
   parseHardwareArgs,
@@ -731,6 +732,8 @@ module.exports = {
   parseThrottleValue,
   parseVcgencmdTemperature,
   parseVcgencmdVoltage,
+  readOptionalText,
   runHardwareCheck,
+  safeRunCommand,
   writeHardwareReport
 };
