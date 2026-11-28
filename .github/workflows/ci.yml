@@ -133,7 +133,29 @@ jobs:
             -pubout -out "$KEY_DIR/release-public.pem"
           FINGERPRINT=$(openssl pkey -pubin -in "$KEY_DIR/release-public.pem" \
             -outform DER | sha256sum | awk '{print $1}')
+          POLICY_PATH="$KEY_DIR/release-trust-policy.json"
+          ISSUED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > "$POLICY_PATH" <<EOF
+          {
+            "schemaVersion": "1.0",
+            "kind": "rpi4-gateway-release-trust-policy",
+            "policyId": "ci-release-smoke",
+            "sequence": 1,
+            "issuedAt": "$ISSUED_AT",
+            "keys": [
+              {
+                "name": "ci-ephemeral-signer",
+                "fingerprint": "$FINGERPRINT",
+                "status": "active"
+              }
+            ]
+          }
+          EOF
+          chmod 600 "$POLICY_PATH"
+          POLICY_SHA256=$(sha256sum "$POLICY_PATH" | awk '{print $1}')
           echo "RELEASE_KEY_FINGERPRINT=$FINGERPRINT" >> "$GITHUB_ENV"
+          echo "RELEASE_TRUST_POLICY=$POLICY_PATH" >> "$GITHUB_ENV"
+          echo "RELEASE_TRUST_POLICY_SHA256=$POLICY_SHA256" >> "$GITHUB_ENV"
 
       - name: Build and verify release
         run: |
@@ -158,14 +180,24 @@ jobs:
           npm run release:sign -- \
             --archive "$RELEASE_ARCHIVE" \
             --private-key "$KEY_DIR/release-private.pem"
+          npm run release:trust-policy -- \
+            --trust-policy "$RELEASE_TRUST_POLICY" \
+            --policy-sha256 "$RELEASE_TRUST_POLICY_SHA256" \
+            --minimum-policy-sequence 1
           npm run release:verify-signature -- \
             --archive "$RELEASE_ARCHIVE" \
             --public-key "$KEY_DIR/release-public.pem" \
-            --signer-fingerprint "$RELEASE_KEY_FINGERPRINT"
+            --signer-fingerprint "$RELEASE_KEY_FINGERPRINT" \
+            --trust-policy "$RELEASE_TRUST_POLICY" \
+            --policy-sha256 "$RELEASE_TRUST_POLICY_SHA256" \
+            --minimum-policy-sequence 1
           npm run release:audit -- \
             --archive "$RELEASE_ARCHIVE" \
             --public-key "$KEY_DIR/release-public.pem" \
             --signer-fingerprint "$RELEASE_KEY_FINGERPRINT" \
+            --trust-policy "$RELEASE_TRUST_POLICY" \
+            --policy-sha256 "$RELEASE_TRUST_POLICY_SHA256" \
+            --minimum-policy-sequence 1 \
             --require-signature \
             --dispositions security/advisory-dispositions.json \
             --output "$RELEASE_AUDIT" \
@@ -177,12 +209,18 @@ jobs:
             --vex "$RELEASE_VEX" \
             --public-key "$KEY_DIR/release-public.pem" \
             --signer-fingerprint "$RELEASE_KEY_FINGERPRINT" \
+            --trust-policy "$RELEASE_TRUST_POLICY" \
+            --policy-sha256 "$RELEASE_TRUST_POLICY_SHA256" \
+            --minimum-policy-sequence 1 \
             --require-signature \
             --output "$RELEASE_EVIDENCE"
           npm run release:verify-evidence -- \
             --evidence "$RELEASE_EVIDENCE" \
             --public-key "$KEY_DIR/release-public.pem" \
-            --signer-fingerprint "$RELEASE_KEY_FINGERPRINT"
+            --signer-fingerprint "$RELEASE_KEY_FINGERPRINT" \
+            --trust-policy "$RELEASE_TRUST_POLICY" \
+            --policy-sha256 "$RELEASE_TRUST_POLICY_SHA256" \
+            --minimum-policy-sequence 1
 
       - name: Build signed rehearsal releases
         run: |
@@ -232,6 +270,9 @@ jobs:
             --state-dir "$STATE_DIR" \
             --public-key "${{ runner.temp }}/release-smoke/release-public.pem" \
             --signer-fingerprint "$RELEASE_KEY_FINGERPRINT" \
+            --trust-policy "$RELEASE_TRUST_POLICY" \
+            --policy-sha256 "$RELEASE_TRUST_POLICY_SHA256" \
+            --minimum-policy-sequence 1 \
             --require-signature \
             --output "$REPORT"
           test "$(stat -c '%a' "$REPORT")" = "600"
@@ -259,6 +300,7 @@ jobs:
             ${{ env.RELEASE_AUDIT }}
             ${{ env.RELEASE_VEX }}
             ${{ env.RELEASE_EVIDENCE }}
+            dist/release/*.trust-policy.json
           if-no-files-found: warn
 
       - name: Upload release archive

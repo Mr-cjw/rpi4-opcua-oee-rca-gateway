@@ -14,6 +14,7 @@ Companion documents:
 - [Security review](SECURITY-REVIEW.md)
 - [Roadmap and release gates](ROADMAP.md)
 - [Delivery plan and hardware qualification sequence](DELIVERY-PLAN.md)
+- [Release signing key and trust policy](RELEASE-KEY-MANAGEMENT.md)
 
 ## 1. Scope and Responsibilities
 
@@ -227,8 +228,9 @@ tool never reboots the host and never replaces a certificate. `install` and
 Before starting, prepare:
 
 - A verified release archive, checksum, detached signature, and release public
-  key. Use `--require-signature` and the approved public-key SHA-256 fingerprint
-  from the change record with `--signer-fingerprint`.
+  key, plus the approved trust policy and its SHA-256 digest. Use
+  `--require-signature`, `--signer-fingerprint`, `--trust-policy`,
+  `--policy-sha256`, and `--minimum-policy-sequence` from the change record.
 - A verified state backup copied off the Pi. Do not use the live state directory.
 - A known-good current release and its previous release metadata.
 - The approved HTTPS URL, optional private CA or mTLS files, and the API token
@@ -254,6 +256,9 @@ sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set 
     --archive /var/tmp/<release>.tar.gz \
     --public-key /etc/rpi4-gateway/release-public.pem \
     --signer-fingerprint <approved-public-key-sha256> \
+    --trust-policy /etc/rpi4-gateway/release-trust-policy.json \
+    --policy-sha256 <approved-policy-sha256> \
+    --minimum-policy-sequence <approved-policy-sequence> \
     --require-signature \
     --state-backup /var/backups/rpi4-gateway/20261128T120000Z \
     --url https://gateway.example.invalid --json'
@@ -312,7 +317,8 @@ The protected state directory contains `drill-state.json`,
 `drill-manifest.json`, `SHA256SUMS`, and the preflight, install, commission,
 hardware, rotation, and rollback JSON evidence. The manifest records release
 IDs, boot IDs, certificate fingerprints, hardware-readiness summaries,
-signature-key fingerprint, state-backup summary, and phase results. Verify and
+signature-key fingerprint, trust-policy digest/sequence, state-backup summary,
+and phase results. Verify and
 copy the bundle off the Pi while the change record is open:
 
 ```bash
@@ -493,11 +499,14 @@ or no longer appears. Confirm the release manifest declares the expected Gateway
 state format version and that the rehearsal reports it as compatible. Record the
 public-key SHA-256 fingerprint from the signature report and pass it through
 `--signer-fingerprint` during verification, evidence, rehearsal, and signed
-install. A different public key must fail even if it produces a
-cryptographically valid signature. The release private key must remain on the
-trusted signing host and must not be copied to the Pi. Key rotation and
-revocation are change-controlled: approve the replacement fingerprint before
-distributing the new public key, and reject the old fingerprint after cutover.
+install. Also pass the approved trust policy with `--trust-policy`, pin its
+digest with `--policy-sha256`, and enforce its sequence with
+`--minimum-policy-sequence`. A different public key must fail even if it
+produces a cryptographically valid signature; an unapproved, expired, or
+revoked policy entry must also fail. The release private key must remain on the
+trusted signing host and must not be copied to the Pi. Follow the
+[release key-management procedure](RELEASE-KEY-MANAGEMENT.md) for custody,
+rotation overlap, revocation, compromise response, and policy rollback.
 
 When target hardware is unavailable, run `release:rehearse` with the previous and
 candidate archives plus a copy of the target state directory. It verifies signed

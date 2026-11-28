@@ -122,11 +122,22 @@ function makeDependencies(overrides = {}) {
     },
     verifyReleaseSignature: async (options) => {
       assert.equal(options.expectedKeyFingerprint, SIGNER_FINGERPRINT);
-      return {
+      const signature = {
         valid: true,
         algorithm: "sha256",
         keyFingerprint: SIGNER_FINGERPRINT
       };
+      if (options.trustPolicyPath) {
+        signature.signerName = "field-drill-signer";
+        signature.signerStatus = "active";
+        signature.trustPolicy = {
+          policyId: "field-drill-policy",
+          sequence: 2,
+          issuedAt: "2026-11-01T00:00:00.000Z",
+          sha256: await hashFile(options.trustPolicyPath)
+        };
+      }
+      return signature;
     },
     verifyStateBackup: async () => ({
       manifest: {
@@ -414,6 +425,53 @@ test("field drill completes install, reboot, rotation, rollback, and evidence bu
     runFieldDrill(phaseOptions(root, "finalize"), dependencies),
     /evidence (size|checksum) changed: preflight\.json/
   );
+});
+
+test("field drill binds the preflight trust policy into the install phase", async (t) => {
+  const root = await makeRoot(t);
+  const dependencies = makeDependencies();
+  const policyPath = path.join(root, "release-trust-policy.json");
+  await fs.writeFile(
+    policyPath,
+    `${JSON.stringify(
+      {
+        schemaVersion: "1.0",
+        kind: "rpi4-gateway-release-trust-policy",
+        policyId: "field-drill-policy",
+        sequence: 2,
+        issuedAt: "2026-11-01T00:00:00.000Z",
+        keys: [
+          {
+            name: "field-drill-signer",
+            fingerprint: SIGNER_FINGERPRINT,
+            status: "active"
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+  const policySha256 = await hashFile(policyPath);
+  const preflight = await startDrill(root, dependencies, {
+    trustPolicy: policyPath,
+    policySha256,
+    minimumPolicySequence: 2
+  });
+
+  assert.equal(preflight.status, "pass");
+  assert.equal(preflight.baseline.signature.signerStatus, "active");
+  assert.equal(preflight.baseline.signature.trustPolicy.policyId, "field-drill-policy");
+  assert.equal(preflight.baseline.signature.trustPolicy.sha256, policySha256);
+  const state = await readState(root);
+  assert.equal(state.config.trustPolicySha256, policySha256);
+  assert.equal(state.config.trustPolicySequence, 2);
+
+  const install = await runFieldDrill(phaseOptions(root, "install", true), dependencies);
+  assert.equal(install.status, "pass");
+  assert.equal(dependencies.calls.install[0].trustPolicyPath, policyPath);
+  assert.equal(dependencies.calls.install[0].expectedPolicySha256, policySha256);
+  assert.equal(dependencies.calls.install[0].minimumPolicySequence, 2);
 });
 
 test("field drill fails preflight hardware evidence but permits an explicit skip", async (t) => {

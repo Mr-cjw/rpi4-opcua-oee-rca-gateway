@@ -136,10 +136,13 @@ deployment depends on behavior the Gateway does not provide.
 - Releases are immutable and integrity-checked with SHA-256 manifests. Detached
   SHA-256 signatures can be required during installation, but the default
   installation path remains unsigned for backward compatibility. Production
-  approval must require `--require-signature` and protect the release public key.
-- Signing-key generation, offline custody, rotation, revocation, HSM/KMS use, and
-  public-key distribution are manual. There is no built-in OTA signing service
-  or automatic trust-store update.
+  approval must require `--require-signature`, `--signer-fingerprint`, and the
+  approved trust policy.
+- The trust policy enforces active, retired, and revoked signer states, policy
+  digest/sequence pinning, policy-rollback rejection, and policy-bound evidence.
+  Signing-key generation, offline custody, rotation, revocation, HSM/KMS use,
+  public-key distribution, and policy distribution remain manual. There is no
+  built-in OTA signing service or automatic trust-store update.
 - The embedded CycloneDX SBOM is a dependency inventory generated from the
   production lockfile. A separate `release:audit` report and CycloneDX VEX
   sidecar bind npm advisory analysis and time-limited dispositions to the
@@ -154,7 +157,9 @@ deployment depends on behavior the Gateway does not provide.
   dispositions before each field deployment.
 - The release evidence manifest is an unsigned consistency and provenance index.
   It is not a substitute for the detached archive signature, and it requires the
-  original public key to verify the embedded signature evidence.
+  original public key to verify the embedded signature evidence. It includes a
+  protected copy and digest of the trust policy used, but the manifest itself
+  must still be retained under site-controlled storage.
 - `release:rehearse` simulates service commands, health transitions, and npm
   installation. It exercises release and state code paths, but it does not prove
   systemd behavior, real network health checks, reboot recovery, power-loss

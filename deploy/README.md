@@ -8,10 +8,12 @@ installer rejects an older runtime from its manifest.
 
 For field work, pair this guide with the
 [pilot runbook](../docs/PILOT-RUNBOOK.md), [known limitations](../docs/KNOWN-LIMITATIONS.md),
-and [security review](../docs/SECURITY-REVIEW.md).
+[security review](../docs/SECURITY-REVIEW.md), and
+[release key management](../docs/RELEASE-KEY-MANAGEMENT.md).
 
-Transfer the release archive, its `.sha256` and `.sig` files, and the approved
-public key together. Never transfer the signing private key to the Pi.
+Transfer the release archive, its `.sha256` and `.sig` files, the approved
+public key, and the approved trust policy together. Never transfer the signing
+private key to the Pi.
 
 ```bash
 sudo useradd --system --home /var/lib/rpi4-gateway --shell /usr/sbin/nologin rpi4-gateway
@@ -19,12 +21,18 @@ cd /var/tmp
 sha256sum -c <archive>.tar.gz.sha256
 sudo install -d -m 0755 /etc/rpi4-gateway
 sudo install -m 0644 /var/tmp/release-public.pem /etc/rpi4-gateway/release-public.pem
+sudo install -m 0644 /var/tmp/release-trust-policy.json \
+  /etc/rpi4-gateway/release-trust-policy.json
 sudo install -d -m 0755 /opt/rpi4-gateway-bootstrap
 sudo tar -xzf /var/tmp/<archive>.tar.gz -C /opt/rpi4-gateway-bootstrap
 sudo /usr/bin/node /opt/rpi4-gateway-bootstrap/scripts/gateway-release.js verify-signature \
   --archive /var/tmp/<archive>.tar.gz \
   --signature /var/tmp/<archive>.tar.gz.sig \
-  --public-key /etc/rpi4-gateway/release-public.pem
+  --public-key /etc/rpi4-gateway/release-public.pem \
+  --signer-fingerprint <approved-public-key-sha256> \
+  --trust-policy /etc/rpi4-gateway/release-trust-policy.json \
+  --policy-sha256 <approved-policy-sha256> \
+  --minimum-policy-sequence <approved-policy-sequence>
 sudo install -m 0644 /opt/rpi4-gateway-bootstrap/deploy/rpi4-gateway.service /etc/systemd/system/rpi4-gateway.service
 sudo install -m 0600 /opt/rpi4-gateway-bootstrap/deploy/rpi4-gateway.env.example /etc/rpi4-gateway.env
 sudo editor /etc/rpi4-gateway.env
@@ -36,6 +44,10 @@ sudo /usr/bin/node /opt/rpi4-gateway-bootstrap/scripts/gateway-release.js instal
   --checksum /var/tmp/<archive>.tar.gz.sha256 \
   --signature /var/tmp/<archive>.tar.gz.sig \
   --public-key /etc/rpi4-gateway/release-public.pem \
+  --signer-fingerprint <approved-public-key-sha256> \
+  --trust-policy /etc/rpi4-gateway/release-trust-policy.json \
+  --policy-sha256 <approved-policy-sha256> \
+  --minimum-policy-sequence <approved-policy-sequence> \
   --require-signature \
   --release-root /opt/rpi4-opcua-oee-rca-gateway
 sudo systemctl enable --now rpi4-gateway.service
@@ -295,8 +307,12 @@ Sign on a trusted administrative host with `npm run release:sign -- --archive
 <archive> --private-key <private-key.pem>` and verify before transfer with
 `npm run release:verify-signature -- --archive <archive> --public-key
 <public-key.pem>`. Keep the private key off the Pi. Production installs must
-pass `--require-signature`; the verified public-key SHA-256 fingerprint is
-recorded in `last-release.json`.
+pass `--require-signature` and use the approved trust policy with
+`--signer-fingerprint`, `--policy-sha256`, and `--minimum-policy-sequence`; the
+verified public-key fingerprint, policy digest, policy sequence, signer name,
+and signer status are recorded in `last-release.json`. Follow the
+[release key-management procedure](../docs/RELEASE-KEY-MANAGEMENT.md) for
+rotation and revocation.
 
 Each release also embeds a CycloneDX 1.5 `sbom.cdx.json` covering production
 dependencies. It is included in the manifest checksums and the signed archive.
@@ -320,6 +336,10 @@ sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-relea
   --checksum /var/tmp/<archive>.tar.gz.sha256 \
   --signature /var/tmp/<archive>.tar.gz.sig \
   --public-key /etc/rpi4-gateway/release-public.pem \
+  --signer-fingerprint <approved-public-key-sha256> \
+  --trust-policy /etc/rpi4-gateway/release-trust-policy.json \
+  --policy-sha256 <approved-policy-sha256> \
+  --minimum-policy-sequence <approved-policy-sequence> \
   --require-signature \
   --release-root /opt/rpi4-opcua-oee-rca-gateway \
   --state-backup /var/backups/rpi4-gateway/20261128T120000

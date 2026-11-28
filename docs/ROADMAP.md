@@ -50,10 +50,10 @@ milestone record; the delivery plan controls day-to-day sequencing.
 - Immutable release archives with manifest/checksum verification, atomic
   `current` switching, health-checked upgrade, automatic rollback, and explicit
   rollback/status commands, plus optional detached SHA-256 signatures and
-  fail-closed required-signature installs, pinned signer fingerprints, an
-  embedded CycloneDX SBOM for production dependencies, signed audit/VEX
-  evidence, a verifiable offline evidence bundle, and an offline signed-upgrade
-  rehearsal.
+  fail-closed required-signature installs, pinned signer fingerprints, reviewed
+  active/retired/revoked trust-policy enforcement, an embedded CycloneDX SBOM
+  for production dependencies, signed audit/VEX evidence, a verifiable offline
+  evidence bundle, and an offline signed-upgrade rehearsal.
 - A reviewed nginx TLS reverse-proxy baseline for approved remote access, with
   TLS 1.2/1.3, loopback-only proxying, source restrictions, rate/concurrency
   limits, credential-safe access logs, bounded retention, and certificate
@@ -330,6 +330,10 @@ Deliverables:
 - Completed 2026-11-28: execution-level delivery plan with evidence levels,
   software-only iterations, hardware qualification gates, release train, and
   stop conditions.
+- Completed 2026-11-28: release-signing trust policy with active/retired/revoked
+  key states, rotation overlap, explicit historical verification, policy-digest
+  and sequence pinning, install-phase rollback rejection, policy-bound evidence,
+  and field-drill policy continuity.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 
 Acceptance:
@@ -352,7 +356,8 @@ without target hardware. The remaining hardware/site-dependent units are:
 3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
    hardware with the staged `field:drill` workflow; retain the release audit and
    CycloneDX VEX evidence generated for the embedded SBOM, and obtain site
-   approval for key custody and rotation.
+   approval for the [key-management](RELEASE-KEY-MANAGEMENT.md) custody,
+   rotation, and revocation procedure.
 4. Complete a real-PLC certificate-rotation drill, then approve, install, and
    exercise the supplied reverse-proxy/TLS template on the target network before
    exposing the API beyond loopback.
@@ -372,7 +377,8 @@ A release is not field-ready unless all of these are true:
 - OEE responses state their time basis, counter mode, loss classification, and data-quality warnings.
 - Backup, restore, upgrade, and rollback have been exercised on Raspberry Pi hardware.
 - Production installs require and verify the detached release signature, pin the
-  approved signer public-key fingerprint, and retain that fingerprint in the
+  approved signer public-key fingerprint, enforce the approved trust-policy
+  digest and sequence, and retain the fingerprint and policy digest in the
   approval record.
 - HTTP and OPC UA security settings are explicit; no insecure production default is silent.
 - Remote access, if enabled, uses the approved TLS template or equivalent;

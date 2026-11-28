@@ -116,21 +116,38 @@ function signatureOptions({
   publicKeyPath,
   signaturePath,
   requireSignature,
-  expectedKeyFingerprint
+  expectedKeyFingerprint,
+  trustPolicyPath,
+  expectedPolicySha256,
+  minimumPolicySequence
 }) {
-  if (!publicKeyPath && !signaturePath && !requireSignature && !expectedKeyFingerprint) {
+  if (
+    !publicKeyPath &&
+    !signaturePath &&
+    !requireSignature &&
+    !expectedKeyFingerprint &&
+    !trustPolicyPath &&
+    !expectedPolicySha256 &&
+    !minimumPolicySequence
+  ) {
     return {
       publicKeyPath: undefined,
       signaturePath: undefined,
       requireSignature: false,
-      expectedKeyFingerprint: undefined
+      expectedKeyFingerprint: undefined,
+      trustPolicyPath: undefined,
+      expectedPolicySha256: undefined,
+      minimumPolicySequence: undefined
     };
   }
   return {
     publicKeyPath,
     signaturePath: signaturePath || `${path.resolve(archivePath)}.sig`,
     requireSignature: Boolean(requireSignature),
-    expectedKeyFingerprint
+    expectedKeyFingerprint,
+    trustPolicyPath,
+    expectedPolicySha256,
+    minimumPolicySequence
   };
 }
 
@@ -174,7 +191,14 @@ async function preflightArchive({ archivePath, signature }) {
         ? {
             verified: true,
             algorithm: signed.algorithm,
-            keyFingerprint: signed.keyFingerprint
+            keyFingerprint: signed.keyFingerprint,
+            ...(signed.trustPolicy
+              ? {
+                  signerName: signed.signerName,
+                  signerStatus: signed.signerStatus,
+                  trustPolicy: signed.trustPolicy
+                }
+              : {})
           }
         : null
     };
@@ -350,14 +374,20 @@ async function runReleaseRehearsal(options) {
       publicKeyPath: options.publicKeyPath,
       signaturePath: options.baseSignaturePath,
       requireSignature: options.requireSignature,
-      expectedKeyFingerprint: options.signerFingerprint
+      expectedKeyFingerprint: options.signerFingerprint,
+      trustPolicyPath: options.trustPolicyPath,
+      expectedPolicySha256: options.expectedPolicySha256,
+      minimumPolicySequence: options.minimumPolicySequence
     });
     const candidateSignature = signatureOptions({
       archivePath: candidateArchivePath,
       publicKeyPath: options.publicKeyPath,
       signaturePath: options.candidateSignaturePath,
       requireSignature: options.requireSignature,
-      expectedKeyFingerprint: options.signerFingerprint
+      expectedKeyFingerprint: options.signerFingerprint,
+      trustPolicyPath: options.trustPolicyPath,
+      expectedPolicySha256: options.expectedPolicySha256,
+      minimumPolicySequence: options.minimumPolicySequence
     });
     const basePreflight = await preflightArchive({
       archivePath: baseArchivePath,
@@ -423,7 +453,11 @@ async function runReleaseRehearsal(options) {
         base: basePreflight,
         candidate: candidatePreflight,
         stateDir,
-        signatureRequired: Boolean(options.requireSignature)
+        signatureRequired: Boolean(options.requireSignature),
+        trustPolicy: {
+          base: basePreflight.signature?.trustPolicy || null,
+          candidate: candidatePreflight.signature?.trustPolicy || null
+        }
       },
       scenarios,
       limitations: [

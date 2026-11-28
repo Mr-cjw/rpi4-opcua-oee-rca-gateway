@@ -15,6 +15,7 @@ const {
   signaturePathFor,
   verifyReleaseArchiveSignature
 } = require("../release/signature");
+const { verifyReleaseWithTrustPolicy } = require("../release/trust-policy");
 
 const STATE_FILE = "drill-state.json";
 const MANIFEST_FILE = "drill-manifest.json";
@@ -108,6 +109,18 @@ function normalizeConfig(options) {
   if (options.signerFingerprint && !options.publicKey) {
     throw new Error("--signer-fingerprint requires --public-key");
   }
+  if (
+    (options.policySha256 || options.minimumPolicySequence) &&
+    !options.trustPolicy
+  ) {
+    throw new Error("--policy-sha256 and --minimum-policy-sequence require --trust-policy");
+  }
+  if (options.trustPolicy && !options.publicKey) {
+    throw new Error("--trust-policy requires --public-key");
+  }
+  const minimumPolicySequence = options.minimumPolicySequence
+    ? positiveInteger(options.minimumPolicySequence, "--minimum-policy-sequence")
+    : null;
   const archivePath = path.resolve(options.archive);
   return {
     archivePath,
@@ -119,6 +132,13 @@ function normalizeConfig(options) {
     signerFingerprint: options.signerFingerprint
       ? normalizeKeyFingerprint(options.signerFingerprint)
       : null,
+    trustPolicyPath: options.trustPolicy ? path.resolve(options.trustPolicy) : null,
+    policySha256: options.policySha256
+      ? normalizeKeyFingerprint(options.policySha256)
+      : null,
+    minimumPolicySequence,
+    trustPolicySha256: null,
+    trustPolicySequence: null,
     requireSignature: options.requireSignature === true,
     stateBackupPath: options.stateBackup ? path.resolve(options.stateBackup) : null,
     releaseRoot,
@@ -264,6 +284,33 @@ async function loadState(stateDir) {
   }
   if (state.config.signerFingerprint && !state.config.publicKeyPath) {
     throw new Error("drill state config requires a public key for the signer fingerprint");
+  }
+  if (
+    state.config.trustPolicyPath !== undefined &&
+    state.config.trustPolicyPath !== null &&
+    (typeof state.config.trustPolicyPath !== "string" || state.config.trustPolicyPath === "")
+  ) {
+    throw new Error("drill state config is invalid: trustPolicyPath");
+  }
+  if (
+    state.config.minimumPolicySequence !== undefined &&
+    state.config.minimumPolicySequence !== null &&
+    (!Number.isInteger(state.config.minimumPolicySequence) ||
+      state.config.minimumPolicySequence < 1)
+  ) {
+    throw new Error("drill state config is invalid: minimumPolicySequence");
+  }
+  if (state.config.trustPolicyPath) {
+    if (!state.config.publicKeyPath) {
+      throw new Error("drill state trust policy requires a public key");
+    }
+    if (
+      typeof state.config.trustPolicySha256 !== "string" ||
+      !/^[0-9a-f]{64}$/.test(state.config.trustPolicySha256) ||
+      !Number.isInteger(state.config.trustPolicySequence)
+    ) {
+      throw new Error("drill state trust policy binding is invalid");
+    }
   }
   for (const entry of state.evidence) {
     if (
@@ -448,15 +495,29 @@ async function preflight(options, stateDir, dependencies, now) {
     }
     if (config.publicKeyPath) {
       const verifySignature =
-        dependencies.verifyReleaseSignature || verifyReleaseArchiveSignature;
+        dependencies.verifyReleaseSignature ||
+        (config.trustPolicyPath
+          ? verifyReleaseWithTrustPolicy
+          : verifyReleaseArchiveSignature);
       signature = await verifySignature({
         archivePath: config.archivePath,
         signaturePath: config.signaturePath,
         publicKeyPath: config.publicKeyPath,
-        expectedKeyFingerprint: config.signerFingerprint
+        expectedKeyFingerprint: config.signerFingerprint,
+        trustPolicyPath: config.trustPolicyPath,
+        expectedPolicySha256: config.policySha256,
+        minimumPolicySequence: config.minimumPolicySequence,
+        now: now()
       });
       if (!signature.valid) {
         throw new Error(`release signature verification failed: ${config.signaturePath}`);
+      }
+      if (config.trustPolicyPath) {
+        if (!signature.trustPolicy) {
+          throw new Error("release signature does not include a trust policy binding");
+        }
+        config.trustPolicySha256 = signature.trustPolicy.sha256;
+        config.trustPolicySequence = signature.trustPolicy.sequence;
       }
     }
   } finally {
@@ -523,7 +584,14 @@ async function preflight(options, stateDir, dependencies, now) {
         ? {
             verified: true,
             algorithm: signature.algorithm,
-            keyFingerprint: signature.keyFingerprint
+            keyFingerprint: signature.keyFingerprint,
+            ...(signature.trustPolicy
+              ? {
+                  signerName: signature.signerName,
+                  signerStatus: signature.signerStatus,
+                  trustPolicy: signature.trustPolicy
+                }
+              : {})
           }
         : null,
       stateBackup: stateBackup
@@ -591,6 +659,9 @@ async function installPhase(options, stateDir, state, dependencies) {
     signaturePath: state.config.signaturePath,
     publicKeyPath: state.config.publicKeyPath,
     expectedKeyFingerprint: state.config.signerFingerprint,
+    trustPolicyPath: state.config.trustPolicyPath,
+    expectedPolicySha256: state.config.trustPolicySha256,
+    minimumPolicySequence: state.config.minimumPolicySequence,
     requireSignature: state.config.requireSignature,
     releaseRoot: state.config.releaseRoot,
     stateBackup: state.config.stateBackupPath,
@@ -1065,6 +1136,9 @@ function parseFieldDrillArgs(args) {
     signature: null,
     publicKey: null,
     signerFingerprint: null,
+    trustPolicy: null,
+    policySha256: null,
+    minimumPolicySequence: null,
     requireSignature: false,
     stateBackup: null,
     releaseRoot: DEFAULT_RELEASE_ROOT,
@@ -1095,6 +1169,9 @@ function parseFieldDrillArgs(args) {
     ["--signature", "signature"],
     ["--public-key", "publicKey"],
     ["--signer-fingerprint", "signerFingerprint"],
+    ["--trust-policy", "trustPolicy"],
+    ["--policy-sha256", "policySha256"],
+    ["--minimum-policy-sequence", "minimumPolicySequence"],
     ["--state-backup", "stateBackup"],
     ["--release-root", "releaseRoot"],
     ["--service", "service"],

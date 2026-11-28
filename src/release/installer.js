@@ -19,6 +19,7 @@ const {
   signaturePathFor,
   verifyReleaseArchiveSignature
 } = require("./signature");
+const { verifyReleaseWithTrustPolicy } = require("./trust-policy");
 
 const RELEASE_OPERATION_FILE = "last-release.json";
 
@@ -137,7 +138,10 @@ async function verifySignatureIfRequired(options) {
     options.requireSignature ||
     options.signaturePath ||
     options.publicKeyPath ||
-    options.expectedKeyFingerprint;
+    options.expectedKeyFingerprint ||
+    options.trustPolicyPath ||
+    options.expectedPolicySha256 ||
+    options.minimumPolicySequence;
   if (!signatureRequired) {
     return null;
   }
@@ -145,6 +149,23 @@ async function verifySignatureIfRequired(options) {
     throw new Error("release signature verification requires a public key path");
   }
   const signaturePath = options.signaturePath || signaturePathFor(options.archivePath);
+  if (options.trustPolicyPath) {
+    return verifyReleaseWithTrustPolicy({
+      archivePath: options.archivePath,
+      signaturePath,
+      publicKeyPath: options.publicKeyPath,
+      trustPolicyPath: options.trustPolicyPath,
+      expectedKeyFingerprint: options.expectedKeyFingerprint,
+      expectedPolicySha256: options.expectedPolicySha256,
+      minimumPolicySequence: options.minimumPolicySequence,
+      allowRetiredSigner: false,
+      previousTrustPolicy: options.previousTrustPolicy,
+      now: options.now
+    });
+  }
+  if (options.expectedPolicySha256 || options.minimumPolicySequence) {
+    throw new Error("release trust policy options require a trust policy path");
+  }
   const result = await verifyReleaseArchiveSignature({
     archivePath: options.archivePath,
     signaturePath,
@@ -158,21 +179,50 @@ async function verifySignatureIfRequired(options) {
 }
 
 function signatureMetadata(signature) {
-  return signature
-    ? {
-        verified: true,
-        algorithm: signature.algorithm,
-        keyFingerprint: signature.keyFingerprint
-      }
-    : null;
+  if (!signature) {
+    return null;
+  }
+  const metadata = {
+    verified: true,
+    algorithm: signature.algorithm,
+    keyFingerprint: signature.keyFingerprint
+  };
+  if (signature.trustPolicy) {
+    metadata.signerName = signature.signerName;
+    metadata.signerStatus = signature.signerStatus;
+    metadata.trustPolicy = signature.trustPolicy;
+  }
+  return metadata;
+}
+
+async function readOperationReport(releaseRoot) {
+  const reportPath = path.join(releaseRoot, RELEASE_OPERATION_FILE);
+  let content;
+  try {
+    content = await fsp.readFile(reportPath, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    throw new Error(`release operation report is not valid JSON: ${error.message}`);
+  }
 }
 
 async function installRelease(options) {
   if (!options.archivePath) {
     throw new Error("install requires an archive path");
   }
-  const signature = await verifySignatureIfRequired(options);
   const releaseRoot = path.resolve(options.releaseRoot);
+  const previousReport = await readOperationReport(releaseRoot);
+  const signature = await verifySignatureIfRequired({
+    ...options,
+    previousTrustPolicy: previousReport?.signature?.trustPolicy || null
+  });
   const releasesDir = path.join(releaseRoot, "releases");
   const currentLink = path.join(releaseRoot, "current");
   const previousLink = path.join(releaseRoot, "previous");

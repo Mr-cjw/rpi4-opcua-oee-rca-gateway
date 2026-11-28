@@ -34,7 +34,8 @@ The phased plan from the current prototype to a field pilot is documented in
 [`docs/ROADMAP.md`](docs/ROADMAP.md), with execution sequencing in the
 [delivery plan](docs/DELIVERY-PLAN.md). Field operations use the
 [pilot runbook](docs/PILOT-RUNBOOK.md), [known limitations](docs/KNOWN-LIMITATIONS.md),
-and [security review](docs/SECURITY-REVIEW.md). The software work through M6 is
+[security review](docs/SECURITY-REVIEW.md), and [release key management](docs/RELEASE-KEY-MANAGEMENT.md).
+The software work through M6 is
 implemented; the remaining release work is the Raspberry Pi hardware recovery
 gates plus site-specific signer-custody and remote-access approval for a
 controlled pilot.

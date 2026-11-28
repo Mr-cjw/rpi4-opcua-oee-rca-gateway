@@ -6,9 +6,12 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { runProcess } = require("../src/release/common");
+const { hashFile, runProcess } = require("../src/release/common");
 const { createReleasePackage } = require("../src/release/package");
-const { signReleaseArchive } = require("../src/release/signature");
+const {
+  publicKeyFingerprint,
+  signReleaseArchive
+} = require("../src/release/signature");
 const {
   RELEASE_OPERATION_FILE,
   installRelease,
@@ -112,7 +115,37 @@ async function createSigningKeys(workspace) {
     fs.writeFile(privateKeyPath, privateKey.export({ type: "pkcs8", format: "pem" })),
     fs.writeFile(publicKeyPath, publicKey.export({ type: "spki", format: "pem" }))
   ]);
-  return { privateKeyPath, publicKeyPath };
+  return { privateKeyPath, publicKeyPath, keyFingerprint: publicKeyFingerprint(publicKey) };
+}
+
+async function writeTrustPolicy(workspace, keys, overrides = {}) {
+  const policyPath = path.join(workspace.root, `trust-policy-${overrides.sequence || 1}.json`);
+  const status = overrides.status || "active";
+  const key = {
+    name: overrides.name || "release-primary",
+    fingerprint: keys.keyFingerprint,
+    status
+  };
+  if (status === "revoked") {
+    key.revokedAt = "2026-11-20T00:00:00.000Z";
+    key.revocationReason = "fixture signing key compromise";
+  }
+  await fs.writeFile(
+    policyPath,
+    `${JSON.stringify(
+      {
+        schemaVersion: "1.0",
+        kind: "rpi4-gateway-release-trust-policy",
+        policyId: "fixture-release-policy",
+        sequence: overrides.sequence || 1,
+        issuedAt: "2026-11-01T00:00:00.000Z",
+        keys: [key]
+      },
+      null,
+      2
+    )}\n`
+  );
+  return policyPath;
 }
 
 async function linkReleaseId(linkPath) {
@@ -254,6 +287,113 @@ test("release installer records a verified detached signature", async (t) => {
     await fs.readFile(path.join(workspace.releaseRoot, RELEASE_OPERATION_FILE), "utf8")
   );
   assert.deepEqual(report.signature, installed.signature);
+});
+
+test("release installer records an active trust policy signer", async (t) => {
+  const workspace = await makeWorkspace(t);
+  const release = await buildRelease(t, workspace, "5.2.0");
+  const keys = await createSigningKeys(workspace);
+  await signReleaseArchive({
+    archivePath: release.archivePath,
+    privateKeyPath: keys.privateKeyPath
+  });
+  const policyPath = await writeTrustPolicy(workspace, keys, { sequence: 2 });
+
+  const installed = await installRelease({
+    archivePath: release.archivePath,
+    publicKeyPath: keys.publicKeyPath,
+    expectedKeyFingerprint: keys.keyFingerprint,
+    trustPolicyPath: policyPath,
+    requireSignature: true,
+    releaseRoot: workspace.releaseRoot,
+    run: fakeCommandRunner([]),
+    skipNpmInstall: true,
+    healthUrl: "http://health.test/healthz",
+    healthTimeoutMs: 1000,
+    checkHealth: async () => true
+  });
+
+  assert.equal(installed.signature.signerName, "release-primary");
+  assert.equal(installed.signature.signerStatus, "active");
+  assert.equal(installed.signature.trustPolicy.sequence, 2);
+  assert.equal(installed.signature.trustPolicy.sha256, await hashFile(policyPath));
+  const report = JSON.parse(
+    await fs.readFile(path.join(workspace.releaseRoot, RELEASE_OPERATION_FILE), "utf8")
+  );
+  assert.deepEqual(report.signature, installed.signature);
+});
+
+test("release installer rejects a revoked signer before switching", async (t) => {
+  const workspace = await makeWorkspace(t);
+  const release = await buildRelease(t, workspace, "5.3.0");
+  const keys = await createSigningKeys(workspace);
+  await signReleaseArchive({
+    archivePath: release.archivePath,
+    privateKeyPath: keys.privateKeyPath
+  });
+  const policyPath = await writeTrustPolicy(workspace, keys, {
+    sequence: 2,
+    status: "revoked"
+  });
+  const commands = [];
+
+  await assert.rejects(
+    installRelease({
+      archivePath: release.archivePath,
+      publicKeyPath: keys.publicKeyPath,
+      trustPolicyPath: policyPath,
+      requireSignature: true,
+      releaseRoot: workspace.releaseRoot,
+      run: fakeCommandRunner(commands),
+      skipNpmInstall: true,
+      healthUrl: null
+    }),
+    /was revoked by trust policy/
+  );
+  assert.deepEqual(commands, []);
+  await assert.rejects(fs.readlink(path.join(workspace.releaseRoot, "current")), /ENOENT/);
+});
+
+test("release installer rejects a trust policy sequence rollback", async (t) => {
+  const workspace = await makeWorkspace(t);
+  const releaseA = await buildRelease(t, workspace, "5.4.0");
+  const releaseB = await buildRelease(t, workspace, "5.5.0");
+  const keys = await createSigningKeys(workspace);
+  for (const release of [releaseA, releaseB]) {
+    await signReleaseArchive({
+      archivePath: release.archivePath,
+      privateKeyPath: keys.privateKeyPath
+    });
+  }
+  const policyV2 = await writeTrustPolicy(workspace, keys, { sequence: 2 });
+  const policyV1 = await writeTrustPolicy(workspace, keys, { sequence: 1 });
+  const commands = [];
+  const run = fakeCommandRunner(commands);
+  const common = {
+    publicKeyPath: keys.publicKeyPath,
+    requireSignature: true,
+    releaseRoot: workspace.releaseRoot,
+    run,
+    skipNpmInstall: true,
+    healthUrl: null
+  };
+
+  const first = await installRelease({
+    ...common,
+    archivePath: releaseA.archivePath,
+    trustPolicyPath: policyV2
+  });
+  const commandCount = commands.length;
+  await assert.rejects(
+    installRelease({
+      ...common,
+      archivePath: releaseB.archivePath,
+      trustPolicyPath: policyV1
+    }),
+    /trust policy rollback detected/
+  );
+  assert.equal(commands.length, commandCount);
+  assert.equal(await linkReleaseId(path.join(workspace.releaseRoot, "current")), first.releaseId);
 });
 
 test("release installer rejects an unexpected signing fingerprint before switching", async (t) => {

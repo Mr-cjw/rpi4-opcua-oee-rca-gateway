@@ -15,9 +15,9 @@ function publicKeyFingerprint(publicKey) {
   return crypto.createHash("sha256").update(der).digest("hex");
 }
 
-function normalizeKeyFingerprint(value) {
+function normalizeKeyFingerprint(value, label = "expected signer fingerprint") {
   if (typeof value !== "string" || value.trim() === "") {
-    throw new Error("expected signer fingerprint must be a SHA-256 hex digest");
+    throw new Error(`${label} must be a SHA-256 hex digest`);
   }
   const normalized = value
     .trim()
@@ -25,7 +25,7 @@ function normalizeKeyFingerprint(value) {
     .replace(/^sha256:/, "")
     .replaceAll(":", "");
   if (!/^[0-9a-f]{64}$/.test(normalized)) {
-    throw new Error("expected signer fingerprint must be a SHA-256 hex digest");
+    throw new Error(`${label} must be a SHA-256 hex digest`);
   }
   return normalized;
 }

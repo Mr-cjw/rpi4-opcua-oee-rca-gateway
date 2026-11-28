@@ -25,6 +25,7 @@
     "release:verify": "node scripts/gateway-release.js verify",
     "release:sign": "node scripts/gateway-release.js sign",
     "release:verify-signature": "node scripts/gateway-release.js verify-signature",
+    "release:trust-policy": "node scripts/gateway-release.js trust-policy",
     "release:sbom": "node scripts/gateway-release.js sbom",
     "release:audit": "node scripts/gateway-release.js audit",
     "release:evidence": "node scripts/gateway-release.js evidence",

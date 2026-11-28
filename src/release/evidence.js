@@ -10,8 +10,12 @@ const {
   writeJsonAtomic
 } = require("./common");
 const { verifyReleasePackage } = require("./package");
-const { verifyReleaseArchiveSignature } = require("./signature");
+const {
+  normalizeKeyFingerprint,
+  verifyReleaseArchiveSignature
+} = require("./signature");
 const { validateCycloneDxSbom } = require("./sbom");
+const { verifyReleaseWithTrustPolicy } = require("./trust-policy");
 const { validateCycloneDxVex } = require("./vulnerability-audit");
 
 const EVIDENCE_SCHEMA_VERSION = "1.0";
@@ -23,6 +27,13 @@ function evidenceSidecarPathForArchive(archivePath) {
   return resolved.endsWith(".tar.gz")
     ? `${resolved.slice(0, -7)}.evidence.json`
     : `${resolved}.evidence.json`;
+}
+
+function trustPolicySidecarPathForEvidence(evidencePath) {
+  const resolved = path.resolve(evidencePath);
+  return resolved.endsWith(".evidence.json")
+    ? `${resolved.slice(0, -14)}.trust-policy.json`
+    : `${resolved}.trust-policy.json`;
 }
 
 function requireObject(value, label) {
@@ -147,8 +158,22 @@ async function createEvidenceManifest(options) {
   const vexPath = path.resolve(options.vexPath);
   const signaturePath = options.signaturePath ? path.resolve(options.signaturePath) : null;
   const publicKeyPath = options.publicKeyPath ? path.resolve(options.publicKeyPath) : null;
+  const trustPolicyPath = options.trustPolicyPath
+    ? path.resolve(options.trustPolicyPath)
+    : null;
   if (signaturePath && !publicKeyPath) {
     throw new Error("release evidence signature verification requires a public key");
+  }
+  if (trustPolicyPath && !signaturePath) {
+    throw new Error("release evidence trust policy verification requires a signature");
+  }
+  if (
+    (options.expectedPolicySha256 ||
+      options.minimumPolicySequence ||
+      options.allowRetiredSigner) &&
+    !trustPolicyPath
+  ) {
+    throw new Error("release evidence trust policy options require a trust policy path");
   }
   if (
     options.expectedKeyFingerprint !== undefined &&
@@ -159,6 +184,8 @@ async function createEvidenceManifest(options) {
   }
   const verifyRelease = options.verifyRelease || verifyReleasePackage;
   const verifySignature = options.verifySignature || verifyReleaseArchiveSignature;
+  const verifyTrustedSignature =
+    options.verifyTrustedSignature || verifyReleaseWithTrustPolicy;
   const verified = await verifyRelease({ archivePath, checksumPath });
   try {
     if (!verified.manifest.sbom) {
@@ -232,13 +259,26 @@ async function createEvidenceManifest(options) {
     assertEqual(audit.vex?.sha256, vexSha256, "release audit VEX SHA-256");
 
     let signatureArtifact = null;
+    let trustPolicyArtifact = null;
     if (signaturePath) {
-      const signatureResult = await verifySignature({
-        archivePath,
-        signaturePath,
-        publicKeyPath,
-        expectedKeyFingerprint: options.expectedKeyFingerprint
-      });
+      const signatureResult = trustPolicyPath
+        ? await verifyTrustedSignature({
+            archivePath,
+            signaturePath,
+            publicKeyPath,
+            trustPolicyPath,
+            expectedKeyFingerprint: options.expectedKeyFingerprint,
+            expectedPolicySha256: options.expectedPolicySha256,
+            minimumPolicySequence: options.minimumPolicySequence,
+            allowRetiredSigner: options.allowRetiredSigner,
+            now: options.clock
+          })
+        : await verifySignature({
+            archivePath,
+            signaturePath,
+            publicKeyPath,
+            expectedKeyFingerprint: options.expectedKeyFingerprint
+          });
       if (!signatureResult.valid) {
         throw new Error("release evidence signature verification failed");
       }
@@ -264,6 +304,23 @@ async function createEvidenceManifest(options) {
         algorithm: signatureResult.algorithm,
         keyFingerprint: signatureResult.keyFingerprint
       };
+      if (trustPolicyPath) {
+        const policySha256 = await hashFile(trustPolicyPath);
+        assertEqual(
+          signatureResult.trustPolicy?.sha256,
+          policySha256,
+          "release evidence trust policy SHA-256"
+        );
+        signatureArtifact.signerName = signatureResult.signerName;
+        signatureArtifact.signerStatus = signatureResult.signerStatus;
+        trustPolicyArtifact = {
+          path: artifactReference(evidenceDir, trustPolicyPath, "trust policy artifact path"),
+          sha256: policySha256,
+          policyId: signatureResult.trustPolicy.policyId,
+          sequence: signatureResult.trustPolicy.sequence,
+          issuedAt: signatureResult.trustPolicy.issuedAt
+        };
+      }
     } else if (audit.release.signature) {
       throw new Error("release audit records a signature but no signature file was supplied");
     }
@@ -278,6 +335,11 @@ async function createEvidenceManifest(options) {
         id: "signature",
         status: signatureArtifact ? "passed" : "not_required",
         detail: signatureArtifact?.keyFingerprint || null
+      },
+      {
+        id: "trust-policy",
+        status: trustPolicyArtifact ? "passed" : "not_required",
+        detail: trustPolicyArtifact?.sha256 || null
       },
       {
         id: "audit-gate",
@@ -324,6 +386,7 @@ async function createEvidenceManifest(options) {
           vulnerabilityCount: vexSummary.vulnerabilityCount
         },
         signature: signatureArtifact,
+        trustPolicy: trustPolicyArtifact,
         dispositions: {
           path: DISPOSITION_ARCHIVE_PATH,
           sha256: dispositionSha256
@@ -341,24 +404,59 @@ async function createReleaseEvidence(options) {
     options.outputPath || evidenceSidecarPathForArchive(options.archivePath)
   );
   const archivePath = path.resolve(options.archivePath);
+  const sourceTrustPolicyPath = options.trustPolicyPath
+    ? path.resolve(options.trustPolicyPath)
+    : null;
+  const evidenceTrustPolicyPath = sourceTrustPolicyPath
+    ? trustPolicySidecarPathForEvidence(outputPath)
+    : null;
   const inputPaths = new Set([
     archivePath,
     path.resolve(options.checksumPath || `${archivePath}.sha256`),
     path.resolve(options.sbomPath),
     path.resolve(options.auditPath),
     path.resolve(options.vexPath),
-    ...(options.signaturePath ? [path.resolve(options.signaturePath)] : [])
+    ...(options.signaturePath ? [path.resolve(options.signaturePath)] : []),
+    ...(sourceTrustPolicyPath ? [sourceTrustPolicyPath] : [])
   ]);
   if (inputPaths.has(outputPath)) {
     throw new Error("release evidence output must differ from all evidence artifacts");
   }
+  if (
+    evidenceTrustPolicyPath &&
+    inputPaths.has(evidenceTrustPolicyPath) &&
+    evidenceTrustPolicyPath !== sourceTrustPolicyPath
+  ) {
+    throw new Error("release evidence trust policy sidecar conflicts with an input artifact");
+  }
   if (!options.force && (await pathExists(outputPath))) {
     throw new Error(`release evidence output already exists: ${outputPath}`);
   }
-  const evidence = await createEvidenceManifest({
-    ...options,
-    evidenceDir: path.dirname(outputPath)
-  });
+  let copiedTrustPolicy = false;
+  if (evidenceTrustPolicyPath && sourceTrustPolicyPath !== evidenceTrustPolicyPath) {
+    const targetExists = await pathExists(evidenceTrustPolicyPath);
+    if (targetExists && !options.force) {
+      throw new Error(
+        `release evidence trust policy sidecar already exists: ${evidenceTrustPolicyPath}`
+      );
+    }
+    await fsp.copyFile(sourceTrustPolicyPath, evidenceTrustPolicyPath);
+    await fsp.chmod(evidenceTrustPolicyPath, 0o600);
+    copiedTrustPolicy = true;
+  }
+  let evidence;
+  try {
+    evidence = await createEvidenceManifest({
+      ...options,
+      trustPolicyPath: evidenceTrustPolicyPath || undefined,
+      evidenceDir: path.dirname(outputPath)
+    });
+  } catch (error) {
+    if (copiedTrustPolicy) {
+      await fsp.rm(evidenceTrustPolicyPath, { force: true }).catch(() => undefined);
+    }
+    throw error;
+  }
   await writeJsonAtomic(outputPath, evidence, { mode: 0o600 });
   return {
     outputPath,
@@ -391,6 +489,34 @@ async function verifyReleaseEvidence(options) {
   const signature = manifest.artifacts.signature
     ? resolveEvidenceArtifact(manifest, evidenceDir, "signature")
     : null;
+  const trustPolicy = manifest.artifacts.trustPolicy
+    ? resolveEvidenceArtifact(manifest, evidenceDir, "trustPolicy")
+    : null;
+  if (
+    !trustPolicy &&
+    (options.trustPolicyPath ||
+      options.expectedPolicySha256 ||
+      options.minimumPolicySequence ||
+      options.allowRetiredSigner)
+  ) {
+    throw new Error("release evidence manifest does not include a trust policy");
+  }
+  if (trustPolicy && options.trustPolicyPath) {
+    const supplied = path.resolve(options.trustPolicyPath);
+    if ((await hashFile(supplied)) !== trustPolicy.entry.sha256) {
+      throw new Error("supplied release trust policy does not match the evidence manifest");
+    }
+  }
+  const expectedPolicySha256 = trustPolicy
+    ? trustPolicy.entry.sha256
+    : options.expectedPolicySha256;
+  if (
+    options.expectedPolicySha256 &&
+    trustPolicy &&
+    normalizeKeyFingerprint(options.expectedPolicySha256) !== trustPolicy.entry.sha256
+  ) {
+    throw new Error("expected release trust policy SHA-256 does not match the evidence manifest");
+  }
   const current = await createEvidenceManifest({
     archivePath: archive.path,
     checksumPath: checksum.path,
@@ -400,10 +526,15 @@ async function verifyReleaseEvidence(options) {
     signaturePath: signature?.path,
     publicKeyPath: options.publicKeyPath,
     expectedKeyFingerprint: options.expectedKeyFingerprint,
+    trustPolicyPath: trustPolicy?.path,
+    expectedPolicySha256,
+    minimumPolicySequence: options.minimumPolicySequence,
+    allowRetiredSigner: options.allowRetiredSigner,
     evidenceDir,
     clock: options.clock,
     verifyRelease: options.verifyRelease,
-    verifySignature: options.verifySignature
+    verifySignature: options.verifySignature,
+    verifyTrustedSignature: options.verifyTrustedSignature
   });
   if (JSON.stringify(current.artifacts) !== JSON.stringify(manifest.artifacts)) {
     throw new Error("release evidence artifacts or bindings changed after manifest creation");
@@ -431,5 +562,6 @@ module.exports = {
   createEvidenceManifest,
   createReleaseEvidence,
   evidenceSidecarPathForArchive,
+  trustPolicySidecarPathForEvidence,
   verifyReleaseEvidence
 };

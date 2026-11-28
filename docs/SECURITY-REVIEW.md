@@ -18,6 +18,7 @@ Related documents:
 - [Field pilot runbook](PILOT-RUNBOOK.md)
 - [Known limitations](KNOWN-LIMITATIONS.md)
 - [Delivery plan](DELIVERY-PLAN.md)
+- [Release signing key and trust policy](RELEASE-KEY-MANAGEMENT.md)
 - [Deployment guide](../deploy/README.md)
 
 ## 1. Executive Summary
@@ -247,12 +248,19 @@ monitoring platform outside the Gateway.
   signature verification, audit, evidence creation/reverification, rehearsal,
   installation, and the field drill. Supplying a different public key fails
   before extraction or release switching even when the replacement signature is
-  cryptographically valid. Rotation requires a change-controlled update of both
-  the public key and approved fingerprint.
-- CI generates an ephemeral key pair and exercises signing plus verification as a
-  smoke test, pins its fingerprint through audit/evidence/rehearsal, and verifies
-  the evidence bundle offline. That key is not a production trust anchor and is
-  not uploaded.
+  cryptographically valid.
+- A reviewed trust policy adds active, retired, and revoked signer states.
+  Active keys may authorize installs; retired keys only verify historical
+  evidence with an explicit override; revoked keys always fail. The policy
+  digest and minimum sequence can be pinned, installation rejects a policy
+  sequence rollback recorded by `last-release.json`, and evidence stores a
+  protected copy of the exact policy plus the signer name and status. Rotation
+  overlap and revocation are rehearsable without changing application source.
+  HSM/KMS custody and independent site approval remain deployment gates.
+- CI generates an ephemeral key pair and trust policy, exercises policy
+  validation, signing, and verification as a smoke test, pins the fingerprint
+  and policy digest through audit/evidence/rehearsal, and verifies the evidence
+  bundle offline. That key is not a production trust anchor and is not uploaded.
 - `release:audit` verifies the archive and optional detached signature, runs a
   production-only npm audit against the signed lockfile, and emits an audit
   report plus CycloneDX 1.5 VEX sidecar. The evidence binds release ID, Git
@@ -380,8 +388,8 @@ bundle; execute the full staged sequence in the pilot runbook on the target Pi.
 | --- | --- | --- | --- |
 | Direct HTTP exposure | High | Loopback default; optional bearer token; input limits; reviewed TLS nginx template | Approve and install the template or equivalent; restrict 443 sources; never expose 8080 |
 | Single shared API token | Medium | Constant-time comparison; no logging of token | Use high-entropy token; rotate on personnel or incident change |
-| Unsigned release mode | Medium | Detached signatures available; required-signature installs fail closed; signer fingerprint pinned and recorded | Require `--require-signature` and `--signer-fingerprint` in production; review `last-release.json` after upgrades |
-| Release signing-key compromise | Medium | Private key stays on signing host; Pi receives public key only; expected fingerprint pinned and recorded | Use approved offline/HSM custody, rotate and revoke keys through change control, restrict signing hosts |
+| Unsigned release mode | Medium | Detached signatures available; required-signature installs fail closed; signer fingerprint pinned and recorded | Require `--require-signature`, `--signer-fingerprint`, and a pinned trust policy in production; review `last-release.json` after upgrades |
+| Release signing-key compromise | Medium | Private key stays on signing host; active/retired/revoked policy enforcement; revoked signer always fails; policy digest and sequence bound into evidence | Use approved offline/HSM custody, rotate and revoke keys through change control, restrict signing hosts, and complete site approval |
 | Plaintext secrets/PKI | Medium | File modes, dedicated service user, PKI excluded from state backup | Protect host root, use encrypted off-device backup, reissue on suspected exposure |
 | Unencrypted state/logs | Medium | Bounded retention, host permissions | Use encrypted volume or approved backup handling where required |
 | Manual certificate trust | Medium | Unknown certs rejected; explicit fingerprint update and restart | Include certificate rotation in change control and pilot drills |

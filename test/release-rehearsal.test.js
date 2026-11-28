@@ -6,6 +6,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { hashFile } = require("../src/release/common");
 const { createReleasePackage } = require("../src/release/package");
 const { signReleaseArchive } = require("../src/release/signature");
 const {
@@ -134,10 +135,37 @@ async function buildSignedRelease(t, workspace, version) {
   };
 }
 
+async function writeTrustPolicy(workspace, fingerprint) {
+  const policyPath = path.join(workspace.root, "release-trust-policy.json");
+  await fs.writeFile(
+    policyPath,
+    `${JSON.stringify(
+      {
+        schemaVersion: "1.0",
+        kind: "rpi4-gateway-release-trust-policy",
+        policyId: "rehearsal-policy",
+        sequence: 4,
+        issuedAt: "2026-11-01T00:00:00.000Z",
+        keys: [
+          {
+            name: "rehearsal-signer",
+            fingerprint,
+            status: "active"
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+  return policyPath;
+}
+
 test("offline release rehearsal covers upgrade, rollback, auto-rollback, and state restore", async (t) => {
   const workspace = await makeWorkspace(t);
   const base = await buildSignedRelease(t, workspace, "1.0.0");
   const candidate = await buildSignedRelease(t, workspace, "2.0.0");
+  const trustPolicyPath = await writeTrustPolicy(workspace, candidate.keyFingerprint);
   const outputPath = path.join(workspace.root, "rehearsal.json");
   const result = await runReleaseRehearsal({
     baseArchivePath: base.archivePath,
@@ -146,6 +174,9 @@ test("offline release rehearsal covers upgrade, rollback, auto-rollback, and sta
     outputPath,
     publicKeyPath: candidate.publicKeyPath,
     signerFingerprint: candidate.keyFingerprint,
+    trustPolicyPath,
+    expectedPolicySha256: await hashFile(trustPolicyPath),
+    minimumPolicySequence: 4,
     requireSignature: true,
     clock: () => NOW
   });
@@ -158,6 +189,9 @@ test("offline release rehearsal covers upgrade, rollback, auto-rollback, and sta
     result.report.inputs.candidate.signature.keyFingerprint,
     candidate.keyFingerprint
   );
+  assert.equal(result.report.inputs.candidate.signature.signerStatus, "active");
+  assert.equal(result.report.inputs.trustPolicy.candidate.policyId, "rehearsal-policy");
+  assert.equal(result.report.inputs.trustPolicy.candidate.sequence, 4);
   assert.deepEqual(
     result.report.scenarios.map((scenario) => [scenario.id, scenario.status]),
     [

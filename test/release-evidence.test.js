@@ -6,6 +6,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { hashFile } = require("../src/release/common");
 const { createReleasePackage, verifyReleasePackage } = require("../src/release/package");
 const {
   signReleaseArchive,
@@ -15,6 +16,7 @@ const { generateReleaseAudit } = require("../src/release/vulnerability-audit");
 const {
   createReleaseEvidence,
   evidenceSidecarPathForArchive,
+  trustPolicySidecarPathForEvidence,
   verifyReleaseEvidence
 } = require("../src/release/evidence");
 
@@ -152,8 +154,35 @@ async function buildArtifacts(t) {
     auditPath,
     vexPath,
     signaturePath: `${archivePath}.sig`,
-    publicKeyPath
+    publicKeyPath,
+    keyFingerprint: signature.keyFingerprint
   };
+}
+
+async function writeTrustPolicy(root, keyFingerprint, overrides = {}) {
+  const policyPath = path.join(root, "release-trust-policy.json");
+  await fs.writeFile(
+    policyPath,
+    `${JSON.stringify(
+      {
+        schemaVersion: "1.0",
+        kind: "rpi4-gateway-release-trust-policy",
+        policyId: "evidence-policy",
+        sequence: overrides.sequence || 3,
+        issuedAt: "2026-11-01T00:00:00.000Z",
+        keys: [
+          {
+            name: "evidence-signer",
+            fingerprint: keyFingerprint,
+            status: "active"
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+  return policyPath;
 }
 
 test("release evidence binds all signed release artifacts and verifies offline", async (t) => {
@@ -224,9 +253,63 @@ test("release evidence verification rejects changed sidecars and missing keys", 
   );
 });
 
+test("release evidence binds a trust policy and detects copied-policy tampering", async (t) => {
+  const artifacts = await buildArtifacts(t);
+  const outputPath = evidenceSidecarPathForArchive(artifacts.archivePath);
+  const policyPath = await writeTrustPolicy(artifacts.root, artifacts.keyFingerprint);
+  const policySha256 = await hashFile(policyPath);
+  const created = await createReleaseEvidence({
+    archivePath: artifacts.archivePath,
+    sbomPath: artifacts.sbomPath,
+    auditPath: artifacts.auditPath,
+    vexPath: artifacts.vexPath,
+    signaturePath: artifacts.signaturePath,
+    publicKeyPath: artifacts.publicKeyPath,
+    expectedKeyFingerprint: artifacts.keyFingerprint,
+    trustPolicyPath: policyPath,
+    expectedPolicySha256: policySha256,
+    outputPath,
+    clock: () => NOW
+  });
+
+  assert.equal(created.evidence.status, "passed");
+  assert.equal(created.evidence.artifacts.signature.signerName, "evidence-signer");
+  assert.equal(created.evidence.artifacts.signature.signerStatus, "active");
+  assert.equal(created.evidence.artifacts.trustPolicy.policyId, "evidence-policy");
+  assert.equal(created.evidence.artifacts.trustPolicy.sequence, 3);
+  assert.equal(created.evidence.artifacts.trustPolicy.sha256, policySha256);
+  assert.ok(created.evidence.checks.some((check) => check.id === "trust-policy"));
+  const copiedPolicyPath = path.join(path.dirname(outputPath), created.evidence.artifacts.trustPolicy.path);
+  assert.equal((await fs.stat(copiedPolicyPath)).mode & 0o777, 0o600);
+
+  const verified = await verifyReleaseEvidence({
+    evidencePath: outputPath,
+    publicKeyPath: artifacts.publicKeyPath,
+    expectedKeyFingerprint: artifacts.keyFingerprint,
+    clock: () => NOW
+  });
+  assert.equal(verified.status, "passed");
+  assert.equal(verified.artifacts.trustPolicy.sha256, policySha256);
+
+  await fs.appendFile(copiedPolicyPath, "\n");
+  await assert.rejects(
+    verifyReleaseEvidence({
+      evidencePath: outputPath,
+      publicKeyPath: artifacts.publicKeyPath,
+      expectedKeyFingerprint: artifacts.keyFingerprint,
+      clock: () => NOW
+    }),
+    /trust policy SHA-256 mismatch|artifacts or bindings changed/
+  );
+});
+
 test("release evidence sidecar path is derived from the archive name", () => {
   assert.equal(
     evidenceSidecarPathForArchive("/tmp/release-1.0.0.tar.gz"),
     "/tmp/release-1.0.0.evidence.json"
+  );
+  assert.equal(
+    trustPolicySidecarPathForEvidence("/tmp/release-1.0.0.evidence.json"),
+    "/tmp/release-1.0.0.trust-policy.json"
   );
 });

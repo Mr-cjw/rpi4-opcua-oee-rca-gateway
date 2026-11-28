@@ -32,7 +32,8 @@ injected-fault coverage is at L1. L3 and L4 remain open.
   migration.
 - A 72-hour soak cannot be shortened by a local smoke run.
 - A release may be promoted only with matching archive, checksum, signature,
-  signer fingerprint, SBOM, audit, VEX, and evidence artifacts.
+  signer fingerprint, trust-policy digest/sequence, SBOM, audit, VEX, and
+  evidence artifacts.
 - New integration features must not displace unresolved durability and release
   gates unless the production owner explicitly accepts the added risk.
 
@@ -70,6 +71,13 @@ Deliverables:
 - Update the key-management procedure for custody, dual control where required,
   rotation, revocation, and compromise response.
 
+Completed software portion 2026-11-28: reviewed policy schema and validation,
+active/retired/revoked authorization, rotation-overlap fixtures, explicit
+historical verification, policy digest and sequence pinning, install-time
+policy-rollback rejection, policy-bound release evidence, signed CI smoke
+coverage, and field-drill policy continuity. The procedure is documented in
+[release key management](RELEASE-KEY-MANAGEMENT.md).
+
 Acceptance:
 
 - A valid signature from an unapproved or revoked signer fails before archive
@@ -77,7 +85,7 @@ Acceptance:
 - Rotation can be rehearsed without editing application source.
 - Removing or expiring a trust entry is itself a reviewed, reversible change.
 
-Still missing: HSM/KMS custody and independent site approval.
+Still missing: production HSM/KMS custody and independent site approval.
 
 ### S2. State-Format Migration Boundary
 
@@ -174,8 +182,8 @@ signer fingerprint.
 - Confirm Pi 4-class hardware, arm64 OS, supported Node.js, storage identity,
   power source, and network path.
 - Run a clean-boot strict hardware check and retain the pre-change state backup.
-- Confirm the approved release archive, public key, signer fingerprint, and
-  evidence bundle.
+- Confirm the approved release archive, public key, signer fingerprint,
+  trust-policy digest/sequence, and evidence bundle.
 
 Exit: no strict hardware, signature, key-identity, or state-backup failure.
 
@@ -234,8 +242,8 @@ the L4 gate.
 | Emergency security release | Narrowly scoped remediation | Expedited review, full signature/audit/evidence chain, post-release review within the next working cycle |
 
 Every promotion record must contain the release ID, Git commit, archive SHA-256,
-signer fingerprint, SBOM review, audit/VEX result, rehearsal result, hardware
-gate status, approver roles, and rollback target.
+signer fingerprint, trust-policy digest/sequence, SBOM review, audit/VEX result,
+rehearsal result, hardware gate status, approver roles, and rollback target.
 
 ## 7. Definition of Ready and Done
 
