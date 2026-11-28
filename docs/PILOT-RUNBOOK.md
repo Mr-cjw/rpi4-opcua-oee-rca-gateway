@@ -226,7 +226,8 @@ tool never reboots the host and never replaces a certificate. `install` and
 Before starting, prepare:
 
 - A verified release archive, checksum, detached signature, and release public
-  key. Use `--require-signature` for the pilot record.
+  key. Use `--require-signature` and the approved public-key SHA-256 fingerprint
+  from the change record with `--signer-fingerprint`.
 - A verified state backup copied off the Pi. Do not use the live state directory.
 - A known-good current release and its previous release metadata.
 - The approved HTTPS URL, optional private CA or mTLS files, and the API token
@@ -251,6 +252,7 @@ sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set 
     --state-dir "$DRILL_STATE" --phase preflight \
     --archive /var/tmp/<release>.tar.gz \
     --public-key /etc/rpi4-gateway/release-public.pem \
+    --signer-fingerprint <approved-public-key-sha256> \
     --require-signature \
     --state-backup /var/backups/rpi4-gateway/20261128T120000Z \
     --url https://gateway.example.invalid --json'
@@ -487,8 +489,12 @@ and CycloneDX VEX sidecar with the archive checksum and signature. Confirm the
 extracted SBOM identifies the expected application version and production
 component set, and that every high or critical advisory has an active disposition
 or no longer appears. Record the public-key SHA-256 fingerprint from the signature
-report and require it during the signed install. The release private key must
-remain on the trusted signing host and must not be copied to the Pi.
+report and pass it through `--signer-fingerprint` during verification, evidence,
+rehearsal, and signed install. A different public key must fail even if it
+produces a cryptographically valid signature. The release private key must remain
+on the trusted signing host and must not be copied to the Pi. Key rotation and
+revocation are change-controlled: approve the replacement fingerprint before
+distributing the new public key, and reject the old fingerprint after cutover.
 
 When target hardware is unavailable, run `release:rehearse` with the previous and
 candidate archives plus a copy of the target state directory. It verifies signed

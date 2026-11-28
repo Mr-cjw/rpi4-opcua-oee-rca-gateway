@@ -11,6 +11,7 @@ const { hashFile, lstatIfExists, writeJsonAtomic } = require("../release/common"
 const { installRelease, listReleases, rollbackRelease } = require("../release/installer");
 const { verifyReleasePackage } = require("../release/package");
 const {
+  normalizeKeyFingerprint,
   signaturePathFor,
   verifyReleaseArchiveSignature
 } = require("../release/signature");
@@ -104,6 +105,9 @@ function normalizeConfig(options) {
   if (!/^[A-Za-z0-9_.@-]+$/.test(service)) {
     throw new Error("--service contains unsupported characters");
   }
+  if (options.signerFingerprint && !options.publicKey) {
+    throw new Error("--signer-fingerprint requires --public-key");
+  }
   const archivePath = path.resolve(options.archive);
   return {
     archivePath,
@@ -112,6 +116,9 @@ function normalizeConfig(options) {
       options.signature || signaturePathFor(archivePath)
     ),
     publicKeyPath: options.publicKey ? path.resolve(options.publicKey) : null,
+    signerFingerprint: options.signerFingerprint
+      ? normalizeKeyFingerprint(options.signerFingerprint)
+      : null,
     requireSignature: options.requireSignature === true,
     stateBackupPath: options.stateBackup ? path.resolve(options.stateBackup) : null,
     releaseRoot,
@@ -246,6 +253,17 @@ async function loadState(stateDir) {
     (typeof state.config.storagePath !== "string" || state.config.storagePath === "")
   ) {
     throw new Error("drill state config is invalid: storagePath");
+  }
+  if (
+    state.config.signerFingerprint !== undefined &&
+    state.config.signerFingerprint !== null &&
+    (typeof state.config.signerFingerprint !== "string" ||
+      !/^[0-9a-f]{64}$/.test(state.config.signerFingerprint))
+  ) {
+    throw new Error("drill state config is invalid: signerFingerprint");
+  }
+  if (state.config.signerFingerprint && !state.config.publicKeyPath) {
+    throw new Error("drill state config requires a public key for the signer fingerprint");
   }
   for (const entry of state.evidence) {
     if (
@@ -434,7 +452,8 @@ async function preflight(options, stateDir, dependencies, now) {
       signature = await verifySignature({
         archivePath: config.archivePath,
         signaturePath: config.signaturePath,
-        publicKeyPath: config.publicKeyPath
+        publicKeyPath: config.publicKeyPath,
+        expectedKeyFingerprint: config.signerFingerprint
       });
       if (!signature.valid) {
         throw new Error(`release signature verification failed: ${config.signaturePath}`);
@@ -571,6 +590,7 @@ async function installPhase(options, stateDir, state, dependencies) {
     checksumPath: state.config.checksumPath,
     signaturePath: state.config.signaturePath,
     publicKeyPath: state.config.publicKeyPath,
+    expectedKeyFingerprint: state.config.signerFingerprint,
     requireSignature: state.config.requireSignature,
     releaseRoot: state.config.releaseRoot,
     stateBackup: state.config.stateBackupPath,
@@ -1044,6 +1064,7 @@ function parseFieldDrillArgs(args) {
     checksum: null,
     signature: null,
     publicKey: null,
+    signerFingerprint: null,
     requireSignature: false,
     stateBackup: null,
     releaseRoot: DEFAULT_RELEASE_ROOT,
@@ -1073,6 +1094,7 @@ function parseFieldDrillArgs(args) {
     ["--checksum", "checksum"],
     ["--signature", "signature"],
     ["--public-key", "publicKey"],
+    ["--signer-fingerprint", "signerFingerprint"],
     ["--state-backup", "stateBackup"],
     ["--release-root", "releaseRoot"],
     ["--service", "service"],

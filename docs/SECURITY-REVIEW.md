@@ -242,8 +242,16 @@ monitoring platform outside the Gateway.
   Failure is closed and leaves `current` unchanged. `last-release.json` records
   the verified algorithm, public-key SHA-256 fingerprint, and SBOM summary, not
   the key path.
+- `--signer-fingerprint` pins the expected release public-key SHA-256 on
+  signature verification, audit, evidence creation/reverification, rehearsal,
+  installation, and the field drill. Supplying a different public key fails
+  before extraction or release switching even when the replacement signature is
+  cryptographically valid. Rotation requires a change-controlled update of both
+  the public key and approved fingerprint.
 - CI generates an ephemeral key pair and exercises signing plus verification as a
-  smoke test. That key is not a production trust anchor and is not uploaded.
+  smoke test, pins its fingerprint through audit/evidence/rehearsal, and verifies
+  the evidence bundle offline. That key is not a production trust anchor and is
+  not uploaded.
 - `release:audit` verifies the archive and optional detached signature, runs a
   production-only npm audit against the signed lockfile, and emits an audit
   report plus CycloneDX 1.5 VEX sidecar. The evidence binds release ID, Git
@@ -371,8 +379,8 @@ bundle; execute the full staged sequence in the pilot runbook on the target Pi.
 | --- | --- | --- | --- |
 | Direct HTTP exposure | High | Loopback default; optional bearer token; input limits; reviewed TLS nginx template | Approve and install the template or equivalent; restrict 443 sources; never expose 8080 |
 | Single shared API token | Medium | Constant-time comparison; no logging of token | Use high-entropy token; rotate on personnel or incident change |
-| Unsigned release mode | Medium | Detached signatures available; required-signature installs fail closed; fingerprint recorded | Require `--require-signature` in production and review `last-release.json` after upgrades |
-| Release signing-key compromise | Medium | Private key stays on signing host; Pi receives public key only; fingerprint recorded | Use approved offline/HSM custody, rotate and revoke keys through change control, restrict signing hosts |
+| Unsigned release mode | Medium | Detached signatures available; required-signature installs fail closed; signer fingerprint pinned and recorded | Require `--require-signature` and `--signer-fingerprint` in production; review `last-release.json` after upgrades |
+| Release signing-key compromise | Medium | Private key stays on signing host; Pi receives public key only; expected fingerprint pinned and recorded | Use approved offline/HSM custody, rotate and revoke keys through change control, restrict signing hosts |
 | Plaintext secrets/PKI | Medium | File modes, dedicated service user, PKI excluded from state backup | Protect host root, use encrypted off-device backup, reissue on suspected exposure |
 | Unencrypted state/logs | Medium | Bounded retention, host permissions | Use encrypted volume or approved backup handling where required |
 | Manual certificate trust | Medium | Unknown certs rejected; explicit fingerprint update and restart | Include certificate rotation in change control and pilot drills |

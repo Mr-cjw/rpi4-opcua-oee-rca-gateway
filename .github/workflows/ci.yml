@@ -131,6 +131,9 @@ jobs:
             -out "$KEY_DIR/release-private.pem"
           openssl pkey -in "$KEY_DIR/release-private.pem" \
             -pubout -out "$KEY_DIR/release-public.pem"
+          FINGERPRINT=$(openssl pkey -pubin -in "$KEY_DIR/release-public.pem" \
+            -outform DER | sha256sum | awk '{print $1}')
+          echo "RELEASE_KEY_FINGERPRINT=$FINGERPRINT" >> "$GITHUB_ENV"
 
       - name: Build and verify release
         run: |
@@ -157,10 +160,12 @@ jobs:
             --private-key "$KEY_DIR/release-private.pem"
           npm run release:verify-signature -- \
             --archive "$RELEASE_ARCHIVE" \
-            --public-key "$KEY_DIR/release-public.pem"
+            --public-key "$KEY_DIR/release-public.pem" \
+            --signer-fingerprint "$RELEASE_KEY_FINGERPRINT"
           npm run release:audit -- \
             --archive "$RELEASE_ARCHIVE" \
             --public-key "$KEY_DIR/release-public.pem" \
+            --signer-fingerprint "$RELEASE_KEY_FINGERPRINT" \
             --require-signature \
             --dispositions security/advisory-dispositions.json \
             --output "$RELEASE_AUDIT" \
@@ -171,8 +176,13 @@ jobs:
             --audit "$RELEASE_AUDIT" \
             --vex "$RELEASE_VEX" \
             --public-key "$KEY_DIR/release-public.pem" \
+            --signer-fingerprint "$RELEASE_KEY_FINGERPRINT" \
             --require-signature \
             --output "$RELEASE_EVIDENCE"
+          npm run release:verify-evidence -- \
+            --evidence "$RELEASE_EVIDENCE" \
+            --public-key "$KEY_DIR/release-public.pem" \
+            --signer-fingerprint "$RELEASE_KEY_FINGERPRINT"
 
       - name: Build signed rehearsal releases
         run: |
@@ -221,6 +231,7 @@ jobs:
             --candidate-archive "$REHEARSAL_CANDIDATE_ARCHIVE" \
             --state-dir "$STATE_DIR" \
             --public-key "${{ runner.temp }}/release-smoke/release-public.pem" \
+            --signer-fingerprint "$RELEASE_KEY_FINGERPRINT" \
             --require-signature \
             --output "$REPORT"
           test "$(stat -c '%a' "$REPORT")" = "600"

@@ -111,14 +111,26 @@ function createSimulatedRunner(commands) {
   };
 }
 
-function signatureOptions({ archivePath, publicKeyPath, signaturePath, requireSignature }) {
-  if (!publicKeyPath && !signaturePath && !requireSignature) {
-    return { publicKeyPath: undefined, signaturePath: undefined, requireSignature: false };
+function signatureOptions({
+  archivePath,
+  publicKeyPath,
+  signaturePath,
+  requireSignature,
+  expectedKeyFingerprint
+}) {
+  if (!publicKeyPath && !signaturePath && !requireSignature && !expectedKeyFingerprint) {
+    return {
+      publicKeyPath: undefined,
+      signaturePath: undefined,
+      requireSignature: false,
+      expectedKeyFingerprint: undefined
+    };
   }
   return {
     publicKeyPath,
     signaturePath: signaturePath || `${path.resolve(archivePath)}.sig`,
-    requireSignature: Boolean(requireSignature)
+    requireSignature: Boolean(requireSignature),
+    expectedKeyFingerprint
   };
 }
 
@@ -337,13 +349,15 @@ async function runReleaseRehearsal(options) {
       archivePath: baseArchivePath,
       publicKeyPath: options.publicKeyPath,
       signaturePath: options.baseSignaturePath,
-      requireSignature: options.requireSignature
+      requireSignature: options.requireSignature,
+      expectedKeyFingerprint: options.signerFingerprint
     });
     const candidateSignature = signatureOptions({
       archivePath: candidateArchivePath,
       publicKeyPath: options.publicKeyPath,
       signaturePath: options.candidateSignaturePath,
-      requireSignature: options.requireSignature
+      requireSignature: options.requireSignature,
+      expectedKeyFingerprint: options.signerFingerprint
     });
     const basePreflight = await preflightArchive({
       archivePath: baseArchivePath,

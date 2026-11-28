@@ -310,8 +310,8 @@ Deliverables:
 - Completed 2026-11-28: field-pilot runbook with acceptance/exit criteria and a
   known-limitations register.
 - Completed 2026-11-28: detached release signing and verification commands,
-  mandatory-signature installation gate, public-key fingerprint recording, and
-  CI signing smoke coverage.
+  mandatory-signature installation gate, public-key fingerprint recording and
+  pinning, offline evidence reverification, and CI signing smoke coverage.
 - Completed 2026-11-28: native npm CycloneDX 1.5 SBOM generation embedded in
   release archives, covered by manifest checksums and archive signatures, with
   verified sidecar extraction and CI artifact export.
@@ -334,9 +334,10 @@ The next implementation-sized units are:
    alongside the 72-hour soak on Raspberry Pi hardware with hardware sampling
    enabled; retain strict hardware readiness reports before and after the run.
 3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
-   hardware with the staged `field:drill` workflow; define release-key custody,
-   rotation, and revocation procedures; retain the release audit and CycloneDX
-   VEX evidence generated for the embedded SBOM.
+   hardware with the staged `field:drill` workflow; complete release-key custody,
+   rotation, and revocation procedures around the implemented fingerprint-pinning
+   gate; retain the release audit and CycloneDX VEX evidence generated for the
+   embedded SBOM.
 4. Complete a real-PLC certificate-rotation drill, then approve, install, and
    exercise the supplied reverse-proxy/TLS template on the target network before
    exposing the API beyond loopback.
@@ -354,8 +355,9 @@ A release is not field-ready unless all of these are true:
 - 72-hour soak and reconnect/power-loss/disk-full tests pass.
 - OEE responses state their time basis, counter mode, loss classification, and data-quality warnings.
 - Backup, restore, upgrade, and rollback have been exercised on Raspberry Pi hardware.
-- Production installs require and verify the detached release signature, and the
-  approval record contains the signer public-key fingerprint.
+- Production installs require and verify the detached release signature, pin the
+  approved signer public-key fingerprint, and retain that fingerprint in the
+  approval record.
 - HTTP and OPC UA security settings are explicit; no insecure production default is silent.
 - Remote access, if enabled, uses the approved TLS template or equivalent;
   port 8080 is not externally reachable and the nginx protocol, authentication,

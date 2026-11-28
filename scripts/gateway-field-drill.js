@@ -39,6 +39,7 @@ async function main() {
         "  --checksum <file>          Archive checksum (default <archive>.sha256)",
         "  --signature <file>         Detached signature (default <archive>.sig)",
         "  --public-key <file>        Release-signing public key",
+        "  --signer-fingerprint <sha256>  Pin the release public key fingerprint",
         "  --require-signature        Fail unless the signature verifies",
         "  --state-backup <dir>       Verified state backup for the drill",
         "  --url <https-url>          Approved edge URL",

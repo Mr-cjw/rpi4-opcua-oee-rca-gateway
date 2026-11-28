@@ -123,8 +123,15 @@ async function buildSignedRelease(t, workspace, version) {
     clock: () => NOW
   });
   const { privateKeyPath, publicKeyPath } = await ensureSigningKeys(workspace);
-  await signReleaseArchive({ archivePath: release.archivePath, privateKeyPath });
-  return { archivePath: release.archivePath, publicKeyPath };
+  const signed = await signReleaseArchive({
+    archivePath: release.archivePath,
+    privateKeyPath
+  });
+  return {
+    archivePath: release.archivePath,
+    publicKeyPath,
+    keyFingerprint: signed.keyFingerprint
+  };
 }
 
 test("offline release rehearsal covers upgrade, rollback, auto-rollback, and state restore", async (t) => {
@@ -138,6 +145,7 @@ test("offline release rehearsal covers upgrade, rollback, auto-rollback, and sta
     stateDir: workspace.stateDir,
     outputPath,
     publicKeyPath: candidate.publicKeyPath,
+    signerFingerprint: candidate.keyFingerprint,
     requireSignature: true,
     clock: () => NOW
   });
@@ -146,6 +154,10 @@ test("offline release rehearsal covers upgrade, rollback, auto-rollback, and sta
   assert.equal(result.report.mode, "offline-simulation");
   assert.equal(result.report.inputs.base.signature.verified, true);
   assert.equal(result.report.inputs.candidate.signature.verified, true);
+  assert.equal(
+    result.report.inputs.candidate.signature.keyFingerprint,
+    candidate.keyFingerprint
+  );
   assert.deepEqual(
     result.report.scenarios.map((scenario) => [scenario.id, scenario.status]),
     [

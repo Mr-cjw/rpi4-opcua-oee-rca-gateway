@@ -37,13 +37,13 @@ function usage() {
       "  npm run release:package -- [--root <directory>] [--output <directory>] [--version <version>] [--allow-dirty] [--force] [--json]",
       "  npm run release:verify -- --archive <file.tar.gz> [--checksum <file.sha256>] [--json]",
       "  npm run release:sign -- --archive <file.tar.gz> --private-key <file.pem> [--signature <file.sig>] [--json]",
-      "  npm run release:verify-signature -- --archive <file.tar.gz> --public-key <file.pem> [--signature <file.sig>] [--json]",
+      "  npm run release:verify-signature -- --archive <file.tar.gz> --public-key <file.pem> [--signature <file.sig>] [--signer-fingerprint <sha256>] [--json]",
       "  npm run release:sbom -- --archive <file.tar.gz> [--output <file.cdx.json>] [--force] [--json]",
-      "  npm run release:audit -- --archive <file.tar.gz> [--checksum <file.sha256>] [--dispositions <file.json>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--output <file.json>] [--vex-output <file.cdx.json>] [--force] [--json]",
-      "  npm run release:evidence -- --archive <file.tar.gz> --sbom <file.cdx.json> --audit <file.json> --vex <file.cdx.json> [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--output <file.json>] [--force] [--json]",
-      "  npm run release:verify-evidence -- --evidence <file.json> [--public-key <file.pem>] [--json]",
-      "  npm run release:rehearse -- --base-archive <file.tar.gz> --candidate-archive <file.tar.gz> --state-dir <directory> --output <file.json> [--public-key <file.pem>] [--require-signature] [--work-dir <directory>] [--force] [--json]",
-      "  npm run release:install -- --archive <file.tar.gz> [--checksum <file.sha256>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--release-root <directory>] [--state-backup <directory>] [--service <name>] [--health-url <url>] [--json]",
+      "  npm run release:audit -- --archive <file.tar.gz> [--checksum <file.sha256>] [--dispositions <file.json>] [--public-key <file.pem>] [--signature <file.sig>] [--signer-fingerprint <sha256>] [--require-signature] [--output <file.json>] [--vex-output <file.cdx.json>] [--force] [--json]",
+      "  npm run release:evidence -- --archive <file.tar.gz> --sbom <file.cdx.json> --audit <file.json> --vex <file.cdx.json> [--public-key <file.pem>] [--signature <file.sig>] [--signer-fingerprint <sha256>] [--require-signature] [--output <file.json>] [--force] [--json]",
+      "  npm run release:verify-evidence -- --evidence <file.json> [--public-key <file.pem>] [--signer-fingerprint <sha256>] [--json]",
+      "  npm run release:rehearse -- --base-archive <file.tar.gz> --candidate-archive <file.tar.gz> --state-dir <directory> --output <file.json> [--public-key <file.pem>] [--signer-fingerprint <sha256>] [--require-signature] [--work-dir <directory>] [--force] [--json]",
+      "  npm run release:install -- --archive <file.tar.gz> [--checksum <file.sha256>] [--public-key <file.pem>] [--signature <file.sig>] [--signer-fingerprint <sha256>] [--require-signature] [--release-root <directory>] [--state-backup <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:rollback -- [--to <release-id>] [--release-root <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:status -- [--release-root <directory>] [--json]",
       "",
@@ -54,6 +54,7 @@ function usage() {
       "  --allow-dirty  Build a diagnostic archive from tracked working-tree changes.",
       "  --force        Replace an existing output archive.",
       "  --require-signature  Refuse to install unless the detached signature verifies.",
+      "  --signer-fingerprint  Require the release public key SHA-256 to match.",
       "  --json         Print a machine-readable result."
     ].join("\n")
   );
@@ -81,6 +82,7 @@ function parseArgs(argv) {
     ["--health-timeout-ms", "healthTimeoutMs"],
     ["--private-key", "privateKey"],
     ["--public-key", "publicKey"],
+    ["--signer-fingerprint", "signerFingerprint"],
     ["--signature", "signature"],
     ["--dispositions", "dispositions"],
     ["--vex-output", "vexOutput"],
@@ -249,7 +251,8 @@ async function verifySignatureOrThrow(options, label = "verify-signature") {
   const result = await verifyReleaseArchiveSignature({
     archivePath: options.archive,
     signaturePath: options.signature || signaturePathFor(options.archive),
-    publicKeyPath: options.publicKey
+    publicKeyPath: options.publicKey,
+    expectedKeyFingerprint: options.signerFingerprint
   });
   if (!result.valid) {
     throw new Error(`release signature verification failed: ${result.signaturePath}`);
@@ -435,7 +438,12 @@ async function main() {
       throw new Error("audit requires --archive <file.tar.gz>");
     }
     let signature = null;
-    if (options.publicKey || options.signature || options.requireSignature) {
+    if (
+      options.publicKey ||
+      options.signature ||
+      options.requireSignature ||
+      options.signerFingerprint
+    ) {
       signature = await verifySignatureOrThrow(options, "audit");
     }
     const result = await generateReleaseAudit({
@@ -464,9 +472,12 @@ async function main() {
         "evidence requires --archive, --sbom, --audit, and --vex"
       );
     }
+    if (options.signerFingerprint && !options.publicKey) {
+      throw new Error("evidence --signer-fingerprint requires --public-key <file.pem>");
+    }
     const signaturePath =
       options.signature ||
-      (options.publicKey || options.requireSignature
+      (options.publicKey || options.requireSignature || options.signerFingerprint
         ? signaturePathFor(options.archive)
         : undefined);
     if (options.requireSignature && !signaturePath) {
@@ -483,6 +494,7 @@ async function main() {
       vexPath: options.vex,
       signaturePath,
       publicKeyPath: options.publicKey,
+      expectedKeyFingerprint: options.signerFingerprint,
       outputPath: options.output,
       force: options.force
     });
@@ -501,9 +513,15 @@ async function main() {
     if (!options.evidence) {
       throw new Error("verify-evidence requires --evidence <file.json>");
     }
+    if (options.signerFingerprint && !options.publicKey) {
+      throw new Error(
+        "verify-evidence --signer-fingerprint requires --public-key <file.pem>"
+      );
+    }
     const result = await verifyReleaseEvidence({
       evidencePath: options.evidence,
-      publicKeyPath: options.publicKey
+      publicKeyPath: options.publicKey,
+      expectedKeyFingerprint: options.signerFingerprint
     });
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
@@ -527,8 +545,10 @@ async function main() {
         "rehearse requires --base-archive, --candidate-archive, --state-dir, and --output"
       );
     }
-    if (options.requireSignature && !options.publicKey) {
-      throw new Error("rehearse --require-signature requires --public-key <file.pem>");
+    if ((options.requireSignature || options.signerFingerprint) && !options.publicKey) {
+      throw new Error(
+        "rehearse --require-signature or --signer-fingerprint requires --public-key <file.pem>"
+      );
     }
     const result = await runReleaseRehearsal({
       baseArchivePath: options.baseArchive,
@@ -537,6 +557,7 @@ async function main() {
       outputPath: options.output,
       workDir: options.workDir,
       publicKeyPath: options.publicKey,
+      signerFingerprint: options.signerFingerprint,
       baseSignaturePath: options.baseSignature,
       candidateSignaturePath: options.candidateSignature,
       requireSignature: options.requireSignature,
@@ -581,6 +602,9 @@ async function main() {
       throw new Error("install requires --archive <file.tar.gz>");
     }
     await verifyBackupIfProvided(options);
+    if (options.signerFingerprint && !options.publicKey) {
+      throw new Error("install --signer-fingerprint requires --public-key <file.pem>");
+    }
     const result = await installRelease({
       archivePath: options.archive,
       checksumPath: options.checksum,
@@ -591,6 +615,7 @@ async function main() {
       healthTimeoutMs: healthTimeout(options),
       requireSignature: options.requireSignature,
       publicKeyPath: options.publicKey,
+      expectedKeyFingerprint: options.signerFingerprint,
       signaturePath: options.signature
     });
     if (options.json) {

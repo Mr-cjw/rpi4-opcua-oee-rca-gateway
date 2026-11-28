@@ -179,11 +179,21 @@ test("release evidence binds all signed release artifacts and verifies offline",
   const verified = await verifyReleaseEvidence({
     evidencePath: outputPath,
     publicKeyPath: artifacts.publicKeyPath,
+    expectedKeyFingerprint: created.evidence.artifacts.signature.keyFingerprint,
     clock: () => NOW
   });
   assert.equal(verified.status, "passed");
   assert.equal(verified.release.releaseId, created.evidence.release.releaseId);
   assert.equal(verified.artifacts.archive.sha256, created.evidence.artifacts.archive.sha256);
+  await assert.rejects(
+    verifyReleaseEvidence({
+      evidencePath: outputPath,
+      publicKeyPath: artifacts.publicKeyPath,
+      expectedKeyFingerprint: "0".repeat(64),
+      clock: () => NOW
+    }),
+    /release signer fingerprint mismatch/
+  );
 });
 
 test("release evidence verification rejects changed sidecars and missing keys", async (t) => {

@@ -15,6 +15,21 @@ function publicKeyFingerprint(publicKey) {
   return crypto.createHash("sha256").update(der).digest("hex");
 }
 
+function normalizeKeyFingerprint(value) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error("expected signer fingerprint must be a SHA-256 hex digest");
+  }
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/^sha256:/, "")
+    .replaceAll(":", "");
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error("expected signer fingerprint must be a SHA-256 hex digest");
+  }
+  return normalized;
+}
+
 function archiveFingerprint(archive) {
   return crypto.createHash("sha256").update(archive).digest("hex");
 }
@@ -56,7 +71,8 @@ async function signReleaseArchive({ archivePath, privateKeyPath, outputPath } = 
 async function verifyReleaseArchiveSignature({
   archivePath,
   signaturePath,
-  publicKeyPath
+  publicKeyPath,
+  expectedKeyFingerprint
 } = {}) {
   if (!archivePath) {
     throw new Error("release signature verification requires an archive path");
@@ -80,18 +96,30 @@ async function verifyReleaseArchiveSignature({
   } catch (error) {
     throw new Error(`unable to read release verification key: ${error.message}`);
   }
+  const keyFingerprint = publicKeyFingerprint(publicKey);
+  const normalizedExpected =
+    expectedKeyFingerprint === undefined || expectedKeyFingerprint === null
+      ? null
+      : normalizeKeyFingerprint(expectedKeyFingerprint);
+  if (normalizedExpected !== null && keyFingerprint !== normalizedExpected) {
+    throw new Error(
+      `release signer fingerprint mismatch: expected ${normalizedExpected}, got ${keyFingerprint}`
+    );
+  }
   return {
     archivePath: resolvedArchive,
     archiveSha256: archiveFingerprint(archive),
     signaturePath: resolvedSignature,
     algorithm: "sha256",
-    keyFingerprint: publicKeyFingerprint(publicKey),
+    keyFingerprint,
+    expectedKeyFingerprint: normalizedExpected,
     valid: crypto.verify("sha256", archive, publicKey, signature)
   };
 }
 
 module.exports = {
   SIGNATURE_EXTENSION,
+  normalizeKeyFingerprint,
   publicKeyFingerprint,
   signReleaseArchive,
   signaturePathFor,

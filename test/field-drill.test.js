@@ -20,6 +20,7 @@ const BOOT_BEFORE = "11111111-1111-4111-8111-111111111111";
 const BOOT_AFTER = "22222222-2222-4222-8222-222222222222";
 const FINGERPRINT_BEFORE = "AA:11:22:33";
 const FINGERPRINT_AFTER = "BB:44:55:66";
+const SIGNER_FINGERPRINT = "b".repeat(64);
 
 function commissionReport(releaseId, fingerprint, overrides = {}) {
   const overallStatus = overrides.overallStatus || "pass";
@@ -119,11 +120,14 @@ function makeDependencies(overrides = {}) {
         }
       };
     },
-    verifyReleaseSignature: async () => ({
-      valid: true,
-      algorithm: "sha256",
-      keyFingerprint: "b".repeat(64)
-    }),
+    verifyReleaseSignature: async (options) => {
+      assert.equal(options.expectedKeyFingerprint, SIGNER_FINGERPRINT);
+      return {
+        valid: true,
+        algorithm: "sha256",
+        keyFingerprint: SIGNER_FINGERPRINT
+      };
+    },
     verifyStateBackup: async () => ({
       manifest: {
         fileCount: 3,
@@ -186,6 +190,7 @@ function preflightOptions(root, overrides = {}) {
     checksum: path.join(root, "release.tar.gz.sha256"),
     signature: path.join(root, "release.tar.gz.sig"),
     publicKey: path.join(root, "release-public.pem"),
+    signerFingerprint: SIGNER_FINGERPRINT,
     requireSignature: true,
     stateBackup: path.join(root, "state-backup"),
     url: "https://gateway.example.invalid/",
@@ -743,6 +748,8 @@ test("field drill arguments and CLI use exit code 2 for usage errors", async (t)
     "/tmp/drill",
     "--storage-path",
     "/var/lib/rpi4-gateway",
+    "--signer-fingerprint",
+    SIGNER_FINGERPRINT,
     "--skip-hardware",
     "--execute",
     "--json"
@@ -750,6 +757,7 @@ test("field drill arguments and CLI use exit code 2 for usage errors", async (t)
   assert.equal(parsed.execute, true);
   assert.equal(parsed.json, true);
   assert.equal(parsed.storagePath, "/var/lib/rpi4-gateway");
+  assert.equal(parsed.signerFingerprint, SIGNER_FINGERPRINT);
   assert.equal(parsed.hardware, false);
   assert.equal(parseFieldDrillArgs(["--help"]).help, true);
 

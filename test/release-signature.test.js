@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const {
+  normalizeKeyFingerprint,
   signReleaseArchive,
   signaturePathFor,
   verifyReleaseArchiveSignature
@@ -36,6 +37,34 @@ test("release signatures verify the exact archive and reject tampering", async (
   assert.equal(verified.valid, true);
   assert.equal(verified.archiveSha256, signed.archiveSha256);
   assert.equal(verified.keyFingerprint, signed.keyFingerprint);
+
+  const colonFingerprint = signed.keyFingerprint.match(/.{2}/g).join(":").toUpperCase();
+  const pinned = await verifyReleaseArchiveSignature({
+    archivePath,
+    signaturePath: signed.signaturePath,
+    publicKeyPath,
+    expectedKeyFingerprint: `sha256:${colonFingerprint}`
+  });
+  assert.equal(pinned.expectedKeyFingerprint, signed.keyFingerprint);
+  assert.equal(normalizeKeyFingerprint(colonFingerprint), signed.keyFingerprint);
+  await assert.rejects(
+    verifyReleaseArchiveSignature({
+      archivePath,
+      signaturePath: signed.signaturePath,
+      publicKeyPath,
+      expectedKeyFingerprint: "0".repeat(64)
+    }),
+    /release signer fingerprint mismatch/
+  );
+  await assert.rejects(
+    verifyReleaseArchiveSignature({
+      archivePath,
+      signaturePath: signed.signaturePath,
+      publicKeyPath,
+      expectedKeyFingerprint: "not-a-fingerprint"
+    }),
+    /must be a SHA-256 hex digest/
+  );
 
   await fs.appendFile(archivePath, "tampered\n");
   const tampered = await verifyReleaseArchiveSignature({

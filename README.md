@@ -35,7 +35,8 @@ The phased plan from the current prototype to a field pilot is documented in
 [pilot runbook](docs/PILOT-RUNBOOK.md), [known limitations](docs/KNOWN-LIMITATIONS.md),
 and [security review](docs/SECURITY-REVIEW.md). The software work through M6 is
 implemented; the remaining release work is the Raspberry Pi hardware recovery
-gates for a controlled pilot.
+gates plus site-specific signer-custody and remote-access approval for a
+controlled pilot.
 
 ## Requirements
 
@@ -476,15 +477,22 @@ never be copied to the Pi, Git, the release directory, or a build artifact:
 npm run release:sign -- \
   --archive dist/release/<archive>.tar.gz \
   --private-key /secure/release-keys/release-private.pem
+FINGERPRINT=$(openssl pkey -pubin \
+  -in /secure/release-keys/release-public.pem -outform DER | sha256sum | awk '{print $1}')
 npm run release:verify-signature -- \
   --archive dist/release/<archive>.tar.gz \
-  --public-key /secure/release-keys/release-public.pem
+  --public-key /secure/release-keys/release-public.pem \
+  --signer-fingerprint "$FINGERPRINT"
 ```
 
 The signature is stored as `<archive>.tar.gz.sig`. It covers the exact archive
 bytes with SHA-256 and is independent of the external checksum file. Provision
 only the release public key on the Pi, for example at
-`/etc/rpi4-gateway/release-public.pem`.
+`/etc/rpi4-gateway/release-public.pem`. Record the approved public-key SHA-256
+fingerprint in the change record and pass it through `--signer-fingerprint` on
+every verification path. A different key fails even when its replacement
+signature is cryptographically valid. Rotate the public key and pinned
+fingerprint together through change control.
 
 The archive contains tracked source, `package-lock.json`, deploy files, a
 `release-manifest.json` with file hashes and Git provenance, internal
@@ -518,6 +526,7 @@ npm run release:audit -- \
   --dispositions security/advisory-dispositions.json \
   --public-key /secure/release-keys/release-public.pem \
   --signature dist/release/<archive>.tar.gz.sig \
+  --signer-fingerprint "$FINGERPRINT" \
   --require-signature \
   --output dist/release/<release>.audit.json \
   --vex-output dist/release/<release>.vex.cdx.json
@@ -529,7 +538,8 @@ report binds the release ID, Git commit, archive SHA-256, SBOM SHA-256 and seria
 number, production lockfile SHA-256, advisory set, and disposition-file SHA-256.
 When `--public-key` is supplied, the command verifies the detached signature
 before auditing; `--require-signature` makes a missing key or signature fail
-closed. The report also binds the signature-file SHA-256 and public-key
+closed. `--signer-fingerprint` additionally pins the expected public-key
+identity. The report also binds the signature-file SHA-256 and public-key
 fingerprint. The VEX sidecar is CycloneDX 1.5, maps each advisory to its SBOM
 component, and records the release-signing key fingerprint. Both sidecars are
 written with mode `0600` and refuse to overwrite existing files unless `--force`
@@ -575,6 +585,7 @@ npm run release:evidence -- \
   --audit dist/release/<release>.audit.json \
   --vex dist/release/<release>.vex.cdx.json \
   --public-key /secure/release-keys/release-public.pem \
+  --signer-fingerprint "$FINGERPRINT" \
   --require-signature \
   --output dist/release/<release>.evidence.json
 ```
@@ -590,7 +601,8 @@ Reverify the bundle without contacting the npm registry:
 ```bash
 npm run release:verify-evidence -- \
   --evidence dist/release/<release>.evidence.json \
-  --public-key /secure/release-keys/release-public.pem
+  --public-key /secure/release-keys/release-public.pem \
+  --signer-fingerprint "$FINGERPRINT"
 ```
 
 Verification fails if any artifact, cross-reference, signature, key identity,
@@ -607,6 +619,7 @@ npm run release:rehearse -- \
   --candidate-archive dist/release/<candidate>.tar.gz \
   --state-dir /var/lib/rpi4-gateway \
   --public-key /secure/release-keys/release-public.pem \
+  --signer-fingerprint "$FINGERPRINT" \
   --require-signature \
   --output dist/release/<release>.rehearsal.json
 ```
@@ -628,10 +641,11 @@ The report is mode `0600` and records archive signatures, release IDs, final
 software regression and procedure gate only; it does not replace systemd,
 network, power-loss, reboot, or Raspberry Pi hardware acceptance.
 
-CI builds and signs both rehearsal archives with an ephemeral key, runs the
-offline upgrade rehearsal, checks the mode-`0600` report, and uploads it as
-pre-hardware regression evidence. The ephemeral key is removed after the job and
-is not a production trust anchor.
+CI builds and signs both rehearsal archives with an ephemeral key, pins its
+fingerprint through verification, audit, evidence, and rehearsal, verifies the
+evidence bundle offline, checks the mode-`0600` rehearsal report, and uploads it
+as pre-hardware regression evidence. The ephemeral key is removed after the job
+and is not a production trust anchor.
 
 The archive intentionally excludes `node_modules`; the Pi installer runs
 `npm ci --omit=dev`. For an offline site, pre-populate the npm cache or use an
@@ -654,20 +668,22 @@ sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-relea
   --checksum /var/tmp/<archive>.tar.gz.sha256 \
   --signature /var/tmp/<archive>.tar.gz.sig \
   --public-key /etc/rpi4-gateway/release-public.pem \
+  --signer-fingerprint "<approved-public-key-sha256>" \
   --require-signature \
   --release-root /opt/rpi4-opcua-oee-rca-gateway \
   --state-backup /var/backups/rpi4-gateway/20261128T120000
 curl http://127.0.0.1:8080/healthz
 ```
 
-Production installs must use `--require-signature`. Signature verification
-happens before extraction or release switching. `last-release.json` records the
-verified algorithm and public-key SHA-256 fingerprint in its additive
-`signature` field and an SBOM format/component summary, but never records the
-private key or its path. Installation without those options remains available
-for backward compatibility and is reported as not verified. Key rotation,
-HSM/KMS custody, and automated OTA signing are not built in; rotate the public
-key through change control.
+Production installs must use `--require-signature` and
+`--signer-fingerprint`. Signature and key-identity verification happen before
+extraction or release switching. `last-release.json` records the verified
+algorithm and public-key SHA-256 fingerprint in its additive `signature` field
+and an SBOM format/component summary, but never records the private key or its
+path. Installation without those options remains available for backward
+compatibility and is reported as not verified. Key rotation, HSM/KMS custody,
+and automated OTA signing are not built in; rotate the public key and approved
+fingerprint together through change control.
 
 Rollback switches back to `previous` with the same stop, health-check, and
 automatic restore behavior. Use `release:status` to inspect installed,

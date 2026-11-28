@@ -150,6 +150,13 @@ async function createEvidenceManifest(options) {
   if (signaturePath && !publicKeyPath) {
     throw new Error("release evidence signature verification requires a public key");
   }
+  if (
+    options.expectedKeyFingerprint !== undefined &&
+    options.expectedKeyFingerprint !== null &&
+    !signaturePath
+  ) {
+    throw new Error("expected signer fingerprint requires a release signature artifact");
+  }
   const verifyRelease = options.verifyRelease || verifyReleasePackage;
   const verifySignature = options.verifySignature || verifyReleaseArchiveSignature;
   const verified = await verifyRelease({ archivePath, checksumPath });
@@ -229,7 +236,8 @@ async function createEvidenceManifest(options) {
       const signatureResult = await verifySignature({
         archivePath,
         signaturePath,
-        publicKeyPath
+        publicKeyPath,
+        expectedKeyFingerprint: options.expectedKeyFingerprint
       });
       if (!signatureResult.valid) {
         throw new Error("release evidence signature verification failed");
@@ -391,6 +399,7 @@ async function verifyReleaseEvidence(options) {
     vexPath: vex.path,
     signaturePath: signature?.path,
     publicKeyPath: options.publicKeyPath,
+    expectedKeyFingerprint: options.expectedKeyFingerprint,
     evidenceDir,
     clock: options.clock,
     verifyRelease: options.verifyRelease,

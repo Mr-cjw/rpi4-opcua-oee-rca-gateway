@@ -256,6 +256,32 @@ test("release installer records a verified detached signature", async (t) => {
   assert.deepEqual(report.signature, installed.signature);
 });
 
+test("release installer rejects an unexpected signing fingerprint before switching", async (t) => {
+  const workspace = await makeWorkspace(t);
+  const release = await buildRelease(t, workspace, "5.1.0");
+  const keys = await createSigningKeys(workspace);
+  await signReleaseArchive({
+    archivePath: release.archivePath,
+    privateKeyPath: keys.privateKeyPath
+  });
+  const commands = [];
+  await assert.rejects(
+    installRelease({
+      archivePath: release.archivePath,
+      publicKeyPath: keys.publicKeyPath,
+      expectedKeyFingerprint: "0".repeat(64),
+      requireSignature: true,
+      releaseRoot: workspace.releaseRoot,
+      run: fakeCommandRunner(commands),
+      skipNpmInstall: true,
+      healthUrl: null
+    }),
+    /release signer fingerprint mismatch/
+  );
+  assert.deepEqual(commands, []);
+  await assert.rejects(fs.readlink(path.join(workspace.releaseRoot, "current")), /ENOENT/);
+});
+
 test("release installer rejects unsigned or tampered archives before switching", async (t) => {
   const workspace = await makeWorkspace(t);
   const unsignedRelease = await buildRelease(t, workspace, "6.0.0");

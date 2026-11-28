@@ -134,7 +134,10 @@ async function writeOperationReport(releaseRoot, report) {
 
 async function verifySignatureIfRequired(options) {
   const signatureRequired =
-    options.requireSignature || options.signaturePath || options.publicKeyPath;
+    options.requireSignature ||
+    options.signaturePath ||
+    options.publicKeyPath ||
+    options.expectedKeyFingerprint;
   if (!signatureRequired) {
     return null;
   }
@@ -145,7 +148,8 @@ async function verifySignatureIfRequired(options) {
   const result = await verifyReleaseArchiveSignature({
     archivePath: options.archivePath,
     signaturePath,
-    publicKeyPath: options.publicKeyPath
+    publicKeyPath: options.publicKeyPath,
+    expectedKeyFingerprint: options.expectedKeyFingerprint
   });
   if (!result.valid) {
     throw new Error(`release signature verification failed: ${signaturePath}`);
