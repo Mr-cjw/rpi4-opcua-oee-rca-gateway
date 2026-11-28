@@ -75,8 +75,15 @@ Gateway defect.
 
 - The HTTP API remains bound to `127.0.0.1` unless an approved reverse proxy
   provides TLS, authentication, rate limiting, and access logging.
+- If remote access is approved, the supplied nginx template or an equivalent
+  reviewed design is installed. Only 443 is reachable from approved networks;
+  port 8080 is not exposed, TLS 1.2/1.3 are enforced, and edge access logs have
+  an approved retention period.
 - `GATEWAY_API_TOKEN` is set to a unique high-entropy value for any deployment
   where the API is not strictly local to the operator.
+- The edge certificate matches the approved DNS name, its private key is
+  root-owned and mode `0600`, and rotation/rollback has been exercised. HSTS is
+  enabled only after permanent HTTPS is confirmed.
 - The OPC UA endpoint uses `SignAndEncrypt` and `Basic256Sha256` unless the
   controls/security owners approve a documented exception.
 - `OPCUA_TRUST_UNKNOWN_CERTIFICATES=false`; only the PLC certificate recorded
@@ -211,6 +218,12 @@ Treat `/healthz` as `ok` only when the response reports `status: ok`,
 `opcuaConnected: true`, `storage.status: ok`, `clock.status: ok` when required,
 and PLC diagnostics are healthy. `/healthz` is unauthenticated by design; keep
 it on loopback or protect it at the network boundary.
+
+For an approved remote deployment, repeat these checks through the TLS endpoint
+from the approved monitoring network. Confirm HTTP redirects to HTTPS, the edge
+certificate is valid and not near expiry, `/healthz` is rejected outside its
+allowlist, and `/metrics` rejects a missing or wrong bearer token. Review the
+named nginx access log for authentication failures and rate-limit responses.
 
 Monitoring baseline:
 

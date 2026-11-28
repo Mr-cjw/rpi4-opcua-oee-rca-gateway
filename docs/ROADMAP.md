@@ -47,6 +47,10 @@ correctness gap in an earlier phase.
   rollback/status commands, plus optional detached SHA-256 signatures and
   fail-closed required-signature installs, and an embedded CycloneDX SBOM for
   production dependencies.
+- A reviewed nginx TLS reverse-proxy baseline for approved remote access, with
+  TLS 1.2/1.3, loopback-only proxying, source restrictions, rate/concurrency
+  limits, credential-safe access logs, bounded retention, and certificate
+  rotation guidance.
 - Node.js 22.13+ runtime baseline, patched `node-opcua` dependency, production
   dependency audit in CI, and an expanded systemd sandbox.
 - Field-pilot runbook, known-limitations register, and conditional security
@@ -198,6 +202,11 @@ Deliverables:
   `timedatectl`/`chronyc` NTP state and offset, expose `/healthz.clock` and
   Prometheus metrics, support staleness/required thresholds, document Pi NTP
   commissioning, and provide injected `npm run e2e:clock` coverage.
+- Completed 2026-11-28: remote-access TLS template and runbook cover nginx
+  termination, TLS 1.2/1.3, loopback proxying, source-network policy for
+  `/healthz`, bearer-token preservation, optional mTLS/Basic Auth guidance,
+  rate/connection limits, security headers, HSTS gating, certificate rotation,
+  firewall checks, and bounded access-log retention.
 
 Acceptance:
 
@@ -294,8 +303,9 @@ The next implementation-sized units are:
 3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
    hardware; define release-key custody, rotation, and revocation procedures;
    add advisory/VEX reconciliation for the embedded SBOM.
-4. Complete a real-PLC certificate-rotation drill and define the remote-access
-   reverse-proxy/TLS architecture before exposing the API beyond loopback.
+4. Complete a real-PLC certificate-rotation drill, then approve, install, and
+   exercise the supplied reverse-proxy/TLS template on the target network before
+   exposing the API beyond loopback.
 
 M1 is complete, and the live PLC diagnostics software is complete. Prioritize
 the remaining M2 hardware/durability gates and M3 security/E2E validation before
@@ -313,6 +323,9 @@ A release is not field-ready unless all of these are true:
 - Production installs require and verify the detached release signature, and the
   approval record contains the signer public-key fingerprint.
 - HTTP and OPC UA security settings are explicit; no insecure production default is silent.
+- Remote access, if enabled, uses the approved TLS template or equivalent;
+  port 8080 is not externally reachable and the nginx protocol, authentication,
+  source-network, rate-limit, certificate-rotation, and log-retention checks pass.
 - The runbook distinguishes equipment faults from Gateway faults.
 - The security review has no unresolved critical finding and its required
   compensating controls are recorded in the deployment approval.

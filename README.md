@@ -183,6 +183,14 @@ Analysis only reads context events; it never changes QA or MES delivery state.
 The default bind address is `127.0.0.1:8080`. Set `GATEWAY_API_TOKEN` to require
 `Authorization: Bearer <token>` on every endpoint except `/healthz`.
 
+Remote access is disabled by default. Keep the API on loopback and terminate TLS
+at the site-approved nginx instance described in
+[`deploy/nginx/README.md`](deploy/nginx/README.md). The supplied template
+redirects HTTP to HTTPS, enables only TLS 1.2/1.3, enforces rate and connection
+limits, restricts `/healthz` by source network, and proxies to
+`127.0.0.1:8080`. Never publish port 8080 directly or disable
+`GATEWAY_API_TOKEN` merely because a proxy is present.
+
 ```bash
 curl http://127.0.0.1:8080/healthz
 curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8080/metrics

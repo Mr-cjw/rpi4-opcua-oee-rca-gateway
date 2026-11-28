@@ -111,6 +111,41 @@ and per-component write failures; `GET /metrics` exports the same storage state.
 Size the thresholds for JSONL rotation, the idempotency ledger, and atomic
 temporary files, not only for the current log sizes.
 
+### Remote access and TLS termination
+
+The Gateway does not terminate TLS and must remain on `127.0.0.1:8080`. For
+approved remote access, install the nginx template and follow the complete
+installation, authentication, firewall, certificate-rotation, and log-retention
+procedure in [`nginx/README.md`](nginx/README.md).
+
+Before enabling the edge, confirm:
+
+- `GATEWAY_API_TOKEN` is unique, high-entropy, and stored in the protected
+  environment file.
+- The site PKI issued a certificate for the exact Gateway DNS name; the private
+  key is root-owned, mode `0600`, and is not in Git or a release archive.
+- nginx listens on 443 and proxies only to `http://127.0.0.1:8080`; there is no
+  external 8080 listener.
+- `/healthz` remains loopback-only or is restricted to an approved monitoring
+  subnet. `/v1/*` and `/metrics` require the application bearer token.
+- TLS 1.2/1.3 succeed, older protocols fail, HTTP redirects to HTTPS, and the
+  edge applies request-body, rate, and concurrency limits.
+- The site approved mTLS, Basic Auth, or HTTPS plus bearer token as the operator
+  authentication baseline. Basic Auth must carry the application token in a
+  separate header rather than reusing `Authorization`.
+- Access logs use the supplied format and bounded retention; they never include
+  authorization headers, cookies, tokens, or request bodies.
+- HSTS remains disabled until the site confirms permanent HTTPS for the DNS name.
+
+Minimal validation after installation:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+sudo ss -lntp | rg '(:443|:8080)'
+curl --fail http://127.0.0.1:8080/healthz
+```
+
 ### Clock synchronization
 
 Production OEE and RCA timestamps must use a synchronized Pi clock. The example
@@ -274,8 +309,10 @@ the configured skew threshold.
 
 - Verify `node --version` reports `v22.13.0` or newer before installing or
   rolling back a release.
-- Keep `GATEWAY_HTTP_HOST=127.0.0.1` unless a reverse proxy and network policy
-  are in place. Set `GATEWAY_API_TOKEN` if the API is reachable beyond loopback.
+- Keep `GATEWAY_HTTP_HOST=127.0.0.1` even when nginx terminates TLS. For remote
+  access, use the approved [nginx template](nginx/README.md), keep
+  `GATEWAY_API_TOKEN` enabled, and expose only the proxy port to approved
+  networks.
 - Use a secured OPC UA endpoint for a real PLC. `None` security is for isolated
   mock/testing only; `NODE_ENV=production` rejects it unless the explicit
   insecure override is set.

@@ -1,0 +1,15 @@
+/var/log/nginx/rpi4-gateway-*.log {
+    daily
+    rotate 30
+    maxage 90
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+        if [ -f /run/nginx.pid ]; then
+            kill -USR1 "$(cat /run/nginx.pid)"
+        fi
+    endscript
+}

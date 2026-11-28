@@ -80,11 +80,14 @@ deployment depends on behavior the Gateway does not provide.
 
 ## HTTP API and Security
 
-- The HTTP API is plain HTTP. It has no built-in TLS, reverse proxy, client
-  certificate authentication, or IP allowlist.
-- There is no built-in rate limiting, request concurrency limit, WAF, or DDoS
-  protection. Request bodies are limited to 1 MiB, which is not a substitute for
-  perimeter protection.
+- The HTTP API is plain HTTP. It has no built-in TLS, client certificate
+  authentication, or IP allowlist. Remote access requires the supplied nginx
+  template or an equivalent site-approved reverse proxy; keeping the Gateway on
+  loopback is still required.
+- The application has no built-in rate limiting or request concurrency limit.
+  The supplied edge template adds baseline per-source limits, but it is not a
+  WAF or DDoS protection service and must be tuned and monitored by the site.
+  Request bodies are limited to 1 MiB at both layers.
 - Authentication is a single optional bearer token. There is no user directory,
   RBAC, per-operator audit trail, token expiry, or online token revocation.
 - `/healthz` is intentionally unauthenticated. Other endpoints and `/metrics`
@@ -92,6 +95,17 @@ deployment depends on behavior the Gateway does not provide.
 - Binding to `127.0.0.1` is mandatory guidance for direct deployments, not a
   network security boundary. Remote access requires an approved reverse proxy
   with TLS, authentication, rate limiting, and access logging.
+- The nginx template is a configuration baseline, not an approved deployment.
+  DNS, certificate ownership, source networks, edge authentication, firewall,
+  log retention, and incident handling remain site-specific approvals.
+- mTLS and Basic Auth are optional edge controls. If neither is enabled, the
+  shared application bearer token over HTTPS is the only operator
+  authentication control. Basic Auth must not reuse `Authorization` as the
+  application token.
+- HSTS is disabled in the template. Enabling it before HTTPS is permanent can
+  make rollback and client recovery difficult.
+- The reverse proxy does not provide per-user authorization, token expiry,
+  online revocation, a WAF, DDoS protection, HA, or automatic failover.
 - Credentials are read from environment variables or files. The application
   validates presence and readability, but does not enforce file ownership or
   mode. Operators must enforce `0600` files and a protected environment file.

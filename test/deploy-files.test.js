@@ -89,6 +89,76 @@ test("gateway environment template includes persistence and API safeguards", asy
   assert.match(env, /^GATEWAY_WORK_CONTEXT_FILE=\/var\/lib\/rpi4-gateway\//m);
 });
 
+test("nginx template terminates TLS on an authenticated loopback boundary", async () => {
+  const config = await fs.readFile(
+    path.join(ROOT, "deploy", "nginx", "rpi4-gateway.conf"),
+    "utf8"
+  );
+
+  assert.match(config, /^    listen 443 ssl http2;$/m);
+  assert.match(config, /^    ssl_protocols TLSv1\.2 TLSv1\.3;$/m);
+  assert.match(config, /^    ssl_ciphers ECDHE-[^;]+;$/m);
+  assert.match(config, /^    ssl_prefer_server_ciphers off;$/m);
+  assert.match(config, /^    ssl_session_tickets off;$/m);
+  assert.match(config, /^    return 301 https:\/\/\$host\$request_uri;$/m);
+
+  assert.match(config, /^    ssl_certificate \/etc\/rpi4-gateway\/tls\/fullchain\.pem;$/m);
+  assert.match(config, /^    ssl_certificate_key \/etc\/rpi4-gateway\/tls\/privkey\.pem;$/m);
+  assert.equal(
+    (config.match(/^        proxy_pass http:\/\/127\.0\.0\.1:8080;$/gm) || []).length,
+    3
+  );
+  assert.doesNotMatch(config, /^listen\s+8080/m);
+  assert.doesNotMatch(config, /proxy_pass\s+https:/);
+  assert.doesNotMatch(config, /proxy_pass\s+http:\/\/(?:0\.0\.0\.0|\[::\])/);
+
+  assert.match(config, /^limit_req_zone \$binary_remote_addr .* rate=10r\/s;$/m);
+  assert.match(config, /^limit_conn_zone \$binary_remote_addr .*;$/m);
+  assert.match(config, /^    limit_conn rpi4_gateway_per_ip 20;$/m);
+  assert.match(config, /limit_req zone=rpi4_gateway_api burst=20 nodelay;/);
+  assert.match(config, /^    client_max_body_size 1m;$/m);
+  assert.doesNotMatch(config, /^    client_max_body_size 0;/m);
+
+  assert.match(config, /^    server_tokens off;$/m);
+  assert.match(config, /^    access_log \/var\/log\/nginx\/rpi4-gateway-access\.log rpi4_gateway;$/m);
+  assert.match(config, /^    add_header X-Content-Type-Options "nosniff" always;$/m);
+  assert.match(config, /^    add_header X-Frame-Options "DENY" always;$/m);
+  assert.match(config, /^    add_header Referrer-Policy "no-referrer" always;$/m);
+  assert.match(config, /^    add_header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'" always;$/m);
+  assert.doesNotMatch(config, /^    add_header Strict-Transport-Security/m);
+  assert.match(config, /^    # add_header Strict-Transport-Security/m);
+
+  const logFormat = config.match(/log_format rpi4_gateway[\s\S]*?;/)?.[0] || "";
+  assert.notEqual(logFormat, "");
+  assert.doesNotMatch(logFormat, /\$http_authorization|\$http_cookie|\$request_body/);
+  assert.match(config, /^        proxy_set_header Authorization \$http_authorization;$/m);
+  assert.match(config, /^        proxy_set_header Authorization "";$/m);
+  assert.doesNotMatch(config, /^        add_header Authorization/m);
+
+  assert.match(
+    config,
+    /location = \/healthz \{[\s\S]*?allow 127\.0\.0\.1;[\s\S]*?allow ::1;[\s\S]*?deny all;/
+  );
+  assert.match(config, /^    location = \/metrics \{/m);
+  assert.match(config, /^    location \/v1\/ \{/m);
+  assert.match(config, /^    location \/ \{\n        return 404;/m);
+  assert.match(config, /^        proxy_set_header X-Forwarded-Proto \$scheme;$/m);
+  assert.match(config, /^        proxy_set_header X-Real-IP \$remote_addr;$/m);
+});
+
+test("nginx access logs have bounded retention", async () => {
+  const logrotate = await fs.readFile(
+    path.join(ROOT, "deploy", "nginx", "rpi4-gateway.logrotate"),
+    "utf8"
+  );
+
+  assert.match(logrotate, /^\/var\/log\/nginx\/rpi4-gateway-\*\.log \{$/m);
+  assert.match(logrotate, /^    rotate 30$/m);
+  assert.match(logrotate, /^    maxage 90$/m);
+  assert.match(logrotate, /^        if \[ -f \/run\/nginx\.pid \]; then$/m);
+  assert.match(logrotate, /kill -USR1/);
+});
+
 test("package scripts expose state, release, and storage operations", async () => {
   const packageJson = JSON.parse(
     await fs.readFile(path.join(ROOT, "package.json"), "utf8")

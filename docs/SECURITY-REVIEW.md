@@ -25,9 +25,11 @@ The default production posture is fail-closed for OPC UA: `NODE_ENV=production`
 rejects `None` security or automatic unknown-certificate trust unless the
 operator explicitly sets `GATEWAY_ALLOW_INSECURE_OPCUA=true`. The HTTP API
 defaults to loopback, supports a bearer token with constant-time comparison, and
-limits request bodies to 1 MiB. Releases are immutable, checksummed, optionally
-detached-signed, and health-checked, and the systemd unit applies a meaningful
-privilege and filesystem sandbox.
+limits request bodies to 1 MiB. A hardened nginx template provides TLS 1.2/1.3
+termination, source-network policy, rate and concurrency limits, security
+headers, and bounded access logs for approved remote access. Releases are
+immutable, checksummed, optionally detached-signed, and health-checked, and the
+systemd unit applies a meaningful privilege and filesystem sandbox.
 
 The principal residual risks are deliberate deployment choices: the HTTP API has
 no built-in TLS, rate limiting, or user-level authorization; signature
@@ -54,7 +56,7 @@ Trust boundaries:
 | Boundary | Data crossing | Primary control |
 | --- | --- | --- |
 | PLC/network to Gateway OPC UA client | Process values, alarms, credentials, certificates | OPC UA security mode/policy, explicit trust, credential files |
-| Operator/QA/MES to local HTTP API | Work context, quality events, queries, bearer token | Loopback bind, optional bearer token, input limits |
+| Operator/QA/MES to local HTTP API | Work context, quality events, queries, bearer token | Loopback bind, optional bearer token, input limits; approved nginx TLS template for remote access |
 | Build/CI to Raspberry Pi | Source, lockfile, release archive, checksums, detached signature, Node runtime requirement | Immutable release, SHA-256 manifest, required signature verification, `npm ci`, health-checked install |
 | Service account to local state/PKI | JSONL, idempotency, work context, private key | `StateDirectory`, file permissions, systemd sandbox, offline backups |
 | Metrics scraper to Gateway | Health, counts, identities, diagnostics | Loopback or authenticated `/metrics`, network boundary |
@@ -119,6 +121,11 @@ security material, not ordinary application data.
 
 - The default bind address is `127.0.0.1`; the example environment keeps it on
   loopback.
+- The supplied nginx template terminates TLS 1.2/1.3, proxies only to
+  `127.0.0.1:8080`, restricts `/healthz` to loopback plus explicit monitoring
+  sources, applies request-body/rate/concurrency limits, adds security headers,
+  and logs without authorization headers. It is a deployment template that
+  requires site-specific approval, not an automatically enabled control.
 - `GATEWAY_API_TOKEN` protects `/metrics` and `/v1/*` when configured. Bearer
   comparison uses `crypto.timingSafeEqual` after a length check.
 - `/healthz` is intentionally unauthenticated and contains status/identity
@@ -134,7 +141,11 @@ security material, not ordinary application data.
 
 Residual risks:
 
-- There is no built-in TLS, rate limiting, WAF, or per-user authorization.
+- There is no built-in TLS, rate limiting, WAF, or per-user authorization. The
+  application must never listen beyond loopback even when the edge template is
+  used.
+- The edge template does not provide per-user RBAC, token expiry/revocation,
+  WAF, DDoS protection, HA, or automatic certificate renewal.
 - The token is a shared static secret with no expiry or online revocation.
 - The API does not write a per-request audit record.
 - Internal error messages can be returned to an API caller; keep the API behind
@@ -142,7 +153,9 @@ Residual risks:
 
 Compensating control: remote exposure requires an approved reverse proxy that
 terminates TLS, authenticates operators, enforces source-network policy and rate
-limits, and logs requests. Never publish port 8080 directly.
+limits, and logs requests. The supplied nginx template implements the baseline;
+the site must approve its DNS, PKI, authentication, firewall, log retention, and
+incident process. Never publish port 8080 directly.
 
 ## 6. Secrets and Key Material
 
@@ -152,6 +165,9 @@ limits, and logs requests. Never publish port 8080 directly.
   `rpi4-gateway`, and stored in a directory not readable by other users.
 - Production passwords and tokens must not be committed to Git or placed in
   shell history.
+- The nginx private key must be root-owned with mode `0600`; certificate chains
+  and client CA files must be protected from unapproved modification. Neither
+  is included in releases or ordinary state backups.
 - The OPC UA PKI directory under `/var/lib/rpi4-gateway/pki` is excluded from
   ordinary state backups. Back it up separately using an encrypted, approved
   process.
@@ -168,6 +184,9 @@ PKI compromise.
 - Logs are structured and written to bounded files or the systemd journal.
 - The HTTP layer does not log request bodies. The OPC UA security E2E asserts
   that the configured password does not appear in captured Gateway logs.
+- The supplied nginx log format excludes authorization headers, cookies, tokens,
+  and request bodies. Its access logs can still contain business identifiers in
+  query strings and must follow the site's production-data retention policy.
 - Event logs contain business identifiers and production/quality evidence and
   must be treated as confidential operational data.
 - JSONL retention is bounded by configured time, count, byte, and rotation
@@ -283,13 +302,17 @@ read from files, rejection of wrong passwords and anonymous sessions, password
 absence from captured logs, rejection of a rotated but untrusted server
 certificate, persistent trust after an explicit update, and successful reconnect
 after restart. The other E2E suites verify context/OEE/RCA, PLC diagnostics, and
-clock degradation.
+clock degradation. `npm test` also statically checks that the nginx template
+uses TLS 1.2/1.3 only, proxies to loopback, enforces request-body/rate/concurrency
+limits, keeps `/healthz` fail-closed, does not log credentials, and leaves HSTS
+disabled. Site deployment still requires `nginx -t`, certificate validation, TLS
+protocol probes, source-network tests, and an authenticated API request.
 
 ## 11. Residual Risk Register
 
 | Risk | Severity if unmitigated | Current control | Deployment action |
 | --- | --- | --- | --- |
-| Direct HTTP exposure | High | Loopback default; optional bearer token; input limits | Require approved TLS/authenticating reverse proxy, rate limits, and network ACLs |
+| Direct HTTP exposure | High | Loopback default; optional bearer token; input limits; reviewed TLS nginx template | Approve and install the template or equivalent; restrict 443 sources; never expose 8080 |
 | Single shared API token | Medium | Constant-time comparison; no logging of token | Use high-entropy token; rotate on personnel or incident change |
 | Unsigned release mode | Medium | Detached signatures available; required-signature installs fail closed; fingerprint recorded | Require `--require-signature` in production and review `last-release.json` after upgrades |
 | Release signing-key compromise | Medium | Private key stays on signing host; Pi receives public key only; fingerprint recorded | Use approved offline/HSM custody, rotate and revoke keys through change control, restrict signing hosts |
@@ -297,7 +320,7 @@ clock degradation.
 | Unencrypted state/logs | Medium | Bounded retention, host permissions | Use encrypted volume or approved backup handling where required |
 | Manual certificate trust | Medium | Unknown certs rejected; explicit fingerprint update and restart | Include certificate rotation in change control and pilot drills |
 | No HA or central queue | Medium | Local durable logs, fsync for accepted quality, idempotent retries | Define station outage tolerance and downstream retry/reconciliation |
-| No per-request audit | Low/Medium | Structured error and process logs | Add reverse-proxy access logging for remote deployments |
+| No per-request audit | Low/Medium | Structured error and process logs; bounded proxy access log for remote deployments | Ship and review edge logs under site retention policy; add per-user identity if required |
 | Dependency or registry compromise | Medium | Exact lockfile, `npm ci`, CI audit, embedded CycloneDX SBOM, immutable signed artifact | Protect CI credentials, review advisories, add VEX/advisory reconciliation and stronger key custody |
 | Host or physical compromise | High | systemd sandbox, least-privilege account | Harden OS/SSH, restrict physical access, monitor host integrity |
 
@@ -330,11 +353,13 @@ The current release is suitable for a controlled pilot only when:
 
 Open actions before broader deployment:
 
-- Add digital signing or attestation for release artifacts.
+- Define release-signing key custody, rotation, revocation, and independent
+  attestation where required; reconcile embedded SBOMs against advisories/VEX.
 - Complete the Raspberry Pi power-cut, disk-full, 72-hour soak, upgrade,
   rollback, and restore gates.
-- Define remote-access architecture, TLS termination, operator authentication,
-  rate limiting, and access-log retention.
+- Approve, install, and exercise the supplied remote-access template on the
+  target network, including operator authentication, firewall ACLs, rate limits,
+  certificate rotation, and access-log retention.
 - Decide whether encrypted state storage or a secrets manager is required by
   site policy.
 
