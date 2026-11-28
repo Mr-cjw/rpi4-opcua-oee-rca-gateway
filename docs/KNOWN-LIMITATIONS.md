@@ -106,9 +106,13 @@ deployment depends on behavior the Gateway does not provide.
 
 ## Release and Supply Chain
 
-- Releases are immutable and integrity-checked with SHA-256 manifests, but the
-  manifests and archives are not digitally signed. Trust depends on the build
-  system, artifact storage, and the administrative transfer channel.
+- Releases are immutable and integrity-checked with SHA-256 manifests. Detached
+  SHA-256 signatures can be required during installation, but the default
+  installation path remains unsigned for backward compatibility. Production
+  approval must require `--require-signature` and protect the release public key.
+- Signing-key generation, offline custody, rotation, revocation, HSM/KMS use, and
+  public-key distribution are manual. There is no built-in OTA signing service
+  or automatic trust-store update.
 - There is no automatic over-the-air update service. Installation and rollback
   are operator-driven systemd operations.
 - `npm ci --omit=dev` requires either network access to the approved registry or

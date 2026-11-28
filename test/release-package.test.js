@@ -132,6 +132,14 @@ test("release verification rejects archive checksum and file-content tampering",
     clock: () => NOW
   });
 
+  await assert.rejects(
+    verifyReleasePackage({
+      archivePath: result.archivePath,
+      expectedArchiveSha256: "0".repeat(64)
+    }),
+    /changed after signature verification/
+  );
+
   await fs.writeFile(
     result.checksumPath,
     `${"0".repeat(64)}  ${path.basename(result.archivePath)}\n`

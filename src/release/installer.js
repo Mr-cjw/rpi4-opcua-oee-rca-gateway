@@ -15,6 +15,10 @@ const {
   validateReleaseId,
   verifyReleasePackage
 } = require("./package");
+const {
+  signaturePathFor,
+  verifyReleaseArchiveSignature
+} = require("./signature");
 
 const RELEASE_OPERATION_FILE = "last-release.json";
 
@@ -128,10 +132,42 @@ async function writeOperationReport(releaseRoot, report) {
   await writeJsonAtomic(path.join(releaseRoot, RELEASE_OPERATION_FILE), report);
 }
 
+async function verifySignatureIfRequired(options) {
+  const signatureRequired =
+    options.requireSignature || options.signaturePath || options.publicKeyPath;
+  if (!signatureRequired) {
+    return null;
+  }
+  if (!options.publicKeyPath) {
+    throw new Error("release signature verification requires a public key path");
+  }
+  const signaturePath = options.signaturePath || signaturePathFor(options.archivePath);
+  const result = await verifyReleaseArchiveSignature({
+    archivePath: options.archivePath,
+    signaturePath,
+    publicKeyPath: options.publicKeyPath
+  });
+  if (!result.valid) {
+    throw new Error(`release signature verification failed: ${signaturePath}`);
+  }
+  return result;
+}
+
+function signatureMetadata(signature) {
+  return signature
+    ? {
+        verified: true,
+        algorithm: signature.algorithm,
+        keyFingerprint: signature.keyFingerprint
+      }
+    : null;
+}
+
 async function installRelease(options) {
   if (!options.archivePath) {
     throw new Error("install requires an archive path");
   }
+  const signature = await verifySignatureIfRequired(options);
   const releaseRoot = path.resolve(options.releaseRoot);
   const releasesDir = path.join(releaseRoot, "releases");
   const currentLink = path.join(releaseRoot, "current");
@@ -146,12 +182,14 @@ async function installRelease(options) {
   let manifest;
   let targetDir;
   let archiveSha256 = null;
+  const verifiedSignature = signatureMetadata(signature);
   try {
     const verified = await verifyReleasePackage({
       archivePath: options.archivePath,
       checksumPath: options.checksumPath,
       extractDir: stagingDir,
-      run
+      run,
+      expectedArchiveSha256: signature?.archiveSha256
     });
     manifest = verified.manifest;
     archiveSha256 = verified.archiveSha256;
@@ -203,7 +241,8 @@ async function installRelease(options) {
       service,
       healthUrl: options.healthUrl ?? null,
       archiveSha256,
-      stateBackup
+      stateBackup,
+      signature: verifiedSignature
     };
     await writeOperationReport(releaseRoot, report);
     return {
@@ -211,6 +250,7 @@ async function installRelease(options) {
       releaseId: manifest.releaseId,
       releaseDir: targetDir,
       previousReleaseId: previous?.id || null,
+      signature: verifiedSignature,
       report
     };
   } catch (error) {
@@ -280,6 +320,7 @@ async function installRelease(options) {
       healthUrl: options.healthUrl ?? null,
       archiveSha256,
       stateBackup,
+      signature: verifiedSignature,
       error: error.message,
       rollback: rollback?.restoredReleaseId || null,
       rollbackError: rollbackError?.message || null
@@ -420,5 +461,6 @@ module.exports = {
   installRelease,
   listReleases,
   rollbackRelease,
+  verifySignatureIfRequired,
   waitForHealthy
 };

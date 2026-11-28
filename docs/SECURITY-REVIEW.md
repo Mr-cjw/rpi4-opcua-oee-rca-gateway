@@ -3,8 +3,9 @@
 Status date: 2026-11-28
 
 Review status: conditional pass for a controlled, loopback-only, single-station
-pilot. Remote HTTP exposure, digital release signing, and the remaining hardware
-gates require site-specific approval before broader deployment.
+pilot. Remote HTTP exposure, mandatory production use of release signing, and
+the remaining hardware gates require site-specific approval before broader
+deployment.
 
 This is an internal design and implementation review, not a penetration test or
 an independent certification. It covers the Gateway runtime, OPC UA client,
@@ -24,16 +25,17 @@ The default production posture is fail-closed for OPC UA: `NODE_ENV=production`
 rejects `None` security or automatic unknown-certificate trust unless the
 operator explicitly sets `GATEWAY_ALLOW_INSECURE_OPCUA=true`. The HTTP API
 defaults to loopback, supports a bearer token with constant-time comparison, and
-limits request bodies to 1 MiB. Releases are immutable, checksummed, and
-health-checked, and the systemd unit applies a meaningful privilege and
-filesystem sandbox.
+limits request bodies to 1 MiB. Releases are immutable, checksummed, optionally
+detached-signed, and health-checked, and the systemd unit applies a meaningful
+privilege and filesystem sandbox.
 
 The principal residual risks are deliberate deployment choices: the HTTP API has
-no built-in TLS, rate limiting, or user-level authorization; release artifacts
-are checksummed but not digitally signed; credentials and PKI material are
-plaintext files protected by host permissions; and the system has no HA or
-central durable queue. These are acceptable only with the compensating controls
-in this review and must be revisited before remote or multi-site rollout.
+no built-in TLS, rate limiting, or user-level authorization; signature
+enforcement is opt-in and signing-key custody/rotation remains manual;
+credentials and PKI material are plaintext files protected by host permissions;
+and the system has no HA or central durable queue. These are acceptable only
+with the compensating controls in this review and must be revisited before
+remote or multi-site rollout.
 
 ## 2. Assets and Trust Boundaries
 
@@ -43,7 +45,8 @@ Protected assets:
 - PLC certificate trust decisions and the Gateway client PKI store.
 - `GATEWAY_API_TOKEN` and any reverse-proxy credentials.
 - Process-context, alarm, quality-event, work-context, and idempotency data.
-- Release archives, manifests, checksums, and Git provenance.
+- Release archives, manifests, checksums, signatures, and Git provenance.
+- Release signing private keys and the public keys provisioned for verification.
 - Availability and integrity of OEE/RCA evidence used by production and QA/MES.
 
 Trust boundaries:
@@ -52,7 +55,7 @@ Trust boundaries:
 | --- | --- | --- |
 | PLC/network to Gateway OPC UA client | Process values, alarms, credentials, certificates | OPC UA security mode/policy, explicit trust, credential files |
 | Operator/QA/MES to local HTTP API | Work context, quality events, queries, bearer token | Loopback bind, optional bearer token, input limits |
-| Build/CI to Raspberry Pi | Source, lockfile, release archive, checksums, Node runtime requirement | Immutable release, SHA-256 manifest, `npm ci`, health-checked install |
+| Build/CI to Raspberry Pi | Source, lockfile, release archive, checksums, detached signature, Node runtime requirement | Immutable release, SHA-256 manifest, required signature verification, `npm ci`, health-checked install |
 | Service account to local state/PKI | JSONL, idempotency, work context, private key | `StateDirectory`, file permissions, systemd sandbox, offline backups |
 | Metrics scraper to Gateway | Health, counts, identities, diagnostics | Loopback or authenticated `/metrics`, network boundary |
 
@@ -183,7 +186,17 @@ monitoring platform outside the Gateway.
   diagnostic dirty build. The manifest records Git commit, dirty state, release
   ID, Node engine, file hashes, and sizes.
 - Installation verifies archive and file checksums, the minimum Node.js version,
-  creates an immutable release directory, and runs `npm ci --omit=dev`.
+  optional required detached signatures, creates an immutable release directory,
+  and runs `npm ci --omit=dev`.
+- `release:sign` signs the exact archive bytes with SHA-256 and writes a binary
+  `<archive>.sig` file. The private key remains on the trusted signing host; only
+  the public key is provisioned on the Pi.
+- When `--require-signature` is set, or a public-key/signature path is supplied,
+  installation verifies the signature before extraction or release switching.
+  Failure is closed and leaves `current` unchanged. `last-release.json` records
+  the verified algorithm and public-key SHA-256 fingerprint, not the key path.
+- CI generates an ephemeral key pair and exercises signing plus verification as a
+  smoke test. That key is not a production trust anchor and is not uploaded.
 - `current` and `previous` are switched atomically. A failed health check
   automatically restores and restarts the previous release.
 - The minimum runtime is `Node.js 22.13.0`, matching the upgraded OPC UA
@@ -196,11 +209,17 @@ monitoring platform outside the Gateway.
 
 Residual risks:
 
-- SHA-256 provides integrity against accidental corruption but not
+- SHA-256 alone provides integrity against accidental corruption but not
   authenticity against an attacker who can replace both the archive and its
-  checksum.
-- Release archives are not digitally signed. Artifact storage and transfer must
-  use an approved administrative channel.
+  checksum. The detached signature closes that gap only when required.
+- The default compatibility path can still install an unsigned archive. A
+  production deployment must enforce `--require-signature` and treat an unsigned
+  install as a change-control exception.
+- Signature trust depends on the custody of the private key and integrity of the
+  provisioned public key. Key compromise or unauthorized public-key replacement
+  defeats verification.
+- There is no automatic signing-key rotation, revocation, HSM/KMS integration,
+  or OTA signing service. Key lifecycle operations remain manual.
 - `npm ci` trusts the configured registry and lockfile. A compromised registry,
   build runner, or npm account remains a supply-chain risk.
 - Audit results are point-in-time. Re-run the audit and review advisories before
@@ -263,13 +282,14 @@ clock degradation.
 | --- | --- | --- | --- |
 | Direct HTTP exposure | High | Loopback default; optional bearer token; input limits | Require approved TLS/authenticating reverse proxy, rate limits, and network ACLs |
 | Single shared API token | Medium | Constant-time comparison; no logging of token | Use high-entropy token; rotate on personnel or incident change |
-| Unsigned releases | Medium | SHA-256 manifest, immutable release, health-checked rollback | Use trusted artifact storage and administrative transfer; add signing before broad rollout |
+| Unsigned release mode | Medium | Detached signatures available; required-signature installs fail closed; fingerprint recorded | Require `--require-signature` in production and review `last-release.json` after upgrades |
+| Release signing-key compromise | Medium | Private key stays on signing host; Pi receives public key only; fingerprint recorded | Use approved offline/HSM custody, rotate and revoke keys through change control, restrict signing hosts |
 | Plaintext secrets/PKI | Medium | File modes, dedicated service user, PKI excluded from state backup | Protect host root, use encrypted off-device backup, reissue on suspected exposure |
 | Unencrypted state/logs | Medium | Bounded retention, host permissions | Use encrypted volume or approved backup handling where required |
 | Manual certificate trust | Medium | Unknown certs rejected; explicit fingerprint update and restart | Include certificate rotation in change control and pilot drills |
 | No HA or central queue | Medium | Local durable logs, fsync for accepted quality, idempotent retries | Define station outage tolerance and downstream retry/reconciliation |
 | No per-request audit | Low/Medium | Structured error and process logs | Add reverse-proxy access logging for remote deployments |
-| Dependency or registry compromise | Medium | Exact lockfile, `npm ci`, CI audit, immutable artifact | Protect CI credentials, review advisories, consider artifact signing/SBOM |
+| Dependency or registry compromise | Medium | Exact lockfile, `npm ci`, CI audit, immutable artifact with optional detached signature | Protect CI credentials, review advisories, add SBOM and stronger key custody |
 | Host or physical compromise | High | systemd sandbox, least-privilege account | Harden OS/SSH, restrict physical access, monitor host integrity |
 
 ## 12. Security Incident Response

@@ -11,6 +11,11 @@ const {
   listReleases,
   rollbackRelease
 } = require("../src/release/installer");
+const {
+  signReleaseArchive,
+  signaturePathFor,
+  verifyReleaseArchiveSignature
+} = require("../src/release/signature");
 const { verifyStateBackup } = require("../src/gateway/state-backup");
 
 const DEFAULT_RELEASE_ROOT = "/opt/rpi4-opcua-oee-rca-gateway";
@@ -22,7 +27,9 @@ function usage() {
       "Usage:",
       "  npm run release:package -- [--root <directory>] [--output <directory>] [--allow-dirty] [--force] [--json]",
       "  npm run release:verify -- --archive <file.tar.gz> [--checksum <file.sha256>] [--json]",
-      "  npm run release:install -- --archive <file.tar.gz> [--checksum <file.sha256>] [--release-root <directory>] [--state-backup <directory>] [--service <name>] [--health-url <url>] [--json]",
+      "  npm run release:sign -- --archive <file.tar.gz> --private-key <file.pem> [--signature <file.sig>] [--json]",
+      "  npm run release:verify-signature -- --archive <file.tar.gz> --public-key <file.pem> [--signature <file.sig>] [--json]",
+      "  npm run release:install -- --archive <file.tar.gz> [--checksum <file.sha256>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--release-root <directory>] [--state-backup <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:rollback -- [--to <release-id>] [--release-root <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:status -- [--release-root <directory>] [--json]",
       "",
@@ -32,6 +39,7 @@ function usage() {
       "",
       "  --allow-dirty  Build a diagnostic archive from tracked working-tree changes.",
       "  --force        Replace an existing output archive.",
+      "  --require-signature  Refuse to install unless the detached signature verifies.",
       "  --json         Print a machine-readable result."
     ].join("\n")
   );
@@ -43,6 +51,7 @@ function parseArgs(argv) {
     json: false,
     force: false,
     allowDirty: false,
+    requireSignature: false,
     help: false
   };
   const valueOptions = new Map([
@@ -55,6 +64,9 @@ function parseArgs(argv) {
     ["--service", "service"],
     ["--health-url", "healthUrl"],
     ["--health-timeout-ms", "healthTimeoutMs"],
+    ["--private-key", "privateKey"],
+    ["--public-key", "publicKey"],
+    ["--signature", "signature"],
     ["--to", "to"]
   ]);
   for (let index = 1; index < argv.length; index += 1) {
@@ -73,6 +85,10 @@ function parseArgs(argv) {
     }
     if (argument === "--allow-dirty") {
       options.allowDirty = true;
+      continue;
+    }
+    if (argument === "--require-signature") {
+      options.requireSignature = true;
       continue;
     }
     const key = valueOptions.get(argument);
@@ -136,9 +152,42 @@ function printVerification(result) {
   console.log(`Archive SHA-256: ${result.archiveSha256}`);
 }
 
+function printSignature(result) {
+  console.log(`Release archive: ${result.archivePath}`);
+  console.log(`Signature: ${result.signaturePath}`);
+  console.log(`Algorithm: ${result.algorithm}`);
+  console.log(`Public key SHA-256: ${result.keyFingerprint}`);
+}
+
+async function verifySignatureOrThrow(options) {
+  if (!options.archive) {
+    throw new Error("verify-signature requires --archive <file.tar.gz>");
+  }
+  if (!options.publicKey) {
+    throw new Error("verify-signature requires --public-key <file.pem>");
+  }
+  const result = await verifyReleaseArchiveSignature({
+    archivePath: options.archive,
+    signaturePath: options.signature || signaturePathFor(options.archive),
+    publicKeyPath: options.publicKey
+  });
+  if (!result.valid) {
+    throw new Error(`release signature verification failed: ${result.signaturePath}`);
+  }
+  return result;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const commands = new Set(["package", "verify", "install", "rollback", "status"]);
+  const commands = new Set([
+    "package",
+    "verify",
+    "sign",
+    "verify-signature",
+    "install",
+    "rollback",
+    "status"
+  ]);
   if (options.help || !commands.has(options.command)) {
     usage();
     if (!options.help) {
@@ -211,6 +260,38 @@ async function main() {
     return;
   }
 
+  if (options.command === "sign") {
+    if (!options.archive) {
+      throw new Error("sign requires --archive <file.tar.gz>");
+    }
+    if (!options.privateKey) {
+      throw new Error("sign requires --private-key <file.pem>");
+    }
+    const result = await signReleaseArchive({
+      archivePath: options.archive,
+      privateKeyPath: options.privateKey,
+      outputPath: options.signature
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      printSignature(result);
+      console.log("Signature written: yes");
+    }
+    return;
+  }
+
+  if (options.command === "verify-signature") {
+    const result = await verifySignatureOrThrow(options);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      printSignature(result);
+      console.log("Signature verified: yes");
+    }
+    return;
+  }
+
   if (options.command === "status") {
     const result = await listReleases({ releaseRoot: releaseRoot(options) });
     if (options.json) {
@@ -246,7 +327,10 @@ async function main() {
       stateBackup: options.stateBackup,
       service: options.service || "rpi4-gateway",
       healthUrl: options.healthUrl || DEFAULT_HEALTH_URL,
-      healthTimeoutMs: healthTimeout(options)
+      healthTimeoutMs: healthTimeout(options),
+      requireSignature: options.requireSignature,
+      publicKeyPath: options.publicKey,
+      signaturePath: options.signature
     });
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
@@ -254,6 +338,11 @@ async function main() {
       console.log(`Release installed: ${result.releaseId}`);
       console.log(`Release directory: ${result.releaseDir}`);
       console.log(`Previous: ${result.previousReleaseId || "none"}`);
+      console.log(
+        result.signature
+          ? `Signature: verified (SHA-256, key ${result.signature.keyFingerprint})`
+          : "Signature: not verified"
+      );
     }
     return;
   }

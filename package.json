@@ -20,6 +20,8 @@
     "state:restore": "node scripts/gateway-state.js restore",
     "release:package": "node scripts/gateway-release.js package",
     "release:verify": "node scripts/gateway-release.js verify",
+    "release:sign": "node scripts/gateway-release.js sign",
+    "release:verify-signature": "node scripts/gateway-release.js verify-signature",
     "release:install": "node scripts/gateway-release.js install",
     "release:rollback": "node scripts/gateway-release.js rollback",
     "release:status": "node scripts/gateway-release.js status",

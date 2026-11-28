@@ -1,12 +1,14 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { generateKeyPairSync } = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { runProcess } = require("../src/release/common");
 const { createReleasePackage } = require("../src/release/package");
+const { signReleaseArchive } = require("../src/release/signature");
 const {
   RELEASE_OPERATION_FILE,
   installRelease,
@@ -75,6 +77,17 @@ function fakeCommandRunner(commands) {
   };
 }
 
+async function createSigningKeys(workspace) {
+  const privateKeyPath = path.join(workspace.root, "release-private.pem");
+  const publicKeyPath = path.join(workspace.root, "release-public.pem");
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  await Promise.all([
+    fs.writeFile(privateKeyPath, privateKey.export({ type: "pkcs8", format: "pem" })),
+    fs.writeFile(publicKeyPath, publicKey.export({ type: "spki", format: "pem" }))
+  ]);
+  return { privateKeyPath, publicKeyPath };
+}
+
 async function linkReleaseId(linkPath) {
   return path.basename(await fs.readlink(linkPath));
 }
@@ -136,6 +149,11 @@ test("release installer restores the previous release when the new health check 
   const workspace = await makeWorkspace(t);
   const releaseV1 = await buildRelease(t, workspace, "1.0.0");
   const releaseV3 = await buildRelease(t, workspace, "3.0.0");
+  const keys = await createSigningKeys(workspace);
+  const signedV3 = await signReleaseArchive({
+    archivePath: releaseV3.archivePath,
+    privateKeyPath: keys.privateKeyPath
+  });
   const run = fakeCommandRunner([]);
   const releaseRoot = workspace.releaseRoot;
   const currentLink = path.join(releaseRoot, "current");
@@ -154,6 +172,8 @@ test("release installer restores the previous release when the new health check 
     installRelease({
       ...base,
       archivePath: releaseV3.archivePath,
+      publicKeyPath: keys.publicKeyPath,
+      requireSignature: true,
       checkHealth: async () => (await linkReleaseId(currentLink)) !== releaseV3.manifest.releaseId,
       sleep: async () => undefined
     }),
@@ -166,6 +186,84 @@ test("release installer restores the previous release when the new health check 
   );
   assert.equal(report.action, "install-failed");
   assert.equal(report.releaseId, releaseV3.manifest.releaseId);
+  assert.deepEqual(report.signature, {
+    verified: true,
+    algorithm: "sha256",
+    keyFingerprint: signedV3.keyFingerprint
+  });
+});
+
+test("release installer records a verified detached signature", async (t) => {
+  const workspace = await makeWorkspace(t);
+  const release = await buildRelease(t, workspace, "5.0.0");
+  const keys = await createSigningKeys(workspace);
+  const signed = await signReleaseArchive({
+    archivePath: release.archivePath,
+    privateKeyPath: keys.privateKeyPath
+  });
+
+  const installed = await installRelease({
+    archivePath: release.archivePath,
+    publicKeyPath: keys.publicKeyPath,
+    requireSignature: true,
+    releaseRoot: workspace.releaseRoot,
+    run: fakeCommandRunner([]),
+    skipNpmInstall: true,
+    healthUrl: "http://health.test/healthz",
+    healthTimeoutMs: 1000,
+    checkHealth: async () => true
+  });
+
+  assert.deepEqual(installed.signature, {
+    verified: true,
+    algorithm: "sha256",
+    keyFingerprint: signed.keyFingerprint
+  });
+  assert.equal(installed.report.signature.keyFingerprint, signed.keyFingerprint);
+  const report = JSON.parse(
+    await fs.readFile(path.join(workspace.releaseRoot, RELEASE_OPERATION_FILE), "utf8")
+  );
+  assert.deepEqual(report.signature, installed.signature);
+});
+
+test("release installer rejects unsigned or tampered archives before switching", async (t) => {
+  const workspace = await makeWorkspace(t);
+  const unsignedRelease = await buildRelease(t, workspace, "6.0.0");
+  const tamperedRelease = await buildRelease(t, workspace, "7.0.0");
+  const keys = await createSigningKeys(workspace);
+  await signReleaseArchive({
+    archivePath: tamperedRelease.archivePath,
+    privateKeyPath: keys.privateKeyPath
+  });
+  await fs.appendFile(tamperedRelease.archivePath, "tampered\n");
+  const commands = [];
+  const run = fakeCommandRunner(commands);
+  const base = {
+    releaseRoot: workspace.releaseRoot,
+    publicKeyPath: keys.publicKeyPath,
+    requireSignature: true,
+    run,
+    skipNpmInstall: true,
+    healthUrl: null
+  };
+
+  await assert.rejects(
+    installRelease({ ...base, archivePath: unsignedRelease.archivePath }),
+    /ENOENT/
+  );
+  await assert.rejects(
+    installRelease({ ...base, archivePath: tamperedRelease.archivePath }),
+    /release signature verification failed/
+  );
+  await assert.rejects(
+    installRelease({ ...base, publicKeyPath: undefined, archivePath: unsignedRelease.archivePath }),
+    /requires a public key path/
+  );
+  await assert.rejects(
+    fs.readlink(path.join(workspace.releaseRoot, "current")),
+    /ENOENT/
+  );
+  assert.deepEqual(commands, []);
 });
 
 test("release installer enforces the manifest's minimum Node.js version", async (t) => {

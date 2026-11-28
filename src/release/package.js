@@ -335,6 +335,12 @@ async function verifyReleasePackage(options) {
   const run = options.run || runProcess;
   const requireChecksum = options.requireChecksum !== false;
   const archiveSha256 = await hashFile(archivePath);
+  if (
+    options.expectedArchiveSha256 &&
+    options.expectedArchiveSha256 !== archiveSha256
+  ) {
+    throw new Error("release archive changed after signature verification");
+  }
   let checksum = null;
   if (await pathExists(checksumPath)) {
     checksum = parseChecksumContent(

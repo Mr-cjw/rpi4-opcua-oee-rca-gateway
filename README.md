@@ -416,6 +416,24 @@ npm run release:package -- --output dist/release
 npm run release:verify -- --archive dist/release/<archive>.tar.gz
 ```
 
+Sign the archive on a trusted administrative host and verify the detached
+signature before transfer. The private key must remain on that host and must
+never be copied to the Pi, Git, the release directory, or a build artifact:
+
+```bash
+npm run release:sign -- \
+  --archive dist/release/<archive>.tar.gz \
+  --private-key /secure/release-keys/release-private.pem
+npm run release:verify-signature -- \
+  --archive dist/release/<archive>.tar.gz \
+  --public-key /secure/release-keys/release-public.pem
+```
+
+The signature is stored as `<archive>.tar.gz.sig`. It covers the exact archive
+bytes with SHA-256 and is independent of the external checksum file. Provision
+only the release public key on the Pi, for example at
+`/etc/rpi4-gateway/release-public.pem`.
+
 The archive contains tracked source, `package-lock.json`, deploy files, a
 `release-manifest.json` with file hashes and Git provenance, internal
 `SHA256SUMS`, and an external `<archive>.tar.gz.sha256`. Untracked files,
@@ -442,10 +460,21 @@ sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi
 sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-release.js install \
   --archive /var/tmp/<archive>.tar.gz \
   --checksum /var/tmp/<archive>.tar.gz.sha256 \
+  --signature /var/tmp/<archive>.tar.gz.sig \
+  --public-key /etc/rpi4-gateway/release-public.pem \
+  --require-signature \
   --release-root /opt/rpi4-opcua-oee-rca-gateway \
   --state-backup /var/backups/rpi4-gateway/20261128T120000
 curl http://127.0.0.1:8080/healthz
 ```
+
+Production installs must use `--require-signature`. Signature verification
+happens before extraction or release switching. `last-release.json` records the
+verified algorithm and public-key SHA-256 fingerprint in its additive
+`signature` field, but never records the private key or its path. Installation
+without those options remains available for backward compatibility and is
+reported as not verified. Key rotation, HSM/KMS custody, and automated OTA
+signing are not built in; rotate the public key through change control.
 
 Rollback switches back to `previous` with the same stop, health-check, and
 automatic restore behavior. Use `release:status` to inspect installed,

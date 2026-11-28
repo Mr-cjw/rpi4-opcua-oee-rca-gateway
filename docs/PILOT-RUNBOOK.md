@@ -321,8 +321,12 @@ SOAK_DURATION_MS=20000 npm run soak
 npm run security:audit
 ```
 
-The release archive must also pass `release:package`, `release:verify`, and a
-test install/health-check/rollback cycle.
+The release archive must also pass `release:package`, `release:verify`,
+`release:sign`, `release:verify-signature`, and a test
+install/health-check/rollback cycle. Record the public-key SHA-256 fingerprint
+from the signature report and require it during the signed install. The release
+private key must remain on the trusted signing host and must not be copied to
+the Pi.
 
 ### 8.2 Hardware and Field Gates
 
@@ -348,6 +352,6 @@ before declaring the pilot production-ready:
 | Stop or roll back | Unaccepted data loss, unresolved trust/security failure, unsafe equipment behavior, uncontrolled storage corruption, or no reliable recovery path |
 
 The pilot exit record must include the release ID, configuration checksum or
-diff, validation evidence, incidents, accepted-event counts, OEE reconciliation,
-open risks, and sign-off from the production, PLC, Gateway, security, and QA/MES
-owners.
+diff, release-signing public-key fingerprint, validation evidence, incidents,
+accepted-event counts, OEE reconciliation, open risks, and sign-off from the
+production, PLC, Gateway, security, and QA/MES owners.

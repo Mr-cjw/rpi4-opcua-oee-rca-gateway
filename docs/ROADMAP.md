@@ -44,7 +44,8 @@ correctness gap in an earlier phase.
 - A read-only OPC UA commissioning doctor for NodeIds, types, status, timestamps, counters, and events.
 - Immutable release archives with manifest/checksum verification, atomic
   `current` switching, health-checked upgrade, automatic rollback, and explicit
-  rollback/status commands.
+  rollback/status commands, plus optional detached SHA-256 signatures and
+  fail-closed required-signature installs.
 - Node.js 22.13+ runtime baseline, patched `node-opcua` dependency, production
   dependency audit in CI, and an expanded systemd sandbox.
 - Field-pilot runbook, known-limitations register, and conditional security
@@ -266,6 +267,9 @@ Deliverables:
   integrity, dependencies, and the systemd sandbox.
 - Completed 2026-11-28: field-pilot runbook with acceptance/exit criteria and a
   known-limitations register.
+- Completed 2026-11-28: detached release signing and verification commands,
+  mandatory-signature installation gate, public-key fingerprint recording, and
+  CI signing smoke coverage.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 
 Acceptance:
@@ -283,8 +287,8 @@ The next implementation-sized units are:
    adoption gates are met.
 2. Validate NTP synchronization and run the long-duration injected fault matrix
    alongside the 72-hour soak on Raspberry Pi hardware.
-3. Exercise release upgrade/rollback and state restore on Raspberry Pi hardware;
-   add artifact signing if releases leave the trusted administrative channel.
+3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
+   hardware; define release-key custody, rotation, and revocation procedures.
 4. Complete a real-PLC certificate-rotation drill and define the remote-access
    reverse-proxy/TLS architecture before exposing the API beyond loopback.
 
@@ -301,6 +305,8 @@ A release is not field-ready unless all of these are true:
 - 72-hour soak and reconnect/power-loss/disk-full tests pass.
 - OEE responses state their time basis, counter mode, loss classification, and data-quality warnings.
 - Backup, restore, upgrade, and rollback have been exercised on Raspberry Pi hardware.
+- Production installs require and verify the detached release signature, and the
+  approval record contains the signer public-key fingerprint.
 - HTTP and OPC UA security settings are explicit; no insecure production default is silent.
 - The runbook distinguishes equipment faults from Gateway faults.
 - The security review has no unresolved critical finding and its required
