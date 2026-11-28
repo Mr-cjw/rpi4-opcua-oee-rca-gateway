@@ -154,6 +154,10 @@ when the local client cannot perform the probe. The verifier does not test sourc
 network denial from an approved client, rate-limit thresholds, or log contents;
 those remain explicit commissioning checks.
 
+For a complete host and edge acceptance record, use `npm run commission` from
+the deployment guide. It runs this verifier together with release, systemd,
+health, clock, storage, and OPC UA doctor checks, then archives one JSON report.
+
 Inspect an access-log line to confirm no credential material is present:
 
 ```bash

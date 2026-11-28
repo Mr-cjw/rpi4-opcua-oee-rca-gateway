@@ -110,6 +110,9 @@ deployment depends on behavior the Gateway does not provide.
   cannot make a Node/OpenSSL client initiate TLS 1.1 when the runtime disables
   that protocol. It reports this as a skip; static configuration review and an
   approved external TLS scanner remain required.
+- The commissioning report is a point-in-time aggregation. It does not replace
+  the 72-hour soak, physical power-cut and disk-full tests, long-duration data
+  reconciliation, or real PLC certificate-rotation drills.
 - Credentials are read from environment variables or files. The application
   validates presence and readability, but does not enforce file ownership or
   mode. Operators must enforce `0600` files and a protected environment file.

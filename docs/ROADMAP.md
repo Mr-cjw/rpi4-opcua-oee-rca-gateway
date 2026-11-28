@@ -54,6 +54,8 @@ correctness gap in an earlier phase.
 - An edge verifier for deployed certificate chains, TLS versions, redirects,
   security headers, health, authenticated metrics and `/v1` endpoints, unknown
   paths, private CAs, and mTLS client material, with JSON and strict exit modes.
+- A field-acceptance report that aggregates release/rollback readiness, systemd,
+  health, PLC/clock/storage, OPC UA doctor, and edge evidence with strict gates.
 - Node.js 22.13+ runtime baseline, patched `node-opcua` dependency, production
   dependency audit in CI, and an expanded systemd sandbox.
 - Field-pilot runbook, known-limitations register, and conditional security
@@ -214,6 +216,10 @@ Deliverables:
   verification with trusted certificate validation, TLS probes, redirect and
   security-header checks, token handling from protected files/environment, mTLS
   support, optional loopback-origin checks, JSON output, and strict exit status.
+- Completed 2026-11-28: `npm run commission` produces a mode-`0600` field
+  acceptance report spanning release/rollback readiness, systemd, health,
+  PLC/clock/storage, OPC UA doctor, and edge verification, with a post-reboot
+  uptime gate and strict handling for skipped gates.
 
 Acceptance:
 

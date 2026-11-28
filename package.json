@@ -15,6 +15,7 @@
     "check:docs": "node scripts/check-docs.js",
     "smoke": "node scripts/smoke-test.js",
     "doctor": "node scripts/gateway-doctor.js",
+    "commission": "node scripts/gateway-commission.js",
     "state:backup": "node scripts/gateway-state.js backup",
     "state:verify": "node scripts/gateway-state.js verify",
     "state:restore": "node scripts/gateway-state.js restore",

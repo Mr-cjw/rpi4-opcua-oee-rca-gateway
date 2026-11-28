@@ -340,6 +340,9 @@ SOAK_DURATION_MS=20000 npm run soak
 npm run security:audit
 # Remote deployments only, against the approved DNS name:
 npm run edge:verify -- --url https://<gateway-name> --strict
+# Installed Pi acceptance evidence:
+npm run commission -- --url https://<gateway-name> --strict --json \
+  --output commissioning-report.json
 ```
 
 The release archive must also pass `release:package`, `release:verify`,
@@ -350,6 +353,14 @@ SHA-256 fingerprint from the signature report and require it during the signed
 install. The release private key must remain on the trusted signing host and
 must not be copied to the Pi.
 
+`commission` produces a single point-in-time acceptance report covering release
+and rollback readiness, systemd state, health/PLC/clock/storage, the OPC UA
+doctor, and edge verification. Run it after installation, every reboot,
+certificate or firewall change, and rollback. Immediately after reboot, add
+`--max-uptime-seconds 600` to prove the Gateway process restarted. Preserve the
+JSON report with the release ID and configuration change record. A skipped
+doctor or edge gate is a warning and fails `--strict`.
+
 ### 8.2 Hardware and Field Gates
 
 The software gates are not a field acceptance. The following remain mandatory
@@ -357,6 +368,8 @@ before declaring the pilot production-ready:
 
 - 72-hour soak with API load, quality ingestion, fault injection, reconnect
   cycles, retention, and log-budget checks on the target Pi.
+- Commissioning reports after install, reboot, power-cut recovery, certificate
+  rotation, upgrade, and rollback, with all strict gates passing.
 - Verified NTP behavior and clock-failure degradation on the target network.
 - Physical power-cut and disk-full recovery tests on the target storage.
 - Install, upgrade, automatic rollback, explicit rollback, and state restore on
@@ -374,6 +387,7 @@ before declaring the pilot production-ready:
 | Stop or roll back | Unaccepted data loss, unresolved trust/security failure, unsafe equipment behavior, uncontrolled storage corruption, or no reliable recovery path |
 
 The pilot exit record must include the release ID, configuration checksum or
-diff, release-signing public-key fingerprint, validation evidence, incidents,
-SBOM review result, accepted-event counts, OEE reconciliation, open risks, and
-sign-off from the production, PLC, Gateway, security, and QA/MES owners.
+diff, release-signing public-key fingerprint, commissioning JSON reports,
+validation evidence, incidents, SBOM review result, accepted-event counts, OEE
+reconciliation, open risks, and sign-off from the production, PLC, Gateway,
+security, and QA/MES owners.

@@ -154,6 +154,27 @@ anonymous `/metrics` and `/v1` rejection plus authenticated access, and probes
 unknown-path handling. Add `--ca-file` for a private CA or client-certificate
 options for mTLS. Archive `--json` output in the commissioning record.
 
+For a consolidated post-install, post-reboot, or post-rollback acceptance record,
+run the commission command as the service user:
+
+```bash
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run commission -- \
+    --url https://gateway.example.invalid \
+    --origin-url http://127.0.0.1:8080 \
+    --strict --json \
+    --output "/var/lib/rpi4-gateway/commissioning-$(date -u +%Y%m%dT%H%M%SZ).json"'
+```
+
+The report aggregates release/rollback status, systemd state, health, PLC,
+clock, storage, OPC UA doctor, and edge checks. It is written with mode `0600`
+and refuses to overwrite an existing report unless `--force` is supplied. Add
+`--max-uptime-seconds 600` immediately after reboot to prove the Gateway process
+restarted within that window. `--skip-doctor` and `--skip-edge` are partial
+diagnostics only: the resulting warnings make `--strict` exit non-zero. Strict
+acceptance also requires a previous release as the rollback target.
+
 ### Clock synchronization
 
 Production OEE and RCA timestamps must use a synchronized Pi clock. The example

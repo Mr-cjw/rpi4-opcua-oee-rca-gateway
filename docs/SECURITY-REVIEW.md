@@ -131,6 +131,10 @@ security material, not ordinary application data.
   `/metrics` and `/v1` access, unknown-path handling, and optional loopback
   origin without an insecure certificate option. It supports a private CA and
   mTLS client material.
+- `npm run commission` aggregates release/rollback readiness, systemd state,
+  health, PLC, clock, storage, OPC UA doctor, and edge verification into a
+  mode-`0600` JSON report. Skipped mandatory gates are warnings and fail strict
+  acceptance.
 - `GATEWAY_API_TOKEN` protects `/metrics` and `/v1/*` when configured. Bearer
   comparison uses `crypto.timingSafeEqual` after a length check.
 - `/healthz` is intentionally unauthenticated and contains status/identity
@@ -298,6 +302,7 @@ npm run e2e:security
 npm run e2e:clock
 SOAK_DURATION_MS=20000 npm run soak
 npm run edge:verify -- --url https://<gateway-name> --strict
+npm run commission -- --url https://<gateway-name> --strict --json
 npm run security:audit
 npm audit
 systemd-analyze verify deploy/rpi4-gateway.service
@@ -317,6 +322,9 @@ protocol probes, source-network tests, and an authenticated API request.
 an insecure certificate bypass. A TLS 1.1 `skip` means the local OpenSSL client
 cannot initiate that protocol; the deployed edge must still be confirmed with the
 site's approved scanner and the static nginx policy test.
+`commission` records the combined Pi acceptance evidence without placing API or
+client credentials in the report or on the command line; tokens still come only
+from the environment or a mode-`0600` file.
 
 ## 11. Residual Risk Register
 

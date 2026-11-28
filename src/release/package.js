@@ -26,7 +26,9 @@ const REQUIRED_RELEASE_FILES = Object.freeze([
   "deploy/rpi4-gateway.service",
   "package-lock.json",
   "package.json",
+  "scripts/gateway-commission.js",
   "scripts/gateway-edge-verify.js",
+  "src/commission/report.js",
   "src/edge/verify.js",
   "src/gateway/index.js"
 ]);

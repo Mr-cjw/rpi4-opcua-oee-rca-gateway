@@ -198,6 +198,15 @@ authenticated metrics and `/v1` endpoints, and unknown-path behavior. Use
 mTLS. The verifier never disables certificate validation and does not accept
 tokens on the command line.
 
+For one field-acceptance artifact, run
+`npm run commission -- --url https://<gateway-name> --strict --json`. It combines
+release and rollback readiness, systemd state, health/PLC/clock/storage status,
+the read-only OPC UA doctor, and edge verification. Add
+`--max-uptime-seconds <n>` after a reboot, and write the report with `--output`
+for the commissioning record. `--skip-doctor` and `--skip-edge` are for partial
+diagnostics; skipped gates are warnings and make `--strict` fail. Strict
+acceptance also requires a previous release as the rollback target.
+
 ```bash
 curl http://127.0.0.1:8080/healthz
 curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8080/metrics

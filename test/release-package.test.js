@@ -24,7 +24,9 @@ const RELEASE_FILES = [
   "deploy/rpi4-gateway.service",
   "package-lock.json",
   "package.json",
+  "scripts/gateway-commission.js",
   "scripts/gateway-edge-verify.js",
+  "src/commission/report.js",
   "src/edge/verify.js",
   "src/gateway/index.js"
 ];
@@ -34,6 +36,7 @@ async function makeFixture(t) {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.mkdir(path.join(root, "src", "gateway"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "edge"), { recursive: true });
+  await fs.mkdir(path.join(root, "src", "commission"), { recursive: true });
   await fs.mkdir(path.join(root, "scripts"), { recursive: true });
   await fs.mkdir(path.join(root, "deploy"), { recursive: true });
   await fs.writeFile(
@@ -54,7 +57,9 @@ async function makeFixture(t) {
     path.join(root, "deploy", "rpi4-gateway.service"),
     "[Service]\nExecStart=/usr/bin/node src/gateway/index.js\n"
   );
+  await fs.writeFile(path.join(root, "scripts", "gateway-commission.js"), '"use strict";\n');
   await fs.writeFile(path.join(root, "scripts", "gateway-edge-verify.js"), '"use strict";\n');
+  await fs.writeFile(path.join(root, "src", "commission", "report.js"), '"use strict";\n');
   await fs.writeFile(path.join(root, "src", "edge", "verify.js"), '"use strict";\n');
   await fs.writeFile(path.join(root, "src", "gateway", "index.js"), '"use strict";\n');
   return root;
