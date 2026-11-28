@@ -44,6 +44,10 @@ test("gateway environment template includes persistence and API safeguards", asy
     "GATEWAY_STORAGE_WARN_FREE_BYTES",
     "GATEWAY_STORAGE_CRITICAL_FREE_BYTES",
     "GATEWAY_STORAGE_CHECK_INTERVAL_MS",
+    "GATEWAY_CLOCK_SYNC_CHECK_INTERVAL_MS",
+    "GATEWAY_CLOCK_SYNC_MAX_AGE_MS",
+    "GATEWAY_CLOCK_SYNC_MAX_OFFSET_MS",
+    "GATEWAY_CLOCK_SYNC_REQUIRED",
     "GATEWAY_DOCTOR_SAMPLE_MS",
     "GATEWAY_DOCTOR_TIMEOUT_MS",
     "GATEWAY_PLC_STALE_WARNING_MS",
@@ -91,4 +95,5 @@ test("package scripts expose state backup, restore, and storage evaluation comma
   assert.equal(packageJson.scripts["state:restore"], "node scripts/gateway-state.js restore");
   assert.equal(packageJson.scripts["storage:evaluate"], "node scripts/evaluate-storage.js");
   assert.equal(packageJson.scripts["e2e:security"], "node scripts/gateway-security-e2e.js");
+  assert.equal(packageJson.scripts["e2e:clock"], "node scripts/gateway-clock-e2e.js");
 });

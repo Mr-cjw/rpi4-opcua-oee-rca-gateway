@@ -195,6 +195,41 @@ test("gateway config validates live PLC diagnostic thresholds", () => {
   );
 });
 
+test("gateway config validates clock synchronization monitoring", () => {
+  const defaults = loadGatewayConfig({});
+  assert.deepEqual(defaults.clockSync, {
+    checkIntervalMs: 60000,
+    maxAgeMs: 180000,
+    maxOffsetMs: 1000,
+    required: false
+  });
+
+  const config = loadGatewayConfig({
+    GATEWAY_CLOCK_SYNC_CHECK_INTERVAL_MS: "5000",
+    GATEWAY_CLOCK_SYNC_MAX_AGE_MS: "20000",
+    GATEWAY_CLOCK_SYNC_MAX_OFFSET_MS: "250",
+    GATEWAY_CLOCK_SYNC_REQUIRED: "true"
+  });
+  assert.deepEqual(config.clockSync, {
+    checkIntervalMs: 5000,
+    maxAgeMs: 20000,
+    maxOffsetMs: 250,
+    required: true
+  });
+  assert.throws(
+    () =>
+      loadGatewayConfig({
+        GATEWAY_CLOCK_SYNC_CHECK_INTERVAL_MS: "20000",
+        GATEWAY_CLOCK_SYNC_MAX_AGE_MS: "10000"
+      }),
+    /GATEWAY_CLOCK_SYNC_MAX_AGE_MS must be greater/
+  );
+  assert.throws(
+    () => loadGatewayConfig({ GATEWAY_CLOCK_SYNC_REQUIRED: "sometimes" }),
+    /GATEWAY_CLOCK_SYNC_REQUIRED/
+  );
+});
+
 test("gateway config injects OPC UA credentials from secret files", async () => {
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "gateway-credentials-"));
   const usernameFile = path.join(runDir, "username");

@@ -47,6 +47,7 @@ function metricsPayload(runtime) {
     disk: {},
     components: {}
   };
+  const clock = status.clock || {};
   const latestAt = status.context.latestOccurredAt
     ? Date.parse(status.context.latestOccurredAt) / 1000
     : 0;
@@ -88,6 +89,13 @@ function metricsPayload(runtime) {
       `rpi4_gateway_plc_value_clock_skew_seconds{name="${name}"} ${(variable.clockSkewMs || 0) / 1000}`
     ];
   });
+  const clockOffsetLines = Number.isFinite(clock.offsetMs)
+    ? [
+        "# HELP rpi4_gateway_clock_offset_seconds Latest reported system clock offset from NTP.",
+        "# TYPE rpi4_gateway_clock_offset_seconds gauge",
+        `rpi4_gateway_clock_offset_seconds ${clock.offsetMs / 1000}`
+      ]
+    : [];
   return [
     "# HELP rpi4_gateway_up Gateway process is running.",
     "# TYPE rpi4_gateway_up gauge",
@@ -98,6 +106,25 @@ function metricsPayload(runtime) {
     "# HELP rpi4_gateway_uptime_seconds Gateway process uptime.",
     "# TYPE rpi4_gateway_uptime_seconds gauge",
     `rpi4_gateway_uptime_seconds ${status.uptimeSeconds}`,
+    "# HELP rpi4_gateway_clock_sync_healthy Whether the operating-system clock is confirmed synchronized.",
+    "# TYPE rpi4_gateway_clock_sync_healthy gauge",
+    `rpi4_gateway_clock_sync_healthy ${clock.healthy ? 1 : 0}`,
+    "# HELP rpi4_gateway_clock_sync_required Whether clock synchronization is required for overall health.",
+    "# TYPE rpi4_gateway_clock_sync_required gauge",
+    `rpi4_gateway_clock_sync_required ${clock.required ? 1 : 0}`,
+    "# HELP rpi4_gateway_clock_sync_known Whether an NTP synchronization state was detected.",
+    "# TYPE rpi4_gateway_clock_sync_known gauge",
+    `rpi4_gateway_clock_sync_known ${clock.synchronized === true || clock.synchronized === false ? 1 : 0}`,
+    "# HELP rpi4_gateway_clock_synchronized Whether the operating-system clock is synchronized when known.",
+    "# TYPE rpi4_gateway_clock_synchronized gauge",
+    `rpi4_gateway_clock_synchronized ${clock.synchronized === true ? 1 : 0}`,
+    "# HELP rpi4_gateway_clock_sync_age_seconds Seconds since the latest clock-sync check.",
+    "# TYPE rpi4_gateway_clock_sync_age_seconds gauge",
+    `rpi4_gateway_clock_sync_age_seconds ${(clock.ageMs || 0) / 1000}`,
+    ...clockOffsetLines,
+    "# HELP rpi4_gateway_clock_sync_info Current clock-sync status and source.",
+    "# TYPE rpi4_gateway_clock_sync_info gauge",
+    `rpi4_gateway_clock_sync_info{status="${prometheusLabel(clock.status || "unknown")}",source="${prometheusLabel(clock.source || "unknown")}"} 1`,
     "# HELP rpi4_gateway_process_context_events Retained process-context events.",
     "# TYPE rpi4_gateway_process_context_events gauge",
     `rpi4_gateway_process_context_events ${status.context.eventCount}`,

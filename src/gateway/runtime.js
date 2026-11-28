@@ -3,6 +3,7 @@
 const { EventEmitter } = require("node:events");
 const { calculateOee, toMillis } = require("../analytics/oee");
 const { analyzeRca } = require("../analytics/rca");
+const { ClockSyncMonitor } = require("./clock-sync");
 const { OpcUaGatewayClient } = require("./opcua-client");
 const { ProcessContextCollector } = require("./process-context");
 const { QualityEventNotFoundError, QualityEventStore } = require("./quality-events");
@@ -33,6 +34,12 @@ class GatewayRuntime extends EventEmitter {
     this.logger = config.logger || dependencies.logger || defaultLogger;
     this.storageMonitor =
       dependencies.storageMonitor || new StorageMonitor(config.storage || {});
+    this.clockSyncMonitor =
+      dependencies.clockSyncMonitor ||
+      new ClockSyncMonitor(config.clockSync || {}, {
+        checkClock: dependencies.checkClock,
+        now: dependencies.now
+      });
     this.client =
       dependencies.client ||
       new OpcUaGatewayClient({
@@ -95,6 +102,7 @@ class GatewayRuntime extends EventEmitter {
 
     this.startedAt = new Date().toISOString();
     await this.storageMonitor.start();
+    await this.clockSyncMonitor.start();
     await this._loadPersistedState();
     await this._loadWorkContextState();
     if (!this.api) {
@@ -111,6 +119,7 @@ class GatewayRuntime extends EventEmitter {
       await this.api.close().catch(() => undefined);
       await this.collector.stop().catch(() => undefined);
       await this.client.stop().catch(() => undefined);
+      await this.clockSyncMonitor.stop().catch(() => undefined);
       throw error;
     }
 
@@ -133,6 +142,7 @@ class GatewayRuntime extends EventEmitter {
       await this.client.stop();
       this._started = false;
     } finally {
+      await this.clockSyncMonitor.stop().catch(() => undefined);
       this.storageMonitor.stop();
       this._stopping = false;
     }
@@ -141,10 +151,16 @@ class GatewayRuntime extends EventEmitter {
   getStatus() {
     const latest = this.collector.getLatest();
     const storage = this.storageMonitor.getStatus();
+    const clock = this.clockSyncMonitor.getStatus();
     const plc = typeof this.client.getStatus === "function" ? this.client.getStatus() : null;
     const plcHealthy = !plc || plc.healthy !== false;
+    const clockHealthy = !clock.required || clock.status === "ok";
     const healthy =
-      this._started && this.client.isConnected && storage.status === "ok" && plcHealthy;
+      this._started &&
+      this.client.isConnected &&
+      storage.status === "ok" &&
+      plcHealthy &&
+      clockHealthy;
     return {
       status: healthy ? "ok" : "degraded",
       opcuaConnected: Boolean(this.client.isConnected),
@@ -169,6 +185,7 @@ class GatewayRuntime extends EventEmitter {
         processContext: this.collector.getSequenceStatus(),
         quality: this.qualityEvents.getSequenceStatus()
       },
+      clock,
       plc,
       storage
     };

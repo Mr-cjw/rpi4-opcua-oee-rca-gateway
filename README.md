@@ -203,7 +203,8 @@ curl -X POST http://127.0.0.1:8080/v1/rca \
 
 `GET /metrics` exposes Prometheus text metrics for process uptime, OPC UA
 connectivity, retained context/alarm/quality counts, latest context timestamp,
-the current line/work context, live PLC diagnostics, and storage health.
+the current line/work context, live PLC diagnostics, OS clock synchronization,
+and storage health.
 Storage metrics include
 `rpi4_gateway_storage_healthy`,
 `rpi4_gateway_storage_disk_free_bytes`,
@@ -231,6 +232,12 @@ counters, native-event subscription health/failure/recovery counters, and the
 per-variable `rpi4_gateway_plc_value_good`, `rpi4_gateway_plc_value_stale`,
 `rpi4_gateway_plc_value_age_seconds`, and
 `rpi4_gateway_plc_value_clock_skew_seconds` series with a `name` label.
+
+Clock-sync metrics include `rpi4_gateway_clock_sync_healthy`,
+`rpi4_gateway_clock_sync_required`, `rpi4_gateway_clock_sync_known`,
+`rpi4_gateway_clock_synchronized`, `rpi4_gateway_clock_sync_age_seconds`, the
+optional `rpi4_gateway_clock_offset_seconds`, and
+`rpi4_gateway_clock_sync_info{status,source}`.
 
 `/v1/events`, `/v1/alarms`, `/v1/quality-events`, and `/v1/oee` accept optional
 `workOrderId`, `correlationId`, and `productId` query parameters. `/v1/rca`
@@ -338,6 +345,30 @@ exempt because it normally remains unchanged until an alarm changes.
 Source/server skew and future-source checks use
 `GATEWAY_PLC_CLOCK_SKEW_WARNING_MS`. Use `npm run doctor` before deployment and
 `/healthz.plc` after deployment for the complementary read-time and live checks.
+
+### Clock synchronization diagnostics
+
+`GET /healthz` includes a `clock` object. The Gateway checks the Pi's operating
+system clock at startup and every `GATEWAY_CLOCK_SYNC_CHECK_INTERVAL_MS`, using
+`timedatectl show --property=NTPSynchronized --value` and falling back to
+`chronyc -n tracking`. The status is `ok` when NTP is synchronized and any
+reported offset is within `GATEWAY_CLOCK_SYNC_MAX_OFFSET_MS`; it is `warning`
+when NTP is not synchronized, the offset is too large, or the latest check is
+older than `GATEWAY_CLOCK_SYNC_MAX_AGE_MS`. A missing or failed provider is
+`unknown`. Set `GATEWAY_CLOCK_SYNC_REQUIRED=true` to make any non-`ok` clock
+state degrade overall `/healthz`; otherwise it remains diagnostic-only.
+
+On Raspberry Pi OS, verify time synchronization before commissioning:
+
+```bash
+sudo timedatectl set-ntp true
+timedatectl status
+timedatectl show --property=NTPSynchronized --value
+curl -s http://127.0.0.1:8080/healthz | jq '.clock'
+```
+
+The production environment template requires clock synchronization. A Pi that
+cannot reach an NTP source must be repaired rather than disabling the check.
 
 ### State backup and restore
 
@@ -675,6 +706,10 @@ report never includes the OPC UA password or private-key material.
 | `GATEWAY_STORAGE_WARN_FREE_BYTES` | `104857600` | Free-space warning threshold in bytes; warning degrades `/healthz` |
 | `GATEWAY_STORAGE_CRITICAL_FREE_BYTES` | `33554432` | Free-space critical threshold in bytes; cannot exceed the warning threshold |
 | `GATEWAY_STORAGE_CHECK_INTERVAL_MS` | `60000` | Disk free-space sampling interval |
+| `GATEWAY_CLOCK_SYNC_CHECK_INTERVAL_MS` | `60000` | OS NTP status sampling interval; minimum `1000` |
+| `GATEWAY_CLOCK_SYNC_MAX_AGE_MS` | `180000` | Age after which a clock check is stale; must exceed the check interval |
+| `GATEWAY_CLOCK_SYNC_MAX_OFFSET_MS` | `1000` | Maximum absolute NTP offset before the clock reports a warning |
+| `GATEWAY_CLOCK_SYNC_REQUIRED` | `false` | Degrade overall `/healthz` when clock status is not `ok`; enable in production |
 | `GATEWAY_HTTP_HOST` | `127.0.0.1` | HTTP bind address |
 | `GATEWAY_HTTP_PORT` | `8080` | HTTP port; `0` selects a free port |
 | `GATEWAY_API_TOKEN` | empty | Optional bearer token |
@@ -1160,6 +1195,14 @@ the new certificate is rejected until trusted, and reconnects after restart:
 
 ```bash
 npm run e2e:security
+```
+
+Run the clock-synchronization path. This injects synchronized,
+unsynchronized, and recovered NTP states, verifies `/healthz.clock`, confirms
+required-clock health degradation, and checks the Prometheus metrics:
+
+```bash
+npm run e2e:clock
 ```
 
 Validate the shared JSON contracts and local documentation links:

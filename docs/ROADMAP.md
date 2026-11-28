@@ -185,7 +185,10 @@ Deliverables:
   files. Production startup rejects `None` security or unknown-certificate
   auto-trust unless explicitly overridden. `npm run e2e:security` covers the
   secured path and rotation.
-- Synchronize the Pi clock and record source/server timestamps for analytics.
+- Completed 2026-11-28: OS clock synchronization diagnostics detect
+  `timedatectl`/`chronyc` NTP state and offset, expose `/healthz.clock` and
+  Prometheus metrics, support staleness/required thresholds, document Pi NTP
+  commissioning, and provide injected `npm run e2e:clock` coverage.
 
 Acceptance:
 
@@ -265,8 +268,8 @@ The next implementation-sized units are:
 1. Finish the M2 storage boundary with physical power-cut validation on
    Raspberry Pi hardware and the gated SQLite importer/backend if the documented
    adoption gates are met.
-2. Finish M3 clock synchronization diagnostics and run the long-duration
-   injected fault matrix alongside the 72-hour soak on Raspberry Pi hardware.
+2. Validate NTP synchronization and run the long-duration injected fault matrix
+   alongside the 72-hour soak on Raspberry Pi hardware.
 3. Add release packaging, upgrade, and rollback procedures.
 
 M1 is complete, and the live PLC diagnostics software is complete. Prioritize

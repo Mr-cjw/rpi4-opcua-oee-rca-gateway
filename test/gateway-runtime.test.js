@@ -106,8 +106,30 @@ function makeRuntime(extraEnv = {}) {
       return () => `runtime-event-${++id}`;
     })()
   });
+  const clockSyncMonitor = {
+    start: async () => undefined,
+    stop: async () => undefined,
+    getStatus: () => ({
+      schemaVersion: "1.0",
+      status: "ok",
+      healthy: true,
+      synchronized: true,
+      required: false,
+      source: "injected",
+      checkedAt: new Date().toISOString(),
+      ageMs: 0,
+      stale: false,
+      offsetMs: 0,
+      maxOffsetMs: 1000,
+      checkIntervalMs: 60000,
+      maxAgeMs: 180000,
+      leapStatus: "Normal",
+      reason: "synchronized",
+      error: null
+    })
+  };
   return {
-    runtime: new GatewayRuntime(config, { client, collector }),
+    runtime: new GatewayRuntime(config, { client, collector, clockSyncMonitor }),
     client,
     collector
   };
@@ -142,6 +164,8 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.equal(health.opcuaConnected, true);
   assert.equal(health.identity.lineId, "JX-LINE-01");
   assert.equal(health.plc.status, "ok");
+  assert.equal(health.clock.status, "ok");
+  assert.equal(health.clock.synchronized, true);
 
   const metricsResponse = await fetch(`${runtime.api.address}/metrics`);
   assert.equal(metricsResponse.status, 200);
@@ -156,6 +180,9 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
   assert.match(metrics, /^rpi4_gateway_quality_events 0$/m);
   assert.match(metrics, /^rpi4_gateway_plc_diagnostics_healthy 1$/m);
   assert.match(metrics, /^rpi4_gateway_plc_stale_values 0$/m);
+  assert.match(metrics, /^rpi4_gateway_clock_sync_healthy 1$/m);
+  assert.match(metrics, /^rpi4_gateway_clock_synchronized 1$/m);
+  assert.match(metrics, /^rpi4_gateway_clock_sync_required 0$/m);
 
   const latestResponse = await fetch(`${runtime.api.address}/v1/context/latest`);
   assert.equal(latestResponse.status, 200);
@@ -276,6 +303,59 @@ test("gateway runtime exposes context, OEE and RCA over HTTP", async (t) => {
     body: JSON.stringify({ qualityEventId: "qevt-missing" })
   });
   assert.equal(missingRcaResponse.status, 404);
+});
+
+test("gateway runtime degrades health for a required unsynchronized clock", async (t) => {
+  const runtime = new GatewayRuntime(
+    loadGatewayConfig({
+      OPCUA_ENDPOINT: "opc.tcp://127.0.0.1:1/UA/MockPLC",
+      PROCESS_CONTEXT_LOG: "off",
+      QUALITY_EVENT_LOG: "off",
+      QUALITY_EVENT_IDEMPOTENCY_FILE: "off",
+      GATEWAY_HTTP_PORT: "0",
+      GATEWAY_WORK_CONTEXT_FILE: "off",
+      GATEWAY_CLOCK_SYNC_REQUIRED: "true"
+    }),
+    {
+      client: new FakeOpcUaClient(),
+      clockSyncMonitor: {
+        start: async () => undefined,
+        stop: async () => undefined,
+        getStatus: () => ({
+          schemaVersion: "1.0",
+          status: "warning",
+          healthy: false,
+          synchronized: false,
+          required: true,
+          source: "injected",
+          checkedAt: new Date().toISOString(),
+          ageMs: 10,
+          stale: false,
+          offsetMs: null,
+          maxOffsetMs: 1000,
+          checkIntervalMs: 60000,
+          maxAgeMs: 180000,
+          leapStatus: null,
+          reason: "not_synchronized",
+          error: null
+        })
+      }
+    }
+  );
+  t.after(async () => runtime.stop());
+
+  await runtime.start();
+  const health = await (await fetch(`${runtime.api.address}/healthz`)).json();
+  assert.equal(health.status, "degraded");
+  assert.equal(health.clock.status, "warning");
+  assert.equal(health.clock.required, true);
+
+  const metrics = await (await fetch(`${runtime.api.address}/metrics`)).text();
+  assert.match(metrics, /^rpi4_gateway_clock_sync_healthy 0$/m);
+  assert.match(metrics, /^rpi4_gateway_clock_synchronized 0$/m);
+  assert.match(metrics, /^rpi4_gateway_clock_sync_known 1$/m);
+  assert.match(metrics, /^rpi4_gateway_clock_sync_required 1$/m);
+  assert.match(metrics, /^rpi4_gateway_clock_sync_info\{status="warning",source="injected"\} 1$/m);
 });
 
 test("gateway health and metrics expose event sequence watermarks", async (t) => {

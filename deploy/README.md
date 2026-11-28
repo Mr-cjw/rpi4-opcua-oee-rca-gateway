@@ -87,6 +87,29 @@ and per-component write failures; `GET /metrics` exports the same storage state.
 Size the thresholds for JSONL rotation, the idempotency ledger, and atomic
 temporary files, not only for the current log sizes.
 
+### Clock synchronization
+
+Production OEE and RCA timestamps must use a synchronized Pi clock. The example
+environment sets `GATEWAY_CLOCK_SYNC_REQUIRED=true`, so a missing or
+unsynchronized NTP source degrades `/healthz`. Enable and verify systemd time
+synchronization before starting the Gateway:
+
+```bash
+sudo timedatectl set-ntp true
+timedatectl status
+timedatectl show --property=NTPSynchronized --value
+curl -s http://127.0.0.1:8080/healthz | jq '.clock'
+curl -s http://127.0.0.1:8080/metrics | rg 'rpi4_gateway_clock_'
+```
+
+The monitor uses `timedatectl` and falls back to `chronyc -n tracking`. It
+samples every `GATEWAY_CLOCK_SYNC_CHECK_INTERVAL_MS`, warns when the latest
+check is older than `GATEWAY_CLOCK_SYNC_MAX_AGE_MS`, and warns when the reported
+offset exceeds `GATEWAY_CLOCK_SYNC_MAX_OFFSET_MS`. If the provider is
+unavailable, `/healthz.clock.status` is `unknown`. Resolve NTP reachability and
+service status instead of setting `GATEWAY_CLOCK_SYNC_REQUIRED=false` in a
+production deployment.
+
 ### State backup and restore
 
 Stop the service before backup or restore so JSONL, the idempotency ledger, and
@@ -145,6 +168,10 @@ Recommended alerting baseline:
   `rpi4_gateway_plc_current_disconnect_gap_seconds`, or
   `rpi4_gateway_plc_event_subscription_healthy == 0`. Event-subscription loss
   still allows value collection but means native alarm events are missing.
+- Page on `rpi4_gateway_clock_sync_healthy == 0` when
+  `rpi4_gateway_clock_sync_required == 1`; check `rpi4_gateway_clock_sync_known`
+  and `.clock.reason` to distinguish NTP loss, excessive offset, a stale check,
+  and an unavailable provider.
 
 For `bad_status` or `uncertain_status`, check the PLC point, NodeId, access
 permissions, and vendor diagnostics before restarting the Gateway. For
@@ -185,6 +212,8 @@ the configured skew threshold.
   and `rpi4_gateway_plc_diagnostics_healthy` returns to `1`.
 - Run `npm run e2e:diagnostics` after changing the OPC UA trigger, stale/skew
   thresholds, or subscription timing; it exercises the injected PLC fault path.
+- Run `npm run e2e:clock` after changing NTP detection, clock thresholds, or
+  health-degradation behavior.
 - Keep at least one recent verified state backup off the Raspberry Pi. A
   backup stored on the same failing SD card or SSD does not protect accepted
   quality events after hardware loss.

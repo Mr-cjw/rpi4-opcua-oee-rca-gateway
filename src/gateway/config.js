@@ -12,6 +12,7 @@ const {
   DEFAULT_CLOCK_SKEW_WARNING_MS,
   DEFAULT_STALE_WARNING_MS
 } = require("./plc-diagnostics");
+const { DEFAULT_CLOCK_SYNC_OPTIONS } = require("./clock-sync");
 const { resolveCredentialPair } = require("../secret-file");
 
 const DATA_CHANGE_TRIGGERS = Object.freeze([
@@ -247,6 +248,23 @@ function loadGatewayConfig(env = process.env) {
       `OEE_PLANNED_DOWNTIME_ALARM_CODES and OEE_CHANGEOVER_ALARM_CODES overlap on "${overlappingCode}"`
     );
   }
+  const clockSyncCheckIntervalMs = integerFromEnv(
+    env,
+    "GATEWAY_CLOCK_SYNC_CHECK_INTERVAL_MS",
+    DEFAULT_CLOCK_SYNC_OPTIONS.checkIntervalMs,
+    { min: 1000, max: 3600000 }
+  );
+  const clockSyncMaxAgeMs = integerFromEnv(
+    env,
+    "GATEWAY_CLOCK_SYNC_MAX_AGE_MS",
+    DEFAULT_CLOCK_SYNC_OPTIONS.maxAgeMs,
+    { min: 1000, max: 24 * 60 * 60 * 1000 }
+  );
+  if (clockSyncMaxAgeMs <= clockSyncCheckIntervalMs) {
+    throw new Error(
+      "GATEWAY_CLOCK_SYNC_MAX_AGE_MS must be greater than GATEWAY_CLOCK_SYNC_CHECK_INTERVAL_MS"
+    );
+  }
 
   const variables = [
     {
@@ -459,6 +477,17 @@ function loadGatewayConfig(env = process.env) {
         DEFAULT_CLOCK_SKEW_WARNING_MS,
         { min: 0, max: 24 * 60 * 60 * 1000 }
       )
+    }),
+    clockSync: Object.freeze({
+      checkIntervalMs: clockSyncCheckIntervalMs,
+      maxAgeMs: clockSyncMaxAgeMs,
+      maxOffsetMs: integerFromEnv(
+        env,
+        "GATEWAY_CLOCK_SYNC_MAX_OFFSET_MS",
+        DEFAULT_CLOCK_SYNC_OPTIONS.maxOffsetMs,
+        { min: 0, max: 60000 }
+      ),
+      required: booleanFromEnv(env, "GATEWAY_CLOCK_SYNC_REQUIRED", false)
     }),
     storage: Object.freeze({
       diskPath: path.resolve(
