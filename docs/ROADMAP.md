@@ -338,6 +338,10 @@ Deliverables:
   migration contract, release-bound rollback mode, synthetic v2 rejection
   fixtures, and offline rehearsal proof that a rejected v2 candidate leaves
   accepted v1 state unchanged and restorable.
+- Completed 2026-11-28: API and event contract freeze with an OpenAPI 3.1
+  description, validated client examples, live success/error response checks,
+  source-route equality, and a CI baseline that rejects endpoint, parameter,
+  response-status, field, and required-field removals.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 
 Acceptance:

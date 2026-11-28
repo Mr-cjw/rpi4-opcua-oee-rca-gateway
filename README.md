@@ -177,14 +177,24 @@ The runtime performs four jobs:
 4. Keeps alarm history separately so alarms raised between sampling ticks are
    still available to RCA.
 
-The event contract is
-[`contracts/process-context-event.schema.json`](contracts/process-context-event.schema.json).
-Analysis only reads context events; it never changes QA or MES delivery state.
+The shared event schemas are
+[`contracts/process-context-event.schema.json`](contracts/process-context-event.schema.json)
+and [`contracts/quality-event.schema.json`](contracts/quality-event.schema.json).
+The HTTP integration surface is frozen in
+[`contracts/http-api.openapi.json`](contracts/http-api.openapi.json) and governed
+by [the API contract policy](docs/API-CONTRACT.md). Analysis only reads context
+events; it never changes QA or MES delivery state.
 
 ### HTTP API
 
 The default bind address is `127.0.0.1:8080`. Set `GATEWAY_API_TOKEN` to require
 `Authorization: Bearer <token>` on every endpoint except `/healthz`.
+
+QA/MES and operator clients should generate or validate against
+[`contracts/http-api.openapi.json`](contracts/http-api.openapi.json). The
+[`http-api.surface.json`](contracts/http-api.surface.json) baseline, additive
+field rules, deprecation policy, error codes, and `503` retry semantics are
+documented in [the API contract policy](docs/API-CONTRACT.md).
 
 Remote access is disabled by default. Keep the API on loopback and terminate TLS
 at the site-approved nginx instance described in
@@ -1545,9 +1555,12 @@ npm run check:contracts
 npm run check:docs
 ```
 
-`check:contracts` generates real process-context and NG events, then validates
-them with the JSON Schemas in `contracts/`. `check:docs` verifies that relative
-Markdown links resolve to files in the repository.
+`check:contracts` generates real process-context and NG events, validates every
+OpenAPI request/response example, requires the HTTP source routes and OpenAPI
+operations to match exactly, and compares the documented endpoint, parameter,
+status-code, field, and required-field surface with the frozen baseline. It
+fails on an undocumented removal. `check:docs` verifies that relative Markdown
+links resolve to files in the repository.
 
 Evaluate the current JSONL and SQLite WAL storage paths with synthetic records:
 

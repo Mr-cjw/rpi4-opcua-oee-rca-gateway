@@ -92,6 +92,16 @@ deployment depends on behavior the Gateway does not provide.
   RBAC, per-operator audit trail, token expiry, or online token revocation.
 - `/healthz` is intentionally unauthenticated. Other endpoints and `/metrics`
   are authenticated only when `GATEWAY_API_TOKEN` is configured.
+- The OpenAPI document, examples, response tests, and frozen surface baseline
+  describe and guard the v1 contract, but JSON Schema is not enforced by the
+  server on every request. Unknown request properties may be ignored rather than
+  rejected.
+- There is no content-negotiated API version or runtime deprecation header. The
+  major version is encoded in `/v1`; a future breaking surface requires a new
+  major path.
+- API errors expose HTTP status plus a diagnostic `error` string, not a stable
+  machine-readable error-code catalog. Clients must rely on status and documented
+  operation semantics.
 - Binding to `127.0.0.1` is mandatory guidance for direct deployments, not a
   network security boundary. Remote access requires an approved reverse proxy
   with TLS, authentication, rate limiting, and access logging.
@@ -215,6 +225,8 @@ open for the Raspberry Pi pilot:
 - Real PLC certificate rotation and rejected-certificate handling.
 - Long-duration event-sequence and quality-idempotency validation against the
   production QA/MES retry behavior.
+- Acceptance of the published OpenAPI contract by the actual QA/MES and operator
+  clients, including their timeout, retry, and reconciliation implementations.
 
 See [the pilot runbook](PILOT-RUNBOOK.md) and [roadmap](ROADMAP.md) for the
 acceptance process.

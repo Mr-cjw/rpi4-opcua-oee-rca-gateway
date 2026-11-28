@@ -1,0 +1,3107 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Raspberry Pi OEE/RCA Gateway HTTP API",
+    "version": "1.0.0",
+    "summary": "Frozen v1 integration surface for process context, quality events, OEE, and RCA.",
+    "description": "The Gateway is an analysis and process-context service for one line and station. It is not the MES delivery authority. QA/MES clients use POST /v1/quality-events with sourceEventId as the idempotency key. Additive optional response fields are allowed in v1; removals and breaking semantic changes require a new major path. See docs/API-CONTRACT.md."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080",
+      "description": "Default loopback listener. Remote access must use the approved TLS reverse proxy."
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Operations",
+      "description": "Health and Prometheus metrics."
+    },
+    {
+      "name": "Context",
+      "description": "Process-context events and the active work context."
+    },
+    {
+      "name": "Quality",
+      "description": "Idempotent NG quality-event ingestion."
+    },
+    {
+      "name": "Analytics",
+      "description": "OEE decomposition and explainable RCA candidates."
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "getHealth",
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Read Gateway health",
+        "description": "This endpoint is deliberately public so a local supervisor can probe process health without a bearer token.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Current health, storage, clock, PLC diagnostics, and sequence watermarks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                },
+                "examples": {
+                  "healthy": {
+                    "$ref": "#/components/examples/HealthStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "getMetrics",
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Read Prometheus metrics",
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition format 0.0.4.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "examples": {
+                  "prometheus": {
+                    "$ref": "#/components/examples/Metrics"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/context/latest": {
+      "get": {
+        "operationId": "getLatestProcessContext",
+        "tags": [
+          "Context"
+        ],
+        "summary": "Read the latest process-context sample",
+        "responses": {
+          "200": {
+            "description": "Latest retained ProcessContextEvent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessContextEvent"
+                },
+                "examples": {
+                  "latest": {
+                    "$ref": "#/components/examples/ProcessContextEvent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/work-context": {
+      "get": {
+        "operationId": "getWorkContext",
+        "tags": [
+          "Context"
+        ],
+        "summary": "Read the active work context",
+        "responses": {
+          "200": {
+            "description": "Current work-order context used for new events and default analytics scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkContext"
+                },
+                "examples": {
+                  "active": {
+                    "$ref": "#/components/examples/WorkContext"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "updateWorkContext",
+        "tags": [
+          "Context"
+        ],
+        "summary": "Update the active work context",
+        "description": "Included fields are replaced; null or an empty string clears a field. The server restores the previous in-memory context and returns 503 if durable persistence fails.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkContextUpdate"
+              },
+              "examples": {
+                "update": {
+                  "$ref": "#/components/examples/WorkContextUpdate"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated work context.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkContext"
+                },
+                "examples": {
+                  "updated": {
+                    "$ref": "#/components/examples/WorkContext"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailable"
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "listProcessContextEvents",
+        "tags": [
+          "Context"
+        ],
+        "summary": "List retained process-context events",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive ISO-8601 lower bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive ISO-8601 upper bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "workOrderId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "correlationId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Return at most this many of the newest matching events.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching process-context events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessContextEventList"
+                },
+                "examples": {
+                  "empty": {
+                    "value": {
+                      "count": 0,
+                      "events": []
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/alarms": {
+      "get": {
+        "operationId": "listAlarms",
+        "tags": [
+          "Context"
+        ],
+        "summary": "List retained alarm history",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "workOrderId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "correlationId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching alarms, including events raised between sampling ticks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlarmList"
+                },
+                "examples": {
+                  "oneAlarm": {
+                    "$ref": "#/components/examples/AlarmList"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/oee": {
+      "get": {
+        "operationId": "getOee",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Calculate OEE and loss decomposition",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "workOrderId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "correlationId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "windowMs",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "idealCycleTimeMs",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "ngCount",
+            "in": "query",
+            "required": false,
+            "description": "Explicit NG quantity. When omitted, recorded quality events are used.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OEE values, time basis, counter mode, loss breakdown, and data-quality diagnostics.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OeeResponse"
+                },
+                "examples": {
+                  "calculated": {
+                    "$ref": "#/components/examples/OeeResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/quality-events": {
+      "post": {
+        "operationId": "recordQualityEvent",
+        "tags": [
+          "Quality"
+        ],
+        "summary": "Durably record an NG quality event",
+        "description": "sourceEventId is the idempotency key. A first accepted write returns 201. Repeating the same sourceEventId returns 200 with duplicate=true and the retained event. A 503 means the event was not accepted; resolve storage and retry with the same sourceEventId.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityEventInput"
+              },
+              "examples": {
+                "ngEvent": {
+                  "$ref": "#/components/examples/QualityEventInput"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Idempotent replay of an already retained sourceEventId.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityEventWriteResponse"
+                },
+                "examples": {
+                  "duplicate": {
+                    "$ref": "#/components/examples/QualityEventDuplicate"
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Quality event durably accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityEventWriteResponse"
+                },
+                "examples": {
+                  "accepted": {
+                    "$ref": "#/components/examples/QualityEventAccepted"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailable"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listQualityEvents",
+        "tags": [
+          "Quality"
+        ],
+        "summary": "List retained quality events",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "workOrderId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "correlationId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching quality events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityEventList"
+                },
+                "examples": {
+                  "empty": {
+                    "value": {
+                      "count": 0,
+                      "events": []
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/quality-events/{qualityEventId}": {
+      "get": {
+        "operationId": "getQualityEvent",
+        "tags": [
+          "Quality"
+        ],
+        "summary": "Read one quality event",
+        "parameters": [
+          {
+            "name": "qualityEventId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retained quality event.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityEvent"
+                },
+                "examples": {
+                  "found": {
+                    "$ref": "#/components/examples/QualityEvent"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/rca": {
+      "post": {
+        "operationId": "analyzeRca",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Find explainable RCA candidates around a target",
+        "description": "Candidates are time-window correlations and never causal claims. Supply qualityEventId to target a retained NG event, or targetAt for a time target.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RcaRequest"
+              },
+              "examples": {
+                "qualityTarget": {
+                  "$ref": "#/components/examples/RcaRequest"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RCA candidates, scope, raw evidence, and the non-causation disclaimer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RcaResponse"
+                },
+                "examples": {
+                  "temperatureCandidate": {
+                    "$ref": "#/components/examples/RcaResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/correlation": {
+      "post": {
+        "operationId": "setCorrelationId",
+        "tags": [
+          "Context"
+        ],
+        "summary": "Replace the active correlation ID",
+        "description": "Legacy convenience endpoint. New clients should use POST /v1/work-context. A null value clears the active correlation ID.",
+        "deprecated": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrelationRequest"
+              },
+              "examples": {
+                "update": {
+                  "$ref": "#/components/examples/CorrelationRequest"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The active correlation ID after the update.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorrelationResponse"
+                },
+                "examples": {
+                  "updated": {
+                    "$ref": "#/components/examples/CorrelationResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque application token",
+        "description": "Required when GATEWAY_API_TOKEN is configured. The token is supplied out of band and must not be placed in URLs or logs."
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Malformed JSON, invalid field value, or invalid integer query parameter.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "badRequest": {
+                "$ref": "#/components/examples/BadRequest"
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Bearer token missing or invalid. The response includes WWW-Authenticate: Bearer.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "unauthorized": {
+                "$ref": "#/components/examples/Unauthorized"
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "The requested resource or referenced quality event does not exist.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "notFound": {
+                "$ref": "#/components/examples/NotFound"
+              }
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Request body exceeds 1 MiB.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "payloadTooLarge": {
+                "$ref": "#/components/examples/PayloadTooLarge"
+              }
+            }
+          }
+        }
+      },
+      "StorageUnavailable": {
+        "description": "The write was not durably accepted. Resolve storage health and retry. Quality callers must reuse the same sourceEventId.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "storageUnavailable": {
+                "$ref": "#/components/examples/StorageUnavailable"
+              }
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Unexpected server-side failure. The error message is diagnostic and must not be treated as a stable machine-readable code.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "internalError": {
+                "$ref": "#/components/examples/InternalError"
+              }
+            }
+          }
+        }
+      }
+    },
+    "examples": {
+      "ProcessContextEvent": {
+        "summary": "A sampled process-context event",
+        "value": {
+          "schemaVersion": "1.0",
+          "eventId": "evt-jx-000001",
+          "sequence": 42,
+          "source": "rpi4-gateway",
+          "eventType": "PROCESS_CONTEXT",
+          "occurredAt": "2026-11-28T00:00:00.000Z",
+          "lineId": "JX-LINE-01",
+          "stationId": "JX-LINQIN-STATION-01",
+          "workOrderId": "WO-JX-001",
+          "serialNumber": "SN-JX-001",
+          "correlationId": "corr-jx-001",
+          "productId": "SKU-JX-001",
+          "metrics": {
+            "deviceStatus": "RUNNING",
+            "currentOutput": 120,
+            "goodCount": 98,
+            "totalProducedCount": 100,
+            "temperatureC": 24.5,
+            "alarmSequence": 7
+          },
+          "alarms": [
+            {
+              "eventId": "alarm-jx-000007",
+              "sequence": 7,
+              "occurredAt": "2026-11-27T23:59:58.000Z",
+              "code": "DOWNTIME",
+              "severity": 700,
+              "message": "Line stopped for material change",
+              "cause": "MATERIAL_CHANGE",
+              "deviceStatus": "DOWN",
+              "temperatureC": null,
+              "currentOutput": null,
+              "goodCount": null
+            }
+          ]
+        }
+      },
+      "QualityEvent": {
+        "summary": "A retained NG quality event",
+        "value": {
+          "schemaVersion": "1.0",
+          "qualityEventId": "qevt-jx-000001",
+          "sequence": 1,
+          "sourceEventId": "QC-JX-001",
+          "eventType": "NG_ORDER",
+          "result": "NG",
+          "occurredAt": "2026-11-28T00:00:01.000Z",
+          "recordedAt": "2026-11-28T00:00:01.050Z",
+          "lineId": "JX-LINE-01",
+          "stationId": "JX-LINQIN-STATION-01",
+          "workOrderId": "WO-JX-001",
+          "serialNumber": "SN-JX-001",
+          "productId": "SKU-JX-001",
+          "quantity": 1,
+          "correlationId": "corr-jx-001",
+          "defectType": "DENT",
+          "confidence": 0.97,
+          "imageId": "IMG-JX-001",
+          "source": "QA-CAMERA-01",
+          "metadata": {
+            "cameraId": "CAM-001"
+          }
+        }
+      },
+      "QualityEventInput": {
+        "summary": "QA/MES NG event request",
+        "value": {
+          "sourceEventId": "QC-JX-001",
+          "eventType": "NG_ORDER",
+          "result": "NG",
+          "occurredAt": "2026-11-28T00:00:01.000Z",
+          "workOrderId": "WO-JX-001",
+          "serialNumber": "SN-JX-001",
+          "correlationId": "corr-jx-001",
+          "productId": "SKU-JX-001",
+          "quantity": 1,
+          "defectType": "DENT",
+          "confidence": 0.97,
+          "metadata": {
+            "cameraId": "CAM-001"
+          }
+        }
+      },
+      "QualityEventAccepted": {
+        "summary": "First durable write",
+        "value": {
+          "duplicate": false,
+          "event": {
+            "schemaVersion": "1.0",
+            "qualityEventId": "qevt-jx-000001",
+            "sequence": 1,
+            "sourceEventId": "QC-JX-001",
+            "eventType": "NG_ORDER",
+            "result": "NG",
+            "occurredAt": "2026-11-28T00:00:01.000Z",
+            "recordedAt": "2026-11-28T00:00:01.050Z",
+            "lineId": "JX-LINE-01",
+            "stationId": "JX-LINQIN-STATION-01",
+            "workOrderId": "WO-JX-001",
+            "productId": "SKU-JX-001",
+            "quantity": 1,
+            "correlationId": "corr-jx-001",
+            "metadata": {}
+          }
+        }
+      },
+      "QualityEventDuplicate": {
+        "summary": "Idempotent replay",
+        "value": {
+          "duplicate": true,
+          "retained": true,
+          "event": {
+            "schemaVersion": "1.0",
+            "qualityEventId": "qevt-jx-000001",
+            "sequence": 1,
+            "sourceEventId": "QC-JX-001",
+            "eventType": "NG_ORDER",
+            "result": "NG",
+            "occurredAt": "2026-11-28T00:00:01.000Z",
+            "recordedAt": "2026-11-28T00:00:01.050Z",
+            "lineId": "JX-LINE-01",
+            "stationId": "JX-LINQIN-STATION-01",
+            "workOrderId": "WO-JX-001",
+            "productId": "SKU-JX-001",
+            "quantity": 1,
+            "correlationId": "corr-jx-001",
+            "metadata": {}
+          }
+        }
+      },
+      "WorkContext": {
+        "summary": "Active work context",
+        "value": {
+          "workOrderId": "WO-JX-001",
+          "serialNumber": "SN-JX-001",
+          "correlationId": "corr-jx-001",
+          "productId": "SKU-JX-001"
+        }
+      },
+      "WorkContextUpdate": {
+        "summary": "Update all work-context fields",
+        "value": {
+          "workOrderId": "WO-JX-001",
+          "serialNumber": "SN-JX-001",
+          "correlationId": "corr-jx-001",
+          "productId": "SKU-JX-001"
+        }
+      },
+      "AlarmList": {
+        "summary": "One alarm",
+        "value": {
+          "count": 1,
+          "alarms": [
+            {
+              "eventId": "alarm-jx-000007",
+              "sequence": 7,
+              "occurredAt": "2026-11-27T23:59:58.000Z",
+              "code": "DOWNTIME",
+              "severity": 700,
+              "message": "Line stopped for material change",
+              "cause": "MATERIAL_CHANGE",
+              "deviceStatus": "DOWN",
+              "temperatureC": null,
+              "currentOutput": null,
+              "goodCount": null,
+              "workOrderId": "WO-JX-001",
+              "correlationId": "corr-jx-001",
+              "productId": "SKU-JX-001"
+            }
+          ]
+        }
+      },
+      "HealthStatus": {
+        "summary": "Healthy Gateway with synchronized PLC and clock",
+        "value": {
+          "status": "ok",
+          "opcuaConnected": true,
+          "startedAt": "2026-11-27T23:00:00.000Z",
+          "uptimeSeconds": 3600,
+          "identity": {
+            "lineId": "JX-LINE-01",
+            "stationId": "JX-LINQIN-STATION-01",
+            "workOrderId": "WO-JX-001",
+            "serialNumber": "SN-JX-001",
+            "correlationId": "corr-jx-001",
+            "productId": "SKU-JX-001"
+          },
+          "context": {
+            "eventCount": 3600,
+            "alarmCount": 2,
+            "latestOccurredAt": "2026-11-28T00:00:00.000Z"
+          },
+          "quality": {
+            "eventCount": 1
+          },
+          "sequences": {
+            "processContext": {
+              "stream": "process-context",
+              "status": "ok",
+              "currentSequence": 3600,
+              "gapsTotal": 0,
+              "missingEvents": 0,
+              "duplicatesTotal": 0,
+              "outOfOrderTotal": 0,
+              "gapRanges": [],
+              "lastObservedAt": "2026-11-28T00:00:00.000Z"
+            },
+            "quality": {
+              "stream": "quality",
+              "status": "ok",
+              "currentSequence": 1,
+              "gapsTotal": 0,
+              "missingEvents": 0,
+              "duplicatesTotal": 0,
+              "outOfOrderTotal": 0,
+              "gapRanges": [],
+              "lastObservedAt": "2026-11-28T00:00:01.050Z"
+            }
+          },
+          "clock": {
+            "schemaVersion": "1.0",
+            "status": "ok",
+            "healthy": true,
+            "synchronized": true,
+            "required": true,
+            "source": "chronyc",
+            "checkedAt": "2026-11-28T00:00:00.000Z",
+            "ageMs": 1000,
+            "stale": false,
+            "offsetMs": 2,
+            "maxOffsetMs": 1000,
+            "checkIntervalMs": 60000,
+            "maxAgeMs": 180000,
+            "leapStatus": "Normal",
+            "reason": "synchronized",
+            "error": null
+          },
+          "plc": {
+            "status": "ok",
+            "healthy": true,
+            "connected": true,
+            "summary": {
+              "variables": 6,
+              "badValues": 0,
+              "uncertainValues": 0,
+              "staleValues": 0,
+              "clockSkewValues": 0,
+              "futureTimestampValues": 0
+            },
+            "variables": []
+          },
+          "storage": {
+            "status": "ok",
+            "healthy": true,
+            "disk": {
+              "status": "ok",
+              "path": "/var/lib/rpi4-gateway",
+              "freeBytes": 1073741824,
+              "totalBytes": 8589934592,
+              "usageRatio": 0.875,
+              "lastCheckAt": "2026-11-28T00:00:00.000Z",
+              "lastError": null
+            },
+            "components": {
+              "quality-event-log": {
+                "status": "ok",
+                "consecutiveFailures": 0,
+                "totalFailures": 0,
+                "lastError": null,
+                "lastFailureAt": null,
+                "lastSuccessAt": "2026-11-28T00:00:01.050Z"
+              }
+            }
+          }
+        }
+      },
+      "Metrics": {
+        "summary": "Prometheus text sample",
+        "value": "# HELP rpi4_gateway_up Gateway process is running.\n# TYPE rpi4_gateway_up gauge\nrpi4_gateway_up 1\nrpi4_gateway_opcua_connected 1\n"
+      },
+      "OeeResponse": {
+        "summary": "OEE response with quality-event input",
+        "value": {
+          "range": {
+            "from": "2026-11-27T23:55:00.000Z",
+            "to": "2026-11-28T00:00:00.000Z",
+            "windowMs": 300000
+          },
+          "eventCount": 300,
+          "scope": {
+            "workOrderId": "WO-JX-001",
+            "correlationId": "corr-jx-001",
+            "productId": null
+          },
+          "availability": 0.98,
+          "performance": 0.9,
+          "quality": 0.99,
+          "oee": 0.87318,
+          "observedSeconds": 300,
+          "plannedSeconds": 300,
+          "plannedProductionSeconds": 300,
+          "runningSeconds": 294,
+          "downtimeSeconds": 6,
+          "plannedStopSeconds": 0,
+          "plannedDowntimeSeconds": 0,
+          "changeoverSeconds": 0,
+          "unplannedStopSeconds": 6,
+          "unknownStopSeconds": 0,
+          "outsidePlanRunningSeconds": 0,
+          "goodDelta": 540,
+          "theoreticalGood": 600,
+          "totalDelta": null,
+          "counterScrapDelta": null,
+          "counterMode": "good-count-proxy",
+          "counterContinuity": {
+            "status": "continuous",
+            "resetCount": 0,
+            "epochs": 1,
+            "deltaBasis": "last-minus-first",
+            "goodCount": {
+              "status": "continuous",
+              "epochs": 1,
+              "resetCount": 0,
+              "delta": 540
+            },
+            "totalProducedCount": {
+              "status": "not-present",
+              "epochs": 0,
+              "resetCount": 0,
+              "delta": null
+            },
+            "resets": []
+          },
+          "ngCount": 1,
+          "nominalOutputPerMinute": 120,
+          "idealCycleTimeMs": null,
+          "idealCycleTimeSource": null,
+          "performanceSource": "nominal-output-rate",
+          "configuredProductCycleTimes": {},
+          "appliedCycleTimes": [],
+          "plannedTime": {
+            "timeZone": "Asia/Shanghai",
+            "windows": "00:00-24:00"
+          },
+          "downtimeSources": {
+            "plannedStop": "shift-schedule",
+            "plannedDowntime": "disabled",
+            "changeover": "disabled",
+            "unplannedStop": "device-status",
+            "unknownStop": "device-status"
+          },
+          "lossBreakdown": {
+            "availabilityLossSeconds": 6,
+            "plannedStopSeconds": 0,
+            "plannedDowntimeSeconds": 0,
+            "changeoverSeconds": 0,
+            "unplannedStopSeconds": 6,
+            "unknownStopSeconds": 0,
+            "outsidePlanRunningSeconds": 0,
+            "speedLossUnits": 60,
+            "qualityLossUnits": 1,
+            "speedLossSource": "good-counter-gap",
+            "qualityLossSource": "ngCount"
+          },
+          "qualityReconciliation": {
+            "status": "counter-unavailable",
+            "qualitySource": "quality-events",
+            "counterScrapDelta": null,
+            "qualityInputQuantity": 1,
+            "qualityEventQuantity": 1,
+            "qualityEventCount": 1,
+            "delta": null,
+            "eventDelta": null,
+            "toleranceUnits": 0
+          },
+          "dataQuality": {
+            "status": "ok",
+            "issueCount": 0,
+            "warningCount": 0,
+            "errorCount": 0,
+            "issues": []
+          },
+          "inputs": {
+            "sampleCount": 300,
+            "firstSampleAt": "2026-11-27T23:55:00.000Z",
+            "lastSampleAt": "2026-11-28T00:00:00.000Z",
+            "counterMode": "good-count-proxy",
+            "counterScope": "first-to-last sample in observed window"
+          },
+          "warnings": [],
+          "basis": {
+            "plannedTime": "intersection of sampled window and configured shift windows",
+            "availability": "RUNNING planned intervals / available planned intervals after planned downtime and changeover",
+            "performance": "goodCount delta / theoretical good units at nominal output",
+            "quality": "goodDelta / (goodDelta + ngCount)",
+            "lossBreakdown": "planned stops, planned downtime, changeover, unplanned/unknown stops, speed loss, and quality loss"
+          },
+          "qualitySource": "quality-events",
+          "qualityEventCount": 1,
+          "qualityEventQuantity": 1
+        }
+      },
+      "RcaRequest": {
+        "summary": "RCA request targeting a retained quality event",
+        "value": {
+          "qualityEventId": "qevt-jx-000001",
+          "windowMs": 300000,
+          "temperatureThresholdC": 70
+        }
+      },
+      "RcaResponse": {
+        "summary": "Temperature candidate correlation",
+        "value": {
+          "targetAt": "2026-11-28T00:00:01.000Z",
+          "window": {
+            "from": "2026-11-27T23:55:01.000Z",
+            "to": "2026-11-28T00:05:01.000Z",
+            "windowMs": 300000
+          },
+          "sampleCount": 300,
+          "alarmCount": 1,
+          "conclusion": "TEMPERATURE_SPIKE",
+          "candidates": [
+            {
+              "code": "TEMPERATURE_SPIKE",
+              "title": "Temperature anomaly",
+              "score": 0.91,
+              "confidence": "medium-high",
+              "confidenceLabel": "time overlap, not causal proof",
+              "causalClaim": false,
+              "summary": "A temperature anomaly overlaps the target event window. This is a candidate correlation, not proof of causation.",
+              "metrics": {
+                "peakC": 92,
+                "thresholdC": 70,
+                "durationSeconds": 12,
+                "alarmCount": 1
+              },
+              "evidence": [
+                {
+                  "type": "process-context",
+                  "eventId": "evt-jx-000042",
+                  "occurredAt": "2026-11-28T00:00:01.000Z",
+                  "correlationId": "corr-jx-001",
+                  "detail": "temperature 92.00 C reached/exceeded the 70 C threshold"
+                }
+              ]
+            }
+          ],
+          "disclaimer": "Candidates are derived from time-window overlap. They are not evidence of causation and require human confirmation.",
+          "scope": {
+            "workOrderId": "WO-JX-001",
+            "correlationId": "corr-jx-001",
+            "productId": null
+          },
+          "scopeApplied": true,
+          "targetQualityEventId": "qevt-jx-000001",
+          "correlationId": "corr-jx-001",
+          "qualityEvent": {
+            "schemaVersion": "1.0",
+            "qualityEventId": "qevt-jx-000001",
+            "sequence": 1,
+            "sourceEventId": "QC-JX-001",
+            "eventType": "NG_ORDER",
+            "result": "NG",
+            "occurredAt": "2026-11-28T00:00:01.000Z",
+            "recordedAt": "2026-11-28T00:00:01.050Z",
+            "lineId": "JX-LINE-01",
+            "stationId": "JX-LINQIN-STATION-01",
+            "workOrderId": "WO-JX-001",
+            "productId": "SKU-JX-001",
+            "quantity": 1,
+            "correlationId": "corr-jx-001",
+            "metadata": {}
+          },
+          "warnings": []
+        }
+      },
+      "CorrelationRequest": {
+        "summary": "Set a correlation ID",
+        "value": {
+          "correlationId": "corr-jx-001"
+        }
+      },
+      "CorrelationResponse": {
+        "summary": "Active correlation ID",
+        "value": {
+          "correlationId": "corr-jx-001"
+        }
+      },
+      "BadRequest": {
+        "value": {
+          "error": "request body must be valid JSON"
+        }
+      },
+      "Unauthorized": {
+        "value": {
+          "error": "unauthorized"
+        }
+      },
+      "NotFound": {
+        "value": {
+          "error": "quality event not found: qevt-missing"
+        }
+      },
+      "PayloadTooLarge": {
+        "value": {
+          "error": "request body exceeds 1 MiB"
+        }
+      },
+      "StorageUnavailable": {
+        "value": {
+          "error": "Unable to persist quality event: ENOSPC: no space left on device"
+        }
+      },
+      "InternalError": {
+        "value": {
+          "error": "internal server error"
+        }
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "WorkContext": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "workOrderId",
+          "serialNumber",
+          "correlationId",
+          "productId"
+        ],
+        "properties": {
+          "workOrderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "correlationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "productId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "WorkContextUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workOrderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "correlationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "productId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ProcessContextEvent": {
+        "$ref": "./process-context-event.schema.json"
+      },
+      "ProcessContextEventList": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "count",
+          "events"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessContextEvent"
+            }
+          }
+        }
+      },
+      "Alarm": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "eventId",
+          "sequence",
+          "occurredAt",
+          "code",
+          "severity",
+          "message",
+          "cause",
+          "deviceStatus",
+          "temperatureC",
+          "currentOutput",
+          "goodCount"
+        ],
+        "properties": {
+          "eventId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sequence": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "cause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deviceStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "temperatureC": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "currentOutput": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "goodCount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "workOrderId": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "productId": {
+            "type": "string"
+          }
+        }
+      },
+      "AlarmList": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "count",
+          "alarms"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "alarms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Alarm"
+            }
+          }
+        }
+      },
+      "QualityEvent": {
+        "$ref": "./quality-event.schema.json"
+      },
+      "QualityEventInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceEventId"
+        ],
+        "properties": {
+          "sourceEventId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable upstream event ID used as the idempotency key."
+          },
+          "eventType": {
+            "type": "string",
+            "minLength": 1,
+            "default": "NG_ORDER"
+          },
+          "result": {
+            "const": "NG",
+            "default": "NG"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workOrderId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "serialNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "productId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "correlationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          },
+          "defectType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "imageId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "metadata": {
+            "type": "object",
+            "default": {}
+          }
+        }
+      },
+      "QualityEventWriteResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event",
+          "duplicate"
+        ],
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/QualityEvent"
+          },
+          "duplicate": {
+            "type": "boolean"
+          },
+          "retained": {
+            "type": "boolean"
+          }
+        }
+      },
+      "QualityEventList": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "count",
+          "events"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QualityEvent"
+            }
+          }
+        }
+      },
+      "HealthStatus": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "status",
+          "opcuaConnected",
+          "startedAt",
+          "uptimeSeconds",
+          "identity",
+          "context",
+          "quality",
+          "sequences",
+          "clock",
+          "plc",
+          "storage"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "ok",
+              "degraded"
+            ]
+          },
+          "opcuaConnected": {
+            "type": "boolean"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "uptimeSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "identity": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "lineId",
+              "stationId",
+              "workOrderId",
+              "serialNumber",
+              "correlationId",
+              "productId"
+            ],
+            "properties": {
+              "lineId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "stationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "workOrderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "serialNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "correlationId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "productId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "eventCount",
+              "alarmCount",
+              "latestOccurredAt"
+            ],
+            "properties": {
+              "eventCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "alarmCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "latestOccurredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            }
+          },
+          "quality": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "eventCount"
+            ],
+            "properties": {
+              "eventCount": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "sequences": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "processContext",
+              "quality"
+            ],
+            "properties": {
+              "processContext": {
+                "$ref": "#/components/schemas/SequenceStatus"
+              },
+              "quality": {
+                "$ref": "#/components/schemas/SequenceStatus"
+              }
+            }
+          },
+          "clock": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "schemaVersion",
+              "status",
+              "healthy",
+              "synchronized",
+              "required",
+              "source",
+              "checkedAt",
+              "ageMs",
+              "stale",
+              "offsetMs",
+              "maxOffsetMs",
+              "checkIntervalMs",
+              "maxAgeMs",
+              "leapStatus",
+              "reason",
+              "error"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "const": "1.0"
+              },
+              "status": {
+                "type": "string"
+              },
+              "healthy": {
+                "type": "boolean"
+              },
+              "synchronized": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": "string"
+              },
+              "checkedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "ageMs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "stale": {
+                "type": "boolean"
+              },
+              "offsetMs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "maxOffsetMs": {
+                "type": "number"
+              },
+              "checkIntervalMs": {
+                "type": "integer"
+              },
+              "maxAgeMs": {
+                "type": "integer"
+              },
+              "leapStatus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "plc": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "required": [
+              "status",
+              "healthy"
+            ],
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "healthy": {
+                "type": "boolean"
+              },
+              "connected": {
+                "type": "boolean"
+              }
+            }
+          },
+          "storage": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "status",
+              "healthy",
+              "disk",
+              "components"
+            ],
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "healthy": {
+                "type": "boolean"
+              },
+              "disk": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "status",
+                  "path",
+                  "freeBytes",
+                  "totalBytes",
+                  "usageRatio",
+                  "lastCheckAt",
+                  "lastError"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "freeBytes": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "totalBytes": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "usageRatio": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "lastCheckAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "lastError": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "components": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": [
+                    "status",
+                    "consecutiveFailures",
+                    "totalFailures",
+                    "lastError",
+                    "lastFailureAt",
+                    "lastSuccessAt"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "consecutiveFailures": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "totalFailures": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "lastError": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastFailureAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastSuccessAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "SequenceStatus": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "stream",
+          "status",
+          "currentSequence",
+          "gapsTotal",
+          "missingEvents",
+          "duplicatesTotal",
+          "outOfOrderTotal",
+          "gapRanges",
+          "lastObservedAt"
+        ],
+        "properties": {
+          "stream": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "currentSequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gapsTotal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missingEvents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duplicatesTotal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outOfOrderTotal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gapRanges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "from",
+                "to"
+              ],
+              "properties": {
+                "from": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "to": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "lastObservedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "OeeResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "range",
+          "eventCount",
+          "scope",
+          "availability",
+          "performance",
+          "quality",
+          "oee",
+          "observedSeconds",
+          "plannedSeconds",
+          "plannedProductionSeconds",
+          "runningSeconds",
+          "downtimeSeconds",
+          "plannedStopSeconds",
+          "plannedDowntimeSeconds",
+          "changeoverSeconds",
+          "unplannedStopSeconds",
+          "unknownStopSeconds",
+          "outsidePlanRunningSeconds",
+          "goodDelta",
+          "theoreticalGood",
+          "totalDelta",
+          "counterScrapDelta",
+          "counterMode",
+          "counterContinuity",
+          "ngCount",
+          "nominalOutputPerMinute",
+          "idealCycleTimeMs",
+          "idealCycleTimeSource",
+          "performanceSource",
+          "configuredProductCycleTimes",
+          "appliedCycleTimes",
+          "plannedTime",
+          "downtimeSources",
+          "lossBreakdown",
+          "qualityReconciliation",
+          "dataQuality",
+          "inputs",
+          "warnings",
+          "basis",
+          "qualitySource",
+          "qualityEventCount",
+          "qualityEventQuantity"
+        ],
+        "properties": {
+          "range": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to",
+              "windowMs"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "windowMs": {
+                "type": "number",
+                "minimum": 1
+              }
+            }
+          },
+          "eventCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "scope": {
+            "$ref": "#/components/schemas/WorkScope"
+          },
+          "availability": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "performance": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "quality": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "oee": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "observedSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "plannedSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "plannedProductionSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "runningSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "downtimeSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "plannedStopSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "plannedDowntimeSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "changeoverSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "unplannedStopSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "unknownStopSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "outsidePlanRunningSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "goodDelta": {
+            "type": "number"
+          },
+          "theoreticalGood": {
+            "type": "number",
+            "minimum": 0
+          },
+          "totalDelta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "counterScrapDelta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "counterMode": {
+            "enum": [
+              "good-count-proxy",
+              "good-count-proxy-reset-adjusted",
+              "total-produced",
+              "total-produced-reset-adjusted"
+            ]
+          },
+          "counterContinuity": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "status",
+              "resetCount",
+              "epochs",
+              "deltaBasis",
+              "goodCount",
+              "totalProducedCount",
+              "resets"
+            ],
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "resetCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "epochs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "deltaBasis": {
+                "type": "string"
+              },
+              "goodCount": {
+                "$ref": "#/components/schemas/CounterSeriesStatus"
+              },
+              "totalProducedCount": {
+                "$ref": "#/components/schemas/CounterSeriesStatus"
+              },
+              "resets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": [
+                    "counter",
+                    "epoch",
+                    "sampleIndex",
+                    "sampleAt",
+                    "previousSampleAt",
+                    "previousValue",
+                    "value"
+                  ],
+                  "properties": {
+                    "counter": {
+                      "type": "string"
+                    },
+                    "epoch": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "sampleIndex": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sampleAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "previousSampleAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "previousValue": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "ngCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nominalOutputPerMinute": {
+            "type": "number",
+            "minimum": 0
+          },
+          "idealCycleTimeMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "idealCycleTimeSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "performanceSource": {
+            "type": "string"
+          },
+          "configuredProductCycleTimes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "appliedCycleTimes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "plannedTime": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "timeZone",
+              "windows"
+            ],
+            "properties": {
+              "timeZone": {
+                "type": "string"
+              },
+              "windows": {
+                "type": "string"
+              }
+            }
+          },
+          "downtimeSources": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "plannedStop",
+              "plannedDowntime",
+              "changeover",
+              "unplannedStop",
+              "unknownStop"
+            ],
+            "properties": {
+              "plannedStop": {
+                "type": "string"
+              },
+              "plannedDowntime": {
+                "type": "string"
+              },
+              "changeover": {
+                "type": "string"
+              },
+              "unplannedStop": {
+                "type": "string"
+              },
+              "unknownStop": {
+                "type": "string"
+              }
+            }
+          },
+          "lossBreakdown": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "availabilityLossSeconds",
+              "plannedStopSeconds",
+              "plannedDowntimeSeconds",
+              "changeoverSeconds",
+              "unplannedStopSeconds",
+              "unknownStopSeconds",
+              "outsidePlanRunningSeconds",
+              "speedLossUnits",
+              "qualityLossUnits",
+              "speedLossSource",
+              "qualityLossSource"
+            ],
+            "properties": {
+              "availabilityLossSeconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "plannedStopSeconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "plannedDowntimeSeconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "changeoverSeconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "unplannedStopSeconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "unknownStopSeconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "outsidePlanRunningSeconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "speedLossUnits": {
+                "type": "number",
+                "minimum": 0
+              },
+              "qualityLossUnits": {
+                "type": "number",
+                "minimum": 0
+              },
+              "speedLossSource": {
+                "type": "string"
+              },
+              "qualityLossSource": {
+                "type": "string"
+              }
+            }
+          },
+          "qualityReconciliation": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "status",
+              "qualitySource",
+              "counterScrapDelta",
+              "qualityInputQuantity",
+              "qualityEventQuantity",
+              "qualityEventCount",
+              "delta",
+              "eventDelta",
+              "toleranceUnits"
+            ],
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "qualitySource": {
+                "type": "string"
+              },
+              "counterScrapDelta": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "qualityInputQuantity": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "qualityEventQuantity": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "qualityEventCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "delta": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "eventDelta": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "toleranceUnits": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "dataQuality": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "status",
+              "issueCount",
+              "warningCount",
+              "errorCount",
+              "issues"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "ok",
+                  "warning",
+                  "degraded",
+                  "insufficient"
+                ]
+              },
+              "issueCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "warningCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "errorCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": [
+                    "code",
+                    "severity",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "enum": [
+                        "warning",
+                        "error"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "inputs": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "sampleCount",
+              "counterMode",
+              "counterScope"
+            ],
+            "properties": {
+              "sampleCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "counterMode": {
+                "type": "string"
+              },
+              "counterScope": {
+                "type": "string"
+              }
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "basis": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "plannedTime",
+              "availability",
+              "performance",
+              "quality",
+              "lossBreakdown"
+            ],
+            "properties": {
+              "plannedTime": {
+                "type": "string"
+              },
+              "availability": {
+                "type": "string"
+              },
+              "performance": {
+                "type": "string"
+              },
+              "quality": {
+                "type": "string"
+              },
+              "lossBreakdown": {
+                "type": "string"
+              }
+            }
+          },
+          "qualitySource": {
+            "enum": [
+              "quality-events",
+              "query"
+            ]
+          },
+          "qualityEventCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "qualityEventQuantity": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CounterSeriesStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "epochs",
+          "resetCount",
+          "delta"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "epochs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "resetCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "delta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "WorkScope": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "workOrderId",
+          "correlationId",
+          "productId"
+        ],
+        "properties": {
+          "workOrderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "correlationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "productId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RcaRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "targetAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "qualityEventId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workOrderId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "correlationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "productId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "windowMs": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "temperatureThresholdC": {
+            "type": "number"
+          }
+        }
+      },
+      "RcaResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "targetAt",
+          "window",
+          "sampleCount",
+          "alarmCount",
+          "conclusion",
+          "candidates",
+          "disclaimer",
+          "scope",
+          "scopeApplied"
+        ],
+        "properties": {
+          "targetAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to",
+              "windowMs"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "windowMs": {
+                "type": "number",
+                "minimum": 1
+              }
+            }
+          },
+          "sampleCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "alarmCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RcaCandidate"
+            }
+          },
+          "disclaimer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "$ref": "#/components/schemas/WorkScope"
+          },
+          "scopeApplied": {
+            "type": "boolean"
+          },
+          "targetQualityEventId": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "qualityEvent": {
+            "$ref": "#/components/schemas/QualityEvent"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RcaCandidate": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "code",
+          "title",
+          "score",
+          "confidence",
+          "confidenceLabel",
+          "causalClaim",
+          "summary",
+          "evidence"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "confidence": {
+            "type": "string"
+          },
+          "confidenceLabel": {
+            "type": "string"
+          },
+          "causalClaim": {
+            "const": false
+          },
+          "summary": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "type",
+                "eventId",
+                "occurredAt",
+                "correlationId",
+                "detail"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "eventId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "correlationId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "detail": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "CorrelationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "correlationId"
+        ],
+        "properties": {
+          "correlationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CorrelationResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "correlationId"
+        ],
+        "properties": {
+          "correlationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

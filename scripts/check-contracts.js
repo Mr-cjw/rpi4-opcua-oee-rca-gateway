@@ -1,13 +1,24 @@
 "use strict";
 
+const fs = require("node:fs/promises");
+const path = require("node:path");
 const Ajv2020 = require("ajv/dist/2020");
 const addFormats = require("ajv-formats");
 const processContextSchema = require("../contracts/process-context-event.schema.json");
 const qualityEventSchema = require("../contracts/quality-event.schema.json");
+const {
+  compareWithBaseline,
+  contractSurface,
+  createApiContract,
+  operationsFromHttpSource
+} = require("../src/gateway/api-contract");
 const { ProcessContextCollector } = require("../src/gateway/process-context");
 const { QualityEventStore } = require("../src/gateway/quality-events");
 
 const NOW = Date.parse("2026-11-27T10:00:00.000Z");
+const ROOT = path.resolve(__dirname, "..");
+const HTTP_API_SOURCE = path.join(ROOT, "src", "gateway", "http-api.js");
+const HTTP_API_SURFACE = path.join(ROOT, "contracts", "http-api.surface.json");
 
 function createValidator(schema, label) {
   const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -94,7 +105,54 @@ function createQualityEvent() {
   }).event;
 }
 
-function main() {
+function missingEntries(expected, actual) {
+  const current = new Set(actual);
+  return expected.filter((entry) => !current.has(entry));
+}
+
+async function checkHttpContract() {
+  const contract = await createApiContract();
+  const exampleCount = contract.validateDocumentedExamples();
+  console.log(`  OpenAPI examples: ${exampleCount} valid`);
+
+  const source = await fs.readFile(HTTP_API_SOURCE, "utf8");
+  const sourceOperations = operationsFromHttpSource(source);
+  const undocumented = missingEntries(sourceOperations, contract.operations);
+  const unimplemented = missingEntries(contract.operations, sourceOperations);
+  const failures = [];
+  if (undocumented.length > 0) {
+    failures.push(`HTTP operations missing from OpenAPI: ${undocumented.join(", ")}`);
+  }
+  if (unimplemented.length > 0) {
+    failures.push(`OpenAPI operations missing from HTTP source: ${unimplemented.join(", ")}`);
+  }
+  if (contract.document.paths?.["/healthz"]?.get?.security?.length !== 0) {
+    failures.push("OpenAPI must keep GET /healthz exempt from bearer authentication");
+  }
+
+  let baseline;
+  try {
+    baseline = JSON.parse(await fs.readFile(HTTP_API_SURFACE, "utf8"));
+  } catch (error) {
+    throw new Error(`unable to read HTTP API surface baseline: ${error.message}`);
+  }
+  const surface = contractSurface(contract.bundledDocument);
+  failures.push(...compareWithBaseline(surface, baseline));
+  if (failures.length > 0) {
+    throw new Error(failures.join("\n"));
+  }
+  console.log(
+    `  HTTP contract: ${contract.operations.length} operations, ${Object.keys(surface.schemas).length} schemas`
+  );
+}
+
+async function main() {
+  if (process.argv.includes("--print-surface")) {
+    const contract = await createApiContract();
+    const surface = contractSurface(contract.bundledDocument);
+    process.stdout.write(`${JSON.stringify(surface, null, 2)}\n`);
+    return;
+  }
   console.log("Validating shared event contracts...");
   assertValid(
     createValidator(processContextSchema, "process-context-event.schema.json"),
@@ -104,12 +162,12 @@ function main() {
     createValidator(qualityEventSchema, "quality-event.schema.json"),
     createQualityEvent()
   );
+  console.log("Validating HTTP API contract...");
+  await checkHttpContract();
   console.log("Contract validation passed.");
 }
 
-try {
-  main();
-} catch (error) {
+main().catch((error) => {
   console.error(`Contract validation failed: ${error.message}`);
   process.exitCode = 1;
-}
+});

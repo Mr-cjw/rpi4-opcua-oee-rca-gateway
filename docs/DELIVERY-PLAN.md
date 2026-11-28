@@ -131,12 +131,23 @@ Deliverables:
 - Add a contract check to CI that fails on undocumented endpoint or field
   removal.
 
+Completed software portion 2026-11-28: OpenAPI 3.1 contract for all 13 HTTP
+operations, validated request/response examples, shared event-schema references,
+live success/error response tests, source-route equality, and a frozen surface
+baseline covering operations, query/path parameters, response status codes,
+schema fields, and required fields. Additive-field, deprecation,
+version-negotiation, `503`, and idempotency rules are documented in
+[the API contract](API-CONTRACT.md).
+
 Acceptance:
 
 - Existing E2E clients pass unchanged against the published contract.
 - New fields remain additive and optional unless a versioned endpoint is added.
 - Operator and consumer error semantics are documented, including `503` retry
   and idempotency behavior.
+
+Still missing: acceptance by the actual QA/MES and operator clients, plus
+field-pilot validation of their retry, timeout, and reconciliation behavior.
 
 ### S4. Offline Operational Tabletop
 
