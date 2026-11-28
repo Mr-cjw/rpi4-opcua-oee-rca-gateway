@@ -126,6 +126,11 @@ security material, not ordinary application data.
   sources, applies request-body/rate/concurrency limits, adds security headers,
   and logs without authorization headers. It is a deployment template that
   requires site-specific approval, not an automatically enabled control.
+- `npm run edge:verify` checks the deployed certificate chain, TLS 1.2/1.3,
+  HTTP redirect, health response, security headers, anonymous and authenticated
+  `/metrics` and `/v1` access, unknown-path handling, and optional loopback
+  origin without an insecure certificate option. It supports a private CA and
+  mTLS client material.
 - `GATEWAY_API_TOKEN` protects `/metrics` and `/v1/*` when configured. Bearer
   comparison uses `crypto.timingSafeEqual` after a length check.
 - `/healthz` is intentionally unauthenticated and contains status/identity
@@ -292,6 +297,7 @@ npm run e2e:diagnostics
 npm run e2e:security
 npm run e2e:clock
 SOAK_DURATION_MS=20000 npm run soak
+npm run edge:verify -- --url https://<gateway-name> --strict
 npm run security:audit
 npm audit
 systemd-analyze verify deploy/rpi4-gateway.service
@@ -307,6 +313,10 @@ uses TLS 1.2/1.3 only, proxies to loopback, enforces request-body/rate/concurren
 limits, keeps `/healthz` fail-closed, does not log credentials, and leaves HSTS
 disabled. Site deployment still requires `nginx -t`, certificate validation, TLS
 protocol probes, source-network tests, and an authenticated API request.
+`edge:verify` performs those runtime probes against the approved DNS name without
+an insecure certificate bypass. A TLS 1.1 `skip` means the local OpenSSL client
+cannot initiate that protocol; the deployed edge must still be confirmed with the
+site's approved scanner and the static nginx policy test.
 
 ## 11. Residual Risk Register
 

@@ -22,6 +22,8 @@ const RELEASE_FILES = [
   "deploy/rpi4-gateway.service",
   "package-lock.json",
   "package.json",
+  "scripts/gateway-edge-verify.js",
+  "src/edge/verify.js",
   "src/gateway/index.js"
 ];
 
@@ -30,6 +32,8 @@ async function makeWorkspace(t) {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const sourceDir = path.join(root, "source");
   await fs.mkdir(path.join(sourceDir, "src", "gateway"), { recursive: true });
+  await fs.mkdir(path.join(sourceDir, "src", "edge"), { recursive: true });
+  await fs.mkdir(path.join(sourceDir, "scripts"), { recursive: true });
   await fs.mkdir(path.join(sourceDir, "deploy"), { recursive: true });
   await fs.writeFile(
     path.join(sourceDir, "package.json"),
@@ -45,6 +49,8 @@ async function makeWorkspace(t) {
     path.join(sourceDir, "deploy", "rpi4-gateway.service"),
     "[Service]\nExecStart=/usr/bin/node src/gateway/index.js\n"
   );
+  await fs.writeFile(path.join(sourceDir, "scripts", "gateway-edge-verify.js"), '"use strict";\n');
+  await fs.writeFile(path.join(sourceDir, "src", "edge", "verify.js"), '"use strict";\n');
   await fs.writeFile(path.join(sourceDir, "src", "gateway", "index.js"), '"use strict";\n');
   const releaseRoot = path.join(root, "release-root");
   const stateDir = path.join(root, "state");

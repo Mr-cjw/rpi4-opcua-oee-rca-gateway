@@ -106,6 +106,10 @@ deployment depends on behavior the Gateway does not provide.
   make rollback and client recovery difficult.
 - The reverse proxy does not provide per-user authorization, token expiry,
   online revocation, a WAF, DDoS protection, HA, or automatic failover.
+- The edge verifier can confirm TLS 1.2/1.3 and certified connectivity, but it
+  cannot make a Node/OpenSSL client initiate TLS 1.1 when the runtime disables
+  that protocol. It reports this as a skip; static configuration review and an
+  approved external TLS scanner remain required.
 - Credentials are read from environment variables or files. The application
   validates presence and readability, but does not enforce file ownership or
   mode. Operators must enforce `0600` files and a protected environment file.

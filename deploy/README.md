@@ -144,7 +144,15 @@ sudo nginx -t
 sudo systemctl reload nginx
 sudo ss -lntp | rg '(:443|:8080)'
 curl --fail http://127.0.0.1:8080/healthz
+sudo sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway/current && npm run edge:verify -- --url https://<gateway-name> --origin-url http://127.0.0.1:8080 --strict'
 ```
+
+The verifier reads `GATEWAY_API_TOKEN` from the sourced environment or from a
+mode-`0600` `--token-file`. It validates the certificate without an insecure
+override, tests TLS 1.2/1.3, checks the redirect and security headers, verifies
+anonymous `/metrics` and `/v1` rejection plus authenticated access, and probes
+unknown-path handling. Add `--ca-file` for a private CA or client-certificate
+options for mTLS. Archive `--json` output in the commissioning record.
 
 ### Clock synchronization
 

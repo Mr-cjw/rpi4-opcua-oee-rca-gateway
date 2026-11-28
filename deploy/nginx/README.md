@@ -121,10 +121,38 @@ openssl s_client -connect gateway.example.invalid:443 \
   -servername gateway.example.invalid -tls1_1 </dev/null
 ```
 
+The repository includes a repeatable verifier that performs the same edge checks
+without disabling certificate validation:
+
+```bash
+sudo sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run edge:verify -- \
+    --url https://gateway.example.invalid \
+    --origin-url http://127.0.0.1:8080 \
+    --strict --json'
+```
+
+Run it on the Pi to include the loopback-origin check, or from an approved
+administrative host with `--token-file /path/to/mode-0600-token`. For a private
+CA, add `--ca-file /etc/rpi4-gateway/tls/ca-chain.pem`. For mTLS, add
+`--client-cert-file` and `--client-key-file`; the private key must be mode
+`0600`. Use `--http-url` if the HTTP redirect endpoint is not the default port
+80, or `--skip-http-redirect` when HTTP is intentionally blocked at the
+firewall. Tokens are read only from `--token-file` or `GATEWAY_API_TOKEN`, never
+from command-line arguments.
+
 The HTTP request must return a 301 to HTTPS. TLS 1.2 must complete. TLS 1.1 and
 older must fail. `/healthz` must be denied from sources outside the approved
 monitoring subnet. A missing or wrong bearer token must return 401 from the
 Gateway for `/metrics` and `/v1/*`.
+
+The verifier reports TLS 1.1 as `skip` when the local Node/OpenSSL runtime cannot
+initiate that protocol. The repository's static nginx test still enforces
+`TLSv1.2 TLSv1.3`; confirm the deployed edge with the site's approved TLS scanner
+when the local client cannot perform the probe. The verifier does not test source
+network denial from an approved client, rate-limit thresholds, or log contents;
+those remain explicit commissioning checks.
 
 Inspect an access-log line to confirm no credential material is present:
 

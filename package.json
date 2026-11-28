@@ -27,6 +27,7 @@
     "release:rollback": "node scripts/gateway-release.js rollback",
     "release:status": "node scripts/gateway-release.js status",
     "storage:evaluate": "node scripts/evaluate-storage.js",
+    "edge:verify": "node scripts/gateway-edge-verify.js",
     "e2e": "node scripts/run-e2e.js",
     "e2e:gateway": "node scripts/gateway-e2e.js",
     "e2e:diagnostics": "node scripts/gateway-diagnostics-e2e.js",

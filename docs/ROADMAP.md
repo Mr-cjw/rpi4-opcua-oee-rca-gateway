@@ -51,6 +51,9 @@ correctness gap in an earlier phase.
   TLS 1.2/1.3, loopback-only proxying, source restrictions, rate/concurrency
   limits, credential-safe access logs, bounded retention, and certificate
   rotation guidance.
+- An edge verifier for deployed certificate chains, TLS versions, redirects,
+  security headers, health, authenticated metrics and `/v1` endpoints, unknown
+  paths, private CAs, and mTLS client material, with JSON and strict exit modes.
 - Node.js 22.13+ runtime baseline, patched `node-opcua` dependency, production
   dependency audit in CI, and an expanded systemd sandbox.
 - Field-pilot runbook, known-limitations register, and conditional security
@@ -207,6 +210,10 @@ Deliverables:
   `/healthz`, bearer-token preservation, optional mTLS/Basic Auth guidance,
   rate/connection limits, security headers, HSTS gating, certificate rotation,
   firewall checks, and bounded access-log retention.
+- Completed 2026-11-28: `npm run edge:verify` provides repeatable deployed-edge
+  verification with trusted certificate validation, TLS probes, redirect and
+  security-header checks, token handling from protected files/environment, mTLS
+  support, optional loopback-origin checks, JSON output, and strict exit status.
 
 Acceptance:
 

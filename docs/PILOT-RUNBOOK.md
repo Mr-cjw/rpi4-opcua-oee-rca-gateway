@@ -84,6 +84,10 @@ Gateway defect.
 - The edge certificate matches the approved DNS name, its private key is
   root-owned and mode `0600`, and rotation/rollback has been exercised. HSTS is
   enabled only after permanent HTTPS is confirmed.
+- `npm run edge:verify` passes in strict mode against the approved DNS name,
+  with private-CA/mTLS options as required, and its JSON output is archived in
+  the commissioning record. TLS 1.1 `skip` results require an approved external
+  scanner because the local OpenSSL client may not initiate the protocol.
 - The OPC UA endpoint uses `SignAndEncrypt` and `Basic256Sha256` unless the
   controls/security owners approve a documented exception.
 - `OPCUA_TRUST_UNKNOWN_CERTIFICATES=false`; only the PLC certificate recorded
@@ -224,6 +228,8 @@ from the approved monitoring network. Confirm HTTP redirects to HTTPS, the edge
 certificate is valid and not near expiry, `/healthz` is rejected outside its
 allowlist, and `/metrics` rejects a missing or wrong bearer token. Review the
 named nginx access log for authentication failures and rate-limit responses.
+Archive `npm run edge:verify -- --json --strict` output after certificate,
+authentication, firewall, or proxy changes.
 
 Monitoring baseline:
 
@@ -332,6 +338,8 @@ npm run e2e:security
 npm run e2e:clock
 SOAK_DURATION_MS=20000 npm run soak
 npm run security:audit
+# Remote deployments only, against the approved DNS name:
+npm run edge:verify -- --url https://<gateway-name> --strict
 ```
 
 The release archive must also pass `release:package`, `release:verify`,

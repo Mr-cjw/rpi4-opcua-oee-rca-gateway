@@ -191,6 +191,13 @@ limits, restricts `/healthz` by source network, and proxies to
 `127.0.0.1:8080`. Never publish port 8080 directly or disable
 `GATEWAY_API_TOKEN` merely because a proxy is present.
 
+After deployment, run `npm run edge:verify -- --url https://<gateway-name>` to
+check the redirect, trusted certificate, TLS 1.2/1.3, security headers,
+authenticated metrics and `/v1` endpoints, and unknown-path behavior. Use
+`--ca-file` for a private CA and `--client-cert-file` / `--client-key-file` for
+mTLS. The verifier never disables certificate validation and does not accept
+tokens on the command line.
+
 ```bash
 curl http://127.0.0.1:8080/healthz
 curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8080/metrics
