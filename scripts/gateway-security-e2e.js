@@ -370,7 +370,9 @@ async function main() {
       trustedFiles.map((filename) => fs.readFile(path.join(trustedFolder, filename)))
     );
     assert.ok(
-      trustedContents.some((contents) => contents.equals(rotatedCertificate)),
+      trustedContents.some((contents) =>
+        certificateToDer(contents).equals(certificateToDer(rotatedCertificate))
+      ),
       "the rotated certificate must be present in the client trust folder"
     );
     const verificationManager = new OPCUACertificateManager({
