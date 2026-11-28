@@ -6,7 +6,7 @@
   "main": "src/index.js",
   "type": "commonjs",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "start": "node src/index.js",
@@ -30,6 +30,7 @@
     "e2e:security": "node scripts/gateway-security-e2e.js",
     "e2e:clock": "node scripts/gateway-clock-e2e.js",
     "soak": "node scripts/soak.js",
+    "security:audit": "npm audit --omit=dev --audit-level=high",
     "gateway": "node src/gateway/index.js"
   },
   "dependencies": {

@@ -16,6 +16,9 @@ test("gateway systemd unit uses the runtime entry point and hardened state", asy
   assert.match(unit, /^Restart=on-failure$/m);
   assert.match(unit, /^StateDirectory=rpi4-gateway$/m);
   assert.match(unit, /^ProtectSystem=strict$/m);
+  assert.match(unit, /^PrivateDevices=true$/m);
+  assert.match(unit, /^CapabilityBoundingSet=$/m);
+  assert.match(unit, /^RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK$/m);
   assert.doesNotMatch(unit, /^ReadWritePaths=\/opt\/rpi4-opcua-oee-rca-gateway\/data$/m);
 });
 
@@ -104,4 +107,8 @@ test("package scripts expose state, release, and storage operations", async () =
   assert.equal(packageJson.scripts["storage:evaluate"], "node scripts/evaluate-storage.js");
   assert.equal(packageJson.scripts["e2e:security"], "node scripts/gateway-security-e2e.js");
   assert.equal(packageJson.scripts["e2e:clock"], "node scripts/gateway-clock-e2e.js");
+  assert.equal(
+    packageJson.scripts["security:audit"],
+    "npm audit --omit=dev --audit-level=high"
+  );
 });

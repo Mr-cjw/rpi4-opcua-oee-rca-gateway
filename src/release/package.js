@@ -71,10 +71,18 @@ async function readPackageMetadata(rootDir) {
   return parsed;
 }
 
-function minimumNodeMajor(packageJson) {
+function minimumNodeVersion(packageJson) {
   const engine = String(packageJson.engines?.node || "");
-  const match = engine.match(/>=\s*(\d+)/);
-  return match ? Number(match[1]) : null;
+  const match = engine.match(/>=\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!match) {
+    return null;
+  }
+  return [match[1], match[2] || "0", match[3] || "0"].map(Number).join(".");
+}
+
+function minimumNodeMajor(packageJson) {
+  const version = minimumNodeVersion(packageJson);
+  return version === null ? null : Number(version.split(".")[0]);
 }
 
 async function copyReleaseFiles(rootDir, stagingDir, files) {
@@ -164,7 +172,8 @@ async function createReleasePackage(options) {
       git: { commit, dirty },
       runtime: {
         nodeEngine: packageJson.engines?.node || null,
-        minimumNodeMajor: minimumNodeMajor(packageJson)
+        minimumNodeMajor: minimumNodeMajor(packageJson),
+        minimumNodeVersion: minimumNodeVersion(packageJson)
       },
       fileCount: fileEntries.length,
       totalBytes: fileEntries.reduce((total, entry) => total + entry.bytes, 0),

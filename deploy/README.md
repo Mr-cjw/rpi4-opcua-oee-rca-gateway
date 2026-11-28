@@ -3,7 +3,12 @@
 The unit runs an immutable release through
 `/opt/rpi4-opcua-oee-rca-gateway/current` as the `rpi4-gateway` user. Production
 installs should use a verified release archive rather than editing the live
-version in place.
+version in place. The host requires Node.js 22.13.0 or newer; the release
+installer rejects an older runtime from its manifest.
+
+For field work, pair this guide with the
+[pilot runbook](../docs/PILOT-RUNBOOK.md), [known limitations](../docs/KNOWN-LIMITATIONS.md),
+and [security review](../docs/SECURITY-REVIEW.md).
 
 ```bash
 sudo useradd --system --home /var/lib/rpi4-gateway --shell /usr/sbin/nologin rpi4-gateway
@@ -16,6 +21,7 @@ sudo install -m 0600 /opt/rpi4-gateway-bootstrap/deploy/rpi4-gateway.env.example
 sudo editor /etc/rpi4-gateway.env
 
 sudo systemctl daemon-reload
+systemd-analyze verify /etc/systemd/system/rpi4-gateway.service
 sudo /usr/bin/node /opt/rpi4-gateway-bootstrap/scripts/gateway-release.js install \
   --archive /var/tmp/<archive>.tar.gz \
   --checksum /var/tmp/<archive>.tar.gz.sha256 \
@@ -223,13 +229,16 @@ permissions, and vendor diagnostics before restarting the Gateway. For
 PLC scan/change cadence. Keep `OPCUA_DATA_CHANGE_TRIGGER=StatusValueTimestamp`
 when the PLC advances source timestamps on each scan. If you change it to
 `StatusValue` to reduce traffic, unchanged static tags may legitimately report
-stale. `alarmEvents` is exempt from stale checking. Do not increase
+stale. `alarmEvents` is a change-driven snapshot and is exempt from stale and
+source/server skew checks. Do not increase
 `GATEWAY_PLC_STALE_WARNING_MS` without confirming that the tag is expected to
 remain quiet. For clock issues, synchronize both the Pi and PLC clocks and verify
 the configured skew threshold.
 
 ## Operational notes
 
+- Verify `node --version` reports `v22.13.0` or newer before installing or
+  rolling back a release.
 - Keep `GATEWAY_HTTP_HOST=127.0.0.1` unless a reverse proxy and network policy
   are in place. Set `GATEWAY_API_TOKEN` if the API is reachable beyond loopback.
 - Use a secured OPC UA endpoint for a real PLC. `None` security is for isolated
@@ -239,6 +248,9 @@ the configured skew threshold.
   from the PLC commissioning record and restart the service after rotation.
 - Run `npm run e2e:security` after changing security modes, policies,
   credentials, or certificate-trust handling.
+- Run `npm run security:audit` and `npm audit` before every field release. CI
+  blocks high/critical production advisories, but audit results are
+  point-in-time and still require review.
 - The Gateway only reads PLC points. It does not write controls.
 - Run `npm run doctor` after every NodeId, credential, certificate, or PLC
   firmware change. A failed result should block production cutover.
@@ -261,6 +273,10 @@ the configured skew threshold.
 - Build and verify a release archive before every Pi upgrade, retain the prior
   verified archive and state backup, and exercise a rollback during change
   control rather than only after a failed field upgrade.
+- The systemd unit removes capabilities and applies filesystem, device, kernel,
+  hostname, IPC, realtime, and address-family restrictions. Re-run
+  `systemd-analyze verify` after any unit edit and test the service on the target
+  OS image; sandboxing is not a substitute for OS/SSH hardening.
 - Keep at least one recent verified state backup off the Raspberry Pi. A
   backup stored on the same failing SD card or SSD does not protect accepted
   quality events after hardware loss.

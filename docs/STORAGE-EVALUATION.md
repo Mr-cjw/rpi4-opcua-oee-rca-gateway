@@ -1,6 +1,6 @@
 # Storage Evaluation: JSONL and SQLite WAL
 
-Status date: 2026-11-27
+Status date: 2026-11-28
 
 ## Scope
 
@@ -17,7 +17,7 @@ a distributed database or a second source of truth.
 | Option | Advantages | Costs and risks |
 | --- | --- | --- |
 | Current JSONL | Human-readable, append-only, simple rotation, existing replay and backup, configurable fsync durability | No indexes, no transactions across files, fsync reduces throughput and increases SD-card wear, replay cost grows with retained history |
-| `node:sqlite` WAL | No third-party package, transactions, indexes, bounded SQL retention, crash-safe WAL | Requires a newer Node.js baseline, synchronous API can block the event loop, backup must include WAL state, database schema migrations become part of the release contract |
+| `node:sqlite` WAL | No third-party package, transactions, indexes, bounded SQL retention, crash-safe WAL | Synchronous API can block the event loop, backup must include WAL state, database schema migrations become part of the release contract |
 | `better-sqlite3` | Mature API and similar WAL behavior | Native addon build and ABI management on Raspberry Pi, larger deployment and upgrade surface |
 | External time-series database | Strong query and retention capabilities | Adds another service to operate, back up, authenticate, and monitor; not proportionate for one station |
 
@@ -70,8 +70,9 @@ default in the current release.
 
 The blocking work is not query performance. It is operational correctness:
 
-- the project currently supports Node.js 20 while `node:sqlite` requires a newer
-  runtime;
+- the project moved to Node.js 22.13+ on 2026-11-28, which removes the previous
+  runtime-availability blocker but does not by itself validate `node:sqlite` on
+  the target Raspberry Pi;
 - backup and restore currently copy regular JSONL and ledger files, not a
   checkpointed SQLite database plus WAL state;
 - an idempotent JSONL-to-SQLite importer and schema migration contract do not
@@ -85,8 +86,9 @@ is the import source, then SQLite becomes the only authoritative store.
 
 ## Adoption Gates
 
-1. Move the supported runtime to a pinned Node.js release with the required
-   `node:sqlite` behavior, and update CI across the supported LTS versions.
+1. Completed 2026-11-28: move the supported runtime to Node.js 22.13+ and cover
+   Node 22/24 in CI; confirm the selected Node release on the target Pi image
+   before enabling `node:sqlite`.
 2. Benchmark sustained writes on the target Raspberry Pi with both SD-card and
    SSD deployments, including a multi-day disk-growth projection.
 3. Implement a storage backend matching the existing append, read, flush, and

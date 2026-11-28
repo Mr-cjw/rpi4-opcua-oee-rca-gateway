@@ -45,6 +45,10 @@ correctness gap in an earlier phase.
 - Immutable release archives with manifest/checksum verification, atomic
   `current` switching, health-checked upgrade, automatic rollback, and explicit
   rollback/status commands.
+- Node.js 22.13+ runtime baseline, patched `node-opcua` dependency, production
+  dependency audit in CI, and an expanded systemd sandbox.
+- Field-pilot runbook, known-limitations register, and conditional security
+  review.
 
 ## Milestones
 
@@ -247,9 +251,10 @@ Priority: release gate.
 
 Deliverables:
 
-- Completed 2026-11-27: GitHub Actions CI for Node 20/22 unit/integration
+- Completed 2026-11-27: GitHub Actions CI for Node 22.13/24 unit/integration
   tests, generated-event JSON Schema checks, documentation link checks, E2E,
-  doctor, and a 20-second soak smoke.
+  doctor, security, clock, and a 20-second soak smoke. Production dependency
+  audit now runs before release packaging.
 - Completed 2026-11-27: repeatable soak harness covering API load, quality
   ingestion, fault injection, PLC reconnect cycles, retention and log-budget
   checks. A full 72-hour run remains a release gate.
@@ -257,9 +262,11 @@ Deliverables:
   archive checksums, Git/runtime provenance, Node engine checks, immutable
   release directories, health-checked upgrades with automatic rollback, explicit
   rollback/status commands, and state-backup/migration procedures.
+- Completed 2026-11-28: security review of OPC UA, HTTP, logs, secrets, release
+  integrity, dependencies, and the systemd sandbox.
+- Completed 2026-11-28: field-pilot runbook with acceptance/exit criteria and a
+  known-limitations register.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
-- Security review of OPC UA, HTTP, logs, secrets, and the systemd sandbox.
-- Field-pilot runbook, acceptance criteria, and a known-limitations document.
 
 Acceptance:
 
@@ -278,6 +285,8 @@ The next implementation-sized units are:
    alongside the 72-hour soak on Raspberry Pi hardware.
 3. Exercise release upgrade/rollback and state restore on Raspberry Pi hardware;
    add artifact signing if releases leave the trusted administrative channel.
+4. Complete a real-PLC certificate-rotation drill and define the remote-access
+   reverse-proxy/TLS architecture before exposing the API beyond loopback.
 
 M1 is complete, and the live PLC diagnostics software is complete. Prioritize
 the remaining M2 hardware/durability gates and M3 security/E2E validation before
@@ -288,11 +297,14 @@ adding new outward integrations.
 A release is not field-ready unless all of these are true:
 
 - Unit tests, schema checks, Mock PLC E2E, and Gateway E2E pass.
+- Security E2E, clock E2E, dependency audit, and systemd unit verification pass.
 - 72-hour soak and reconnect/power-loss/disk-full tests pass.
 - OEE responses state their time basis, counter mode, loss classification, and data-quality warnings.
 - Backup, restore, upgrade, and rollback have been exercised on Raspberry Pi hardware.
 - HTTP and OPC UA security settings are explicit; no insecure production default is silent.
 - The runbook distinguishes equipment faults from Gateway faults.
+- The security review has no unresolved critical finding and its required
+  compensating controls are recorded in the deployment approval.
 
 ## Explicit Non-Goals
 

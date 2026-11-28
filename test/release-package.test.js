@@ -37,7 +37,7 @@ async function makeFixture(t) {
       {
         name: "rpi4-release-fixture",
         version: "1.2.3",
-        engines: { node: ">=20" }
+        engines: { node: ">=22.13.0" }
       },
       null,
       2
@@ -80,7 +80,8 @@ test("release package includes a manifest, internal checksums, and archive check
   assert.equal(result.manifest.releaseId, "1.2.3-aaaaaaaaaaaa");
   assert.equal(result.manifest.fileCount, RELEASE_FILES.length);
   assert.equal(result.manifest.createdAt, new Date(NOW).toISOString());
-  assert.equal(result.manifest.runtime.minimumNodeMajor, 20);
+  assert.equal(result.manifest.runtime.minimumNodeMajor, 22);
+  assert.equal(result.manifest.runtime.minimumNodeVersion, "22.13.0");
   assert.match(
     await fs.readFile(result.checksumPath, "utf8"),
     new RegExp(`^${result.archiveSha256}  ${path.basename(result.archivePath)}$`, "m")

@@ -32,7 +32,7 @@ async function makeWorkspace(t) {
   await fs.writeFile(
     path.join(sourceDir, "package.json"),
     `${JSON.stringify(
-      { name: "rpi4-release-fixture", version: "0.0.0", engines: { node: ">=20" } },
+      { name: "rpi4-release-fixture", version: "0.0.0", engines: { node: ">=22.13.0" } },
       null,
       2
     )}\n`
@@ -166,4 +166,32 @@ test("release installer restores the previous release when the new health check 
   );
   assert.equal(report.action, "install-failed");
   assert.equal(report.releaseId, releaseV3.manifest.releaseId);
+});
+
+test("release installer enforces the manifest's minimum Node.js version", async (t) => {
+  const workspace = await makeWorkspace(t);
+  await fs.writeFile(
+    path.join(workspace.sourceDir, "package.json"),
+    `${JSON.stringify(
+      { name: "rpi4-release-fixture", version: "0.0.0", engines: { node: ">=99.0.0" } },
+      null,
+      2
+    )}\n`
+  );
+  const release = await buildRelease(t, workspace, "4.0.0");
+
+  await assert.rejects(
+    installRelease({
+      archivePath: release.archivePath,
+      releaseRoot: workspace.releaseRoot,
+      run: fakeCommandRunner([]),
+      skipNpmInstall: true,
+      healthUrl: null
+    }),
+    /requires Node\.js 99\.0\.0 or newer/
+  );
+  await assert.rejects(
+    fs.readlink(path.join(workspace.releaseRoot, "current")),
+    /ENOENT/
+  );
 });

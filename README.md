@@ -31,13 +31,15 @@ It provides:
 - Per-product/SKU ideal-cycle-time Performance with explicit fallback provenance
 
 The phased plan from the current prototype to a field pilot is documented in
-[`docs/ROADMAP.md`](docs/ROADMAP.md). The immediate priority is OEE correctness:
-shift/planned time, downtime classification, counter continuity, and quality
-reconciliation.
+[`docs/ROADMAP.md`](docs/ROADMAP.md). Field operations use the
+[pilot runbook](docs/PILOT-RUNBOOK.md), [known limitations](docs/KNOWN-LIMITATIONS.md),
+and [security review](docs/SECURITY-REVIEW.md). The software work through M6 is
+implemented; the remaining release work is the Raspberry Pi hardware recovery
+gates for a controlled pilot.
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22.13.0 or newer
 - A free TCP port, normally `4840`
 - No industrial equipment or external OPC UA server is required
 
@@ -423,7 +425,9 @@ builds and marks the release ID as dirty.
 
 The archive intentionally excludes `node_modules`; the Pi installer runs
 `npm ci --omit=dev`. For an offline site, pre-populate the npm cache or use an
-approved internal registry before installing the release.
+approved internal registry before installing the release. The installer also
+enforces the manifest's minimum runtime; this release requires Node.js 22.13.0
+or newer.
 
 Before an upgrade, stop the service and create, verify, and copy a state backup
 off the device. The installer verifies the archive, runs
@@ -780,7 +784,7 @@ report never includes the OPC UA password or private-key material.
 | `GATEWAY_DOCTOR_TIMEOUT_MS` | `15000` | Doctor connect/session timeout |
 | `GATEWAY_DOCTOR_CLOCK_SKEW_WARNING_MS` | `30000` | Doctor warning threshold for future or source/server timestamp skew |
 | `GATEWAY_DOCTOR_STALE_WARNING_MS` | `300000` | Doctor warning threshold for stale source timestamps |
-| `GATEWAY_PLC_STALE_WARNING_MS` | `300000` | Live stale-notification threshold; `alarmEvents` is exempt |
+| `GATEWAY_PLC_STALE_WARNING_MS` | `300000` | Live stale-notification threshold; `alarmEvents` is exempt from stale and source/server skew checks |
 | `GATEWAY_PLC_CLOCK_SKEW_WARNING_MS` | `30000` | Live future-source and source/server timestamp-skew warning threshold |
 
 Both process-context and quality-event JSONL logs are replayed at startup,
@@ -1268,6 +1272,16 @@ required-clock health degradation, and checks the Prometheus metrics:
 npm run e2e:clock
 ```
 
+Audit production dependencies and the complete development tree:
+
+```bash
+npm run security:audit
+npm audit
+```
+
+`security:audit` fails on high or critical production vulnerabilities. CI runs
+it before building a release archive.
+
 Validate the shared JSON contracts and local documentation links:
 
 ```bash
@@ -1313,11 +1327,13 @@ The report includes pass/fail checks, API latency, reconnect and fault counts,
 event-count bounds, log-byte budgets, final OEE data quality, and the preserved
 temporary run directory path when `SOAK_KEEP_RUN_DIR=1` or the run fails.
 
-GitHub Actions runs contract/docs checks and tests on Node 20 and 22, then runs
-the Mock PLC E2E, Gateway E2E, commissioning doctor, and a 20-second soak smoke
-on Node 20. It also builds and verifies a release archive and uploads it with
-its external checksum. The workflow is `.github/workflows/ci.yml`; the soak
-report and release archive are uploaded as artifacts.
+GitHub Actions runs contract/docs checks and tests on Node 22.13 and 24, then runs
+the Mock PLC E2E, Gateway E2E, commissioning doctor, PLC diagnostics, OPC UA
+security, clock synchronization, and a 20-second soak smoke on Node 22.13. It
+audits production dependencies, builds and verifies a release archive, and
+uploads the archive with its external checksum. The workflow is
+`.github/workflows/ci.yml`; the soak report and release archive are uploaded as
+artifacts.
 
 | Variable | Default | Description |
 |---|---:|---|
@@ -1457,4 +1473,5 @@ certificate trust and a restart-based certificate rotation, but not zero-downtim
 rotation, OPC UA redundancy, PLC scan cycles, fieldbus jitter, packet loss, or
 device-specific vendor diagnostics. For industrial deployment, use an OPC UA
 stack with certificate-based security, auditable session policy, monitoring, and
-a tested resource-limit policy.
+a tested resource-limit policy. Gateway deployment and data-handling boundaries
+are listed in [`docs/KNOWN-LIMITATIONS.md`](docs/KNOWN-LIMITATIONS.md).

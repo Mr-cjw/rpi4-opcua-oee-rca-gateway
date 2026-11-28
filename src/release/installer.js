@@ -48,15 +48,39 @@ async function readReleaseLink(linkPath, releasesDir) {
   return { id: path.basename(target), target };
 }
 
-function currentNodeMajor() {
-  return Number(process.versions.node.split(".")[0]);
+function versionParts(version) {
+  const match = String(version || "").match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  return match ? [match[1], match[2] || "0", match[3] || "0"].map(Number) : null;
+}
+
+function compareVersions(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) {
+      return left[index] - right[index];
+    }
+  }
+  return 0;
 }
 
 function checkRuntime(manifest) {
-  const minimum = manifest.runtime?.minimumNodeMajor;
-  if (Number.isInteger(minimum) && currentNodeMajor() < minimum) {
+  const current = versionParts(process.versions.node);
+  const minimumVersion = manifest.runtime?.minimumNodeVersion;
+  if (minimumVersion !== undefined && minimumVersion !== null) {
+    const minimum = versionParts(minimumVersion);
+    if (!minimum) {
+      throw new Error(`release manifest has an invalid Node.js minimum: ${minimumVersion}`);
+    }
+    if (compareVersions(current, minimum) < 0) {
+      throw new Error(
+        `release requires Node.js ${minimumVersion} or newer; current runtime is ${process.versions.node}`
+      );
+    }
+    return;
+  }
+  const minimumMajor = manifest.runtime?.minimumNodeMajor;
+  if (Number.isInteger(minimumMajor) && current[0] < minimumMajor) {
     throw new Error(
-      `release requires Node.js ${minimum} or newer; current runtime is ${process.versions.node}`
+      `release requires Node.js ${minimumMajor} or newer; current runtime is ${process.versions.node}`
     );
   }
 }
