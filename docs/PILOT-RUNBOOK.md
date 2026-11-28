@@ -480,14 +480,15 @@ power event since boot; reboot it and repeat the hardware baseline before
 accepting the soak. The report is written with mode `0600`.
 
 The release archive must also pass `release:package`, `release:verify`,
-`release:sign`, `release:verify-signature`, `release:sbom`, `release:audit`, and
-a test install/health-check/rollback cycle. Preserve the audit report and
-CycloneDX VEX sidecar with the archive checksum and signature. Confirm the
-extracted SBOM identifies the expected application version and production
-component set, and that every high or critical advisory has an active disposition
-or no longer appears. Record the public-key SHA-256 fingerprint from the signature
-report and require it during the signed install. The release private key must
-remain on the trusted signing host and must not be copied to the Pi.
+`release:sign`, `release:verify-signature`, `release:sbom`, a signed
+`release:audit`, and a test install/health-check/rollback cycle. Preserve the
+audit report and CycloneDX VEX sidecar with the archive checksum and signature.
+Confirm the extracted SBOM identifies the expected application version and
+production component set, and that every high or critical advisory has an active
+disposition or no longer appears. Record the public-key SHA-256 fingerprint from
+the signature report and require it during the signed install. The release
+private key must remain on the trusted signing host and must not be copied to the
+Pi.
 
 `commission` produces a single point-in-time acceptance report covering release
 and rollback readiness, systemd state, health/PLC/clock/storage, the OPC UA

@@ -34,7 +34,7 @@ function usage() {
       "  npm run release:sign -- --archive <file.tar.gz> --private-key <file.pem> [--signature <file.sig>] [--json]",
       "  npm run release:verify-signature -- --archive <file.tar.gz> --public-key <file.pem> [--signature <file.sig>] [--json]",
       "  npm run release:sbom -- --archive <file.tar.gz> [--output <file.cdx.json>] [--force] [--json]",
-      "  npm run release:audit -- --archive <file.tar.gz> [--checksum <file.sha256>] [--dispositions <file.json>] [--output <file.json>] [--vex-output <file.cdx.json>] [--force] [--json]",
+      "  npm run release:audit -- --archive <file.tar.gz> [--checksum <file.sha256>] [--dispositions <file.json>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--output <file.json>] [--vex-output <file.cdx.json>] [--force] [--json]",
       "  npm run release:install -- --archive <file.tar.gz> [--checksum <file.sha256>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--release-root <directory>] [--state-backup <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:rollback -- [--to <release-id>] [--release-root <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:status -- [--release-root <directory>] [--json]",
@@ -184,14 +184,19 @@ function printAudit(result) {
   );
   console.log(`Audit report: ${result.outputPath}`);
   console.log(`VEX: ${result.vexOutputPath}`);
+  console.log(
+    result.report.release.signature
+      ? `Signature: verified (${result.report.release.signature.algorithm}, key ${result.report.release.signature.keyFingerprint})`
+      : "Signature: not verified"
+  );
 }
 
-async function verifySignatureOrThrow(options) {
+async function verifySignatureOrThrow(options, label = "verify-signature") {
   if (!options.archive) {
-    throw new Error("verify-signature requires --archive <file.tar.gz>");
+    throw new Error(`${label} requires --archive <file.tar.gz>`);
   }
   if (!options.publicKey) {
-    throw new Error("verify-signature requires --public-key <file.pem>");
+    throw new Error(`${label} requires --public-key <file.pem>`);
   }
   const result = await verifyReleaseArchiveSignature({
     archivePath: options.archive,
@@ -377,10 +382,15 @@ async function main() {
     if (!options.archive) {
       throw new Error("audit requires --archive <file.tar.gz>");
     }
+    let signature = null;
+    if (options.publicKey || options.signature || options.requireSignature) {
+      signature = await verifySignatureOrThrow(options, "audit");
+    }
     const result = await generateReleaseAudit({
       archivePath: options.archive,
       checksumPath: options.checksum,
       dispositionsPath: options.dispositions,
+      signature,
       outputPath: options.output,
       vexOutputPath: options.vexOutput,
       force: options.force

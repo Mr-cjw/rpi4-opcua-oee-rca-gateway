@@ -505,6 +505,9 @@ After packaging, reconcile the signed lockfile and SBOM against npm advisories:
 npm run release:audit -- \
   --archive dist/release/<archive>.tar.gz \
   --dispositions security/advisory-dispositions.json \
+  --public-key /secure/release-keys/release-public.pem \
+  --signature dist/release/<archive>.tar.gz.sig \
+  --require-signature \
   --output dist/release/<release>.audit.json \
   --vex-output dist/release/<release>.vex.cdx.json
 ```
@@ -513,9 +516,13 @@ npm run release:audit -- \
 `npm audit --omit=dev --package-lock-only --json` in the extracted release. The
 report binds the release ID, Git commit, archive SHA-256, SBOM SHA-256 and serial
 number, production lockfile SHA-256, advisory set, and disposition-file SHA-256.
-The VEX sidecar is CycloneDX 1.5 and maps each advisory to its SBOM component.
-Both sidecars are written with mode `0600` and refuse to overwrite existing files
-unless `--force` is supplied.
+When `--public-key` is supplied, the command verifies the detached signature
+before auditing; `--require-signature` makes a missing key or signature fail
+closed. The report also binds the signature-file SHA-256 and public-key
+fingerprint. The VEX sidecar is CycloneDX 1.5, maps each advisory to its SBOM
+component, and records the release-signing key fingerprint. Both sidecars are
+written with mode `0600` and refuse to overwrite existing files unless `--force`
+is supplied. Sign the archive first, then generate audit and VEX evidence.
 
 A high or critical finding fails the gate unless
 `security/advisory-dispositions.json` contains a matching, active disposition.

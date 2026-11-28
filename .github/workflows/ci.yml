@@ -130,17 +130,12 @@ jobs:
           npm run release:sbom -- --archive "$ARCHIVE" --output "$SBOM"
           AUDIT="${ARCHIVE%.tar.gz}.audit.json"
           VEX="${ARCHIVE%.tar.gz}.vex.cdx.json"
-          npm run release:audit -- \
-            --archive "$ARCHIVE" \
-            --dispositions security/advisory-dispositions.json \
-            --output "$AUDIT" \
-            --vex-output "$VEX"
           echo "RELEASE_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           echo "RELEASE_SBOM=$SBOM" >> "$GITHUB_ENV"
           echo "RELEASE_AUDIT=$AUDIT" >> "$GITHUB_ENV"
           echo "RELEASE_VEX=$VEX" >> "$GITHUB_ENV"
 
-      - name: Sign and verify release smoke
+      - name: Sign, verify, and audit release smoke
         run: |
           set -euo pipefail
           KEY_DIR=$(mktemp -d)
@@ -155,6 +150,23 @@ jobs:
           npm run release:verify-signature -- \
             --archive "$RELEASE_ARCHIVE" \
             --public-key "$KEY_DIR/release-public.pem"
+          npm run release:audit -- \
+            --archive "$RELEASE_ARCHIVE" \
+            --public-key "$KEY_DIR/release-public.pem" \
+            --require-signature \
+            --dispositions security/advisory-dispositions.json \
+            --output "$RELEASE_AUDIT" \
+            --vex-output "$RELEASE_VEX"
+
+      - name: Upload release audit and VEX
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpi4-gateway-release-audit
+          path: |
+            ${{ env.RELEASE_AUDIT }}
+            ${{ env.RELEASE_VEX }}
+          if-no-files-found: warn
 
       - name: Upload release archive
         uses: actions/upload-artifact@v4
@@ -164,6 +176,4 @@ jobs:
             ${{ env.RELEASE_ARCHIVE }}
             ${{ env.RELEASE_ARCHIVE }}.sha256
             ${{ env.RELEASE_SBOM }}
-            ${{ env.RELEASE_AUDIT }}
-            ${{ env.RELEASE_VEX }}
           if-no-files-found: error

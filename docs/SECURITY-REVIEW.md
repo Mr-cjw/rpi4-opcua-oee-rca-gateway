@@ -244,11 +244,12 @@ monitoring platform outside the Gateway.
   the key path.
 - CI generates an ephemeral key pair and exercises signing plus verification as a
   smoke test. That key is not a production trust anchor and is not uploaded.
-- `release:audit` verifies the archive, runs a production-only npm audit against
-  the signed lockfile, and emits an audit report plus CycloneDX 1.5 VEX sidecar.
-  The evidence binds release ID, Git commit, archive, SBOM, lockfile, advisory,
-  and disposition-file hashes. High or critical findings fail unless a scoped
-  exception has a VEX justification, owner, and future expiry.
+- `release:audit` verifies the archive and optional detached signature, runs a
+  production-only npm audit against the signed lockfile, and emits an audit
+  report plus CycloneDX 1.5 VEX sidecar. The evidence binds release ID, Git
+  commit, archive, SBOM, lockfile, advisory, disposition-file, and signature
+  hashes plus the public-key fingerprint. High or critical findings fail unless a
+  scoped exception has a VEX justification, owner, and future expiry.
 - `current` and `previous` are switched atomically. A failed health check
   automatically restores and restarts the previous release.
 - The minimum runtime is `Node.js 22.13.0`, matching the upgraded OPC UA
