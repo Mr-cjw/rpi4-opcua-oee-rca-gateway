@@ -13,6 +13,7 @@ Companion documents:
 - [Known limitations](KNOWN-LIMITATIONS.md)
 - [Security review](SECURITY-REVIEW.md)
 - [Roadmap and release gates](ROADMAP.md)
+- [Delivery plan and hardware qualification sequence](DELIVERY-PLAN.md)
 
 ## 1. Scope and Responsibilities
 

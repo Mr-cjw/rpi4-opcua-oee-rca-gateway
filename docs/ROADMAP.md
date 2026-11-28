@@ -16,6 +16,11 @@ field-deployable Raspberry Pi edge node that can:
 The plan is ordered by dependency. A later phase should not be used to hide a
 correctness gap in an earlier phase.
 
+The execution-level sequence, evidence levels, software iterations, hardware
+qualification campaign, release train, and stop conditions are defined in the
+[delivery plan](DELIVERY-PLAN.md). This roadmap remains the decision and
+milestone record; the delivery plan controls day-to-day sequencing.
+
 ## Guiding Principles
 
 - Correctness before feature count. Every OEE number must expose its inputs,
@@ -45,8 +50,10 @@ correctness gap in an earlier phase.
 - Immutable release archives with manifest/checksum verification, atomic
   `current` switching, health-checked upgrade, automatic rollback, and explicit
   rollback/status commands, plus optional detached SHA-256 signatures and
-  fail-closed required-signature installs, and an embedded CycloneDX SBOM for
-  production dependencies.
+  fail-closed required-signature installs, pinned signer fingerprints, an
+  embedded CycloneDX SBOM for production dependencies, signed audit/VEX
+  evidence, a verifiable offline evidence bundle, and an offline signed-upgrade
+  rehearsal.
 - A reviewed nginx TLS reverse-proxy baseline for approved remote access, with
   TLS 1.2/1.3, loopback-only proxying, source restrictions, rate/concurrency
   limits, credential-safe access logs, bounded retention, and certificate
@@ -316,6 +323,13 @@ Deliverables:
 - Completed 2026-11-28: native npm CycloneDX 1.5 SBOM generation embedded in
   release archives, covered by manifest checksums and archive signatures, with
   verified sidecar extraction and CI artifact export.
+- Completed 2026-11-28: signed release audit/VEX evidence, offline evidence
+  verification, ephemeral-key CI signing smoke tests, release-signer
+  fingerprint pinning, and state-format provenance in release and backup
+  manifests.
+- Completed 2026-11-28: execution-level delivery plan with evidence levels,
+  software-only iterations, hardware qualification gates, release train, and
+  stop conditions.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 
 Acceptance:
@@ -326,7 +340,8 @@ Acceptance:
 
 ## Immediate Backlog
 
-The next implementation-sized units are:
+Software-only iterations S1-S5 in the [delivery plan](DELIVERY-PLAN.md) can start
+without target hardware. The remaining hardware/site-dependent units are:
 
 1. Finish the M2 storage boundary with physical power-cut validation on
    Raspberry Pi hardware and the gated SQLite importer/backend if the documented
@@ -335,17 +350,17 @@ The next implementation-sized units are:
    alongside the 72-hour soak on Raspberry Pi hardware with hardware sampling
    enabled; retain strict hardware readiness reports before and after the run.
 3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
-   hardware with the staged `field:drill` workflow; complete release-key custody,
-   rotation, and revocation procedures around the implemented fingerprint-pinning
-   gate; retain the release audit and CycloneDX VEX evidence generated for the
-   embedded SBOM.
+   hardware with the staged `field:drill` workflow; retain the release audit and
+   CycloneDX VEX evidence generated for the embedded SBOM, and obtain site
+   approval for key custody and rotation.
 4. Complete a real-PLC certificate-rotation drill, then approve, install, and
    exercise the supplied reverse-proxy/TLS template on the target network before
    exposing the API beyond loopback.
 
-M1 is complete, and the live PLC diagnostics software is complete. Prioritize
-the remaining M2 hardware/durability gates and M3 security/E2E validation before
-adding new outward integrations.
+M1 is complete, and the live PLC diagnostics software is complete. Use the
+delivery plan's S1-S5 sequence while hardware is unavailable, then execute H0-H5
+in order. Do not add outward integrations ahead of unresolved durability,
+release-integrity, and security gates.
 
 ## Release Gates
 
@@ -378,5 +393,6 @@ A release is not field-ready unless all of these are true:
 
 Use small, independently reversible releases. A practical sequence is one to
 three iterations per milestone, with M1-M3 completed before expanding RCA and
-integration features. Every release should update this roadmap when a decision
-or acceptance criterion changes.
+integration features. Every release should update this roadmap and the
+[delivery plan](DELIVERY-PLAN.md) when a decision or acceptance criterion
+changes.

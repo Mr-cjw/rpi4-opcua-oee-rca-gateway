@@ -17,6 +17,7 @@ Related documents:
 
 - [Field pilot runbook](PILOT-RUNBOOK.md)
 - [Known limitations](KNOWN-LIMITATIONS.md)
+- [Delivery plan](DELIVERY-PLAN.md)
 - [Deployment guide](../deploy/README.md)
 
 ## 1. Executive Summary
