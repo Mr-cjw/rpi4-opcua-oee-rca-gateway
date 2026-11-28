@@ -175,6 +175,12 @@ deployment depends on behavior the Gateway does not provide.
   systemd behavior, real network health checks, reboot recovery, power-loss
   durability, or Raspberry Pi hardware compatibility. Its synthetic v2 scenario
   proves rejection and backup recovery only; it does not execute a migration.
+- The offline operational tabletop exercises local Gateway code paths with a
+  synthetic OPC UA client, an injected JSONL `ENOSPC`, an injected clock-source
+  loss, and synthetic release archives. Its mode-`0600` report and evidence are
+  L1/L2 simulation artifacts. They cannot close hardware, network, power-loss,
+  certificate, or site-acceptance gates, and a passing result does not replace
+  the staged `field:drill` or target-hardware fault matrix.
 - The current runtime supports only state format `1.0`. A v2 release or backup
   is rejected with a specific diagnostic even when the migration contract is
   complete. There is no production migration executor yet.

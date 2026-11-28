@@ -342,6 +342,10 @@ Deliverables:
   description, validated client examples, live success/error response checks,
   source-route equality, and a CI baseline that rejects endpoint, parameter,
   response-status, field, and required-field removals.
+- Completed 2026-11-28: offline operational tabletop with seven scripted
+  recovery scenarios, recorded commands/observations/decision points, per-
+  scenario mode-`0600` evidence, equipment-versus-Gateway fault guidance, and
+  explicit L1/L2 hardware handoffs that cannot close an L3/L4 gate.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 
 Acceptance:

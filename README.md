@@ -33,8 +33,9 @@ It provides:
 The phased plan from the current prototype to a field pilot is documented in
 [`docs/ROADMAP.md`](docs/ROADMAP.md), with execution sequencing in the
 [delivery plan](docs/DELIVERY-PLAN.md). Field operations use the
-[pilot runbook](docs/PILOT-RUNBOOK.md), [known limitations](docs/KNOWN-LIMITATIONS.md),
-[security review](docs/SECURITY-REVIEW.md), and [release key management](docs/RELEASE-KEY-MANAGEMENT.md).
+[pilot runbook](docs/PILOT-RUNBOOK.md), [offline operational tabletop](docs/OFFLINE-TABLETOP.md),
+[known limitations](docs/KNOWN-LIMITATIONS.md), [security review](docs/SECURITY-REVIEW.md),
+and [release key management](docs/RELEASE-KEY-MANAGEMENT.md).
 The software work through M6 is
 implemented; the remaining release work is the Raspberry Pi hardware recovery
 gates plus site-specific signer-custody and remote-access approval for a
@@ -236,6 +237,14 @@ signature, state-backup verification, boot IDs, certificate fingerprints,
 preflight/post-reboot hardware readiness, and strict commissioning reports in a
 checksummed evidence bundle. See
 [the pilot runbook](docs/PILOT-RUNBOOK.md#53-staged-release-and-certificate-drill).
+
+When the target hardware is not yet available, run
+`npm run tabletop -- --force` to exercise PLC loss, disk-full, NTP loss, failed
+upgrade with automatic rollback, explicit rollback, state restore, and the
+state-format safety boundary. It writes a mode-`0600` report and per-scenario
+evidence with commands, expected observations, decision points, and hardware
+handoffs. The result is L1/L2 simulation evidence and cannot close an L3/L4
+gate. See [the offline tabletop](docs/OFFLINE-TABLETOP.md).
 
 ```bash
 curl http://127.0.0.1:8080/healthz

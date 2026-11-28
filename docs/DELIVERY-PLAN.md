@@ -162,12 +162,28 @@ Deliverables:
   the point at which a hardware-only step would begin.
 - Add a checklist that distinguishes equipment faults from Gateway faults.
 
+Completed software portion 2026-11-28: `npm run tabletop` executes seven local
+scenarios covering PLC loss/reconnect, disk-full with idempotent retry and
+sequence-gap evidence, required NTP loss/recovery, failed upgrade with automatic
+rollback, explicit rollback, state restore, and the synthetic v2 state-format
+rejection boundary. It writes a mode-`0600` report and individual evidence files
+containing commands, expected observations, observed checks, decision points,
+evidence digests, and an explicit hardware handoff for every scenario. The
+report and scenario files are permanently marked as simulated L1/L2 evidence
+with `satisfiesHardwareGate: false`. The operator checklist and fault-domain
+model are in [the offline tabletop](OFFLINE-TABLETOP.md).
+
 Acceptance:
 
 - An operator can follow the runbook without relying on undocumented state.
 - Every tabletop result is marked as simulated and cannot satisfy an L3/L4 gate.
 - Any procedure requiring a real reboot, power cut, certificate, or network
   change ends with an explicit hardware handoff.
+
+Still missing: execution on the target Raspberry Pi with the real PLC, storage
+device, NTP source, plant network, certificate chain, systemd service, and a
+signed release. Disk-full, NTP loss, and PLC disconnect are injected in local
+objects rather than exercised against physical infrastructure.
 
 ### S5. Reliability and Supply-Chain Maintenance
 

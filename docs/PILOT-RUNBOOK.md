@@ -14,6 +14,7 @@ Companion documents:
 - [Security review](SECURITY-REVIEW.md)
 - [Roadmap and release gates](ROADMAP.md)
 - [Delivery plan and hardware qualification sequence](DELIVERY-PLAN.md)
+- [Offline operational tabletop](OFFLINE-TABLETOP.md)
 - [Release signing key and trust policy](RELEASE-KEY-MANAGEMENT.md)
 
 ## 1. Scope and Responsibilities
@@ -56,6 +57,12 @@ equipment is healthy.
 The first recovery principle is to preserve evidence. Restarting or deleting
 state can erase the distinction between a transient equipment event and a
 Gateway defect.
+
+Before the target hardware campaign, run the
+[offline operational tabletop](OFFLINE-TABLETOP.md) and retain its report and
+per-scenario evidence. Use it to rehearse the decision points and hardware
+handoffs, not as a substitute for the real PLC, storage, NTP, systemd, reboot,
+power-loss, certificate, or site-acceptance checks below.
 
 ## 3. Preflight Checklist
 
