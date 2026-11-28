@@ -211,3 +211,36 @@ test("release verification rejects archive checksum and file-content tampering",
     await verified.cleanup();
   }
 });
+
+test("release package CLI accepts a version override for rehearsal archives", async (t) => {
+  const root = await makeFixture(t);
+  await execFileAsync("git", ["init", "--quiet"], { cwd: root });
+  await execFileAsync("git", ["config", "user.email", "release-test@example.invalid"], {
+    cwd: root
+  });
+  await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd: root });
+  await execFileAsync("git", ["add", "."], { cwd: root });
+  await execFileAsync("git", ["commit", "--quiet", "-m", "fixture"], { cwd: root });
+
+  const script = path.join(__dirname, "..", "scripts", "gateway-release.js");
+  const outputDir = path.join(root, "dist-cli");
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      script,
+      "package",
+      "--root",
+      root,
+      "--output",
+      outputDir,
+      "--version",
+      "9.8.7-rehearsal-cli",
+      "--json"
+    ],
+    { cwd: path.join(__dirname, "..") }
+  );
+  const result = JSON.parse(stdout);
+  assert.equal(result.manifest.version, "9.8.7-rehearsal-cli");
+  assert.match(result.manifest.releaseId, /^9\.8\.7-rehearsal-cli-[0-9a-f]{12}$/);
+  assert.match(path.basename(result.archivePath), /^rpi4-release-fixture-9\.8\.7-rehearsal-cli-/);
+});

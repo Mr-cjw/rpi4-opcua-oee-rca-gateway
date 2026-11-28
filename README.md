@@ -457,6 +457,17 @@ npm run release:package -- --output dist/release
 npm run release:verify -- --archive dist/release/<archive>.tar.gz
 ```
 
+Use `--version <version>` when the same commit must produce distinct base and
+candidate archives for an upgrade rehearsal. The override changes the manifest
+version, release ID, archive name, and embedded SBOM component version:
+
+```bash
+npm run release:package -- --output dist/rehearsal-base \
+  --version 1.0.0-rehearsal-base
+npm run release:package -- --output dist/rehearsal-candidate \
+  --version 1.0.1-rehearsal-candidate
+```
+
 Sign the archive on a trusted administrative host and verify the detached
 signature before transfer. The private key must remain on that host and must
 never be copied to the Pi, Git, the release directory, or a build artifact:
@@ -604,6 +615,8 @@ The rehearsal uses the production package verification, installation, symlink,
 rollback, and state-backup code with `systemctl`, the service health endpoint,
 and `npm ci` simulated. It covers:
 
+- release manifest schema, runtime metadata, SBOM format, and declared
+  state-format compatibility between base and candidate;
 - base install followed by candidate upgrade and explicit rollback to base;
 - candidate upgrade with a failing health check and automatic restoration of
   base;
@@ -614,6 +627,11 @@ The report is mode `0600` and records archive signatures, release IDs, final
 `current`/`previous` links, state hashes, and the simulation limitations. It is a
 software regression and procedure gate only; it does not replace systemd,
 network, power-loss, reboot, or Raspberry Pi hardware acceptance.
+
+CI builds and signs both rehearsal archives with an ephemeral key, runs the
+offline upgrade rehearsal, checks the mode-`0600` report, and uploads it as
+pre-hardware regression evidence. The ephemeral key is removed after the job and
+is not a production trust anchor.
 
 The archive intentionally excludes `node_modules`; the Pi installer runs
 `npm ci --omit=dev`. For an offline site, pre-populate the npm cache or use an

@@ -34,7 +34,7 @@ function usage() {
   console.log(
     [
       "Usage:",
-      "  npm run release:package -- [--root <directory>] [--output <directory>] [--allow-dirty] [--force] [--json]",
+      "  npm run release:package -- [--root <directory>] [--output <directory>] [--version <version>] [--allow-dirty] [--force] [--json]",
       "  npm run release:verify -- --archive <file.tar.gz> [--checksum <file.sha256>] [--json]",
       "  npm run release:sign -- --archive <file.tar.gz> --private-key <file.pem> [--signature <file.sig>] [--json]",
       "  npm run release:verify-signature -- --archive <file.tar.gz> --public-key <file.pem> [--signature <file.sig>] [--json]",
@@ -71,6 +71,7 @@ function parseArgs(argv) {
   const valueOptions = new Map([
     ["--root", "root"],
     ["--output", "output"],
+    ["--version", "version"],
     ["--archive", "archive"],
     ["--checksum", "checksum"],
     ["--release-root", "releaseRoot"],
@@ -285,6 +286,7 @@ async function main() {
     const result = await createReleasePackage({
       rootDir: path.resolve(options.root || process.cwd()),
       outputDir,
+      version: options.version,
       allowDirty: options.allowDirty,
       force: options.force
     });

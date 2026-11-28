@@ -121,6 +121,17 @@ jobs:
       - name: Audit production dependencies
         run: npm run security:audit
 
+      - name: Prepare ephemeral release key
+        run: |
+          set -euo pipefail
+          KEY_DIR="${{ runner.temp }}/release-smoke"
+          mkdir -p "$KEY_DIR"
+          chmod 700 "$KEY_DIR"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
+            -out "$KEY_DIR/release-private.pem"
+          openssl pkey -in "$KEY_DIR/release-private.pem" \
+            -pubout -out "$KEY_DIR/release-public.pem"
+
       - name: Build and verify release
         run: |
           npm run release:package -- --output dist/release
@@ -140,12 +151,7 @@ jobs:
       - name: Sign, verify, and audit release smoke
         run: |
           set -euo pipefail
-          KEY_DIR=$(mktemp -d)
-          trap 'rm -rf "$KEY_DIR"' EXIT
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
-            -out "$KEY_DIR/release-private.pem"
-          openssl pkey -in "$KEY_DIR/release-private.pem" \
-            -pubout -out "$KEY_DIR/release-public.pem"
+          KEY_DIR="${{ runner.temp }}/release-smoke"
           npm run release:sign -- \
             --archive "$RELEASE_ARCHIVE" \
             --private-key "$KEY_DIR/release-private.pem"
@@ -167,6 +173,71 @@ jobs:
             --public-key "$KEY_DIR/release-public.pem" \
             --require-signature \
             --output "$RELEASE_EVIDENCE"
+
+      - name: Build signed rehearsal releases
+        run: |
+          set -euo pipefail
+          KEY_DIR="${{ runner.temp }}/release-smoke"
+          npm run release:package -- \
+            --output dist/rehearsal-base \
+            --version 1.0.0-rehearsal-base
+          npm run release:package -- \
+            --output dist/rehearsal-candidate \
+            --version 1.0.1-rehearsal-candidate
+          BASE_ARCHIVE=$(find dist/rehearsal-base -maxdepth 1 -name '*.tar.gz' -print -quit)
+          CANDIDATE_ARCHIVE=$(find dist/rehearsal-candidate -maxdepth 1 -name '*.tar.gz' -print -quit)
+          test -n "$BASE_ARCHIVE"
+          test -n "$CANDIDATE_ARCHIVE"
+          npm run release:sign -- \
+            --archive "$BASE_ARCHIVE" \
+            --private-key "$KEY_DIR/release-private.pem"
+          npm run release:sign -- \
+            --archive "$CANDIDATE_ARCHIVE" \
+            --private-key "$KEY_DIR/release-private.pem"
+          echo "REHEARSAL_BASE_ARCHIVE=$BASE_ARCHIVE" >> "$GITHUB_ENV"
+          echo "REHEARSAL_CANDIDATE_ARCHIVE=$CANDIDATE_ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Run signed offline upgrade rehearsal
+        run: |
+          set -euo pipefail
+          STATE_DIR="${{ runner.temp }}/rehearsal-state"
+          REPORT="$GITHUB_WORKSPACE/dist/rehearsal/release-rehearsal.json"
+          mkdir -p "$STATE_DIR"
+          (
+            umask 077
+            printf '%s\n' '{"kind":"process-context"}' \
+              > "$STATE_DIR/process-context.jsonl"
+            printf '%s\n' '{"kind":"process-context-old"}' \
+              > "$STATE_DIR/process-context.jsonl.1"
+            printf '%s\n' '{"kind":"quality-event"}' \
+              > "$STATE_DIR/quality-events.jsonl"
+            printf '%s\n' '{"key":"value"}' \
+              > "$STATE_DIR/quality-idempotency.json"
+            printf '%s\n' '{"workOrder":"WO-REHEARSAL"}' \
+              > "$STATE_DIR/work-context.json"
+          )
+          npm run release:rehearse -- \
+            --base-archive "$REHEARSAL_BASE_ARCHIVE" \
+            --candidate-archive "$REHEARSAL_CANDIDATE_ARCHIVE" \
+            --state-dir "$STATE_DIR" \
+            --public-key "${{ runner.temp }}/release-smoke/release-public.pem" \
+            --require-signature \
+            --output "$REPORT"
+          test "$(stat -c '%a' "$REPORT")" = "600"
+
+      - name: Remove ephemeral release key
+        if: always()
+        run: |
+          node -e "require('node:fs').rmSync(process.argv[1], { recursive: true, force: true })" \
+            "${{ runner.temp }}/release-smoke"
+
+      - name: Upload offline rehearsal report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpi4-gateway-release-rehearsal
+          path: dist/rehearsal/release-rehearsal.json
+          if-no-files-found: warn
 
       - name: Upload release audit and VEX
         if: always()

@@ -8,7 +8,10 @@ const path = require("node:path");
 const test = require("node:test");
 const { createReleasePackage } = require("../src/release/package");
 const { signReleaseArchive } = require("../src/release/signature");
-const { runReleaseRehearsal } = require("../src/release/rehearsal");
+const {
+  rehearseManifestCompatibility,
+  runReleaseRehearsal
+} = require("../src/release/rehearsal");
 
 const NOW = Date.parse("2026-11-28T06:00:00.000Z");
 const COMMIT = "a".repeat(40);
@@ -146,18 +149,25 @@ test("offline release rehearsal covers upgrade, rollback, auto-rollback, and sta
   assert.deepEqual(
     result.report.scenarios.map((scenario) => [scenario.id, scenario.status]),
     [
+      ["manifest-compatibility", "passed"],
       ["state-backup-restore", "passed"],
       ["upgrade-and-explicit-rollback", "passed"],
       ["failed-upgrade-auto-rollback", "passed"]
     ]
   );
-  const stateScenario = result.report.scenarios[0];
+  const compatibility = result.report.scenarios[0].details;
+  assert.equal(compatibility.releaseSchemaVersion, "1.0");
+  assert.equal(compatibility.runtime.base.minimumNodeVersion, "22.13.0");
+  assert.equal(compatibility.sbom.base.format, "CycloneDX");
+  assert.equal(compatibility.sbom.candidate.specVersion, "1.5");
+  assert.equal(compatibility.stateFormatVersion.declared, false);
+  const stateScenario = result.report.scenarios[1];
   assert.equal(stateScenario.details.backupFileCount, 5);
   assert.equal(stateScenario.details.restoredFiles.length, 5);
-  const explicit = result.report.scenarios[1].details;
+  const explicit = result.report.scenarios[2].details;
   assert.equal(explicit.finalCurrent, explicit.baseReleaseId);
   assert.equal(explicit.finalPrevious, explicit.candidateReleaseId);
-  const automatic = result.report.scenarios[2].details;
+  const automatic = result.report.scenarios[3].details;
   assert.equal(automatic.finalCurrent, automatic.baseReleaseId);
   assert.equal(automatic.restoredReleaseId, automatic.baseReleaseId);
   assert.equal((await fs.stat(outputPath)).mode & 0o777, 0o600);
@@ -178,5 +188,22 @@ test("offline release rehearsal refuses to overwrite an existing report", async 
       outputPath
     }),
     /output already exists/
+  );
+});
+
+test("rehearsal compatibility check rejects declared state-format changes", () => {
+  const base = {
+    releaseSchemaVersion: "1.0",
+    runtime: { minimumNodeVersion: "22.13.0" },
+    stateFormatVersion: "1",
+    sbom: { format: "CycloneDX", specVersion: "1.5", componentCount: 0 }
+  };
+  assert.throws(
+    () =>
+      rehearseManifestCompatibility(base, {
+        ...base,
+        stateFormatVersion: "2"
+      }),
+    /incompatible state formats/
   );
 });

@@ -148,6 +148,16 @@ async function preflightArchive({ archivePath, signature }) {
       releaseId: verified.manifest.releaseId,
       version: verified.manifest.version,
       commit: verified.manifest.git?.commit || null,
+      releaseSchemaVersion: verified.manifest.schemaVersion,
+      runtime: verified.manifest.runtime || null,
+      stateFormatVersion: verified.manifest.stateFormatVersion || null,
+      sbom: verified.sbom
+        ? {
+            format: verified.sbom.format,
+            specVersion: verified.sbom.specVersion,
+            componentCount: verified.sbom.componentCount
+          }
+        : null,
       signature: signed
         ? {
             verified: true,
@@ -159,6 +169,38 @@ async function preflightArchive({ archivePath, signature }) {
   } finally {
     await verified.cleanup();
   }
+}
+
+function rehearseManifestCompatibility(base, candidate) {
+  if (base.releaseSchemaVersion !== candidate.releaseSchemaVersion) {
+    throw new Error("base and candidate release manifest schemas differ");
+  }
+  if (!base.sbom || !candidate.sbom) {
+    throw new Error("base and candidate must both include an SBOM");
+  }
+  if (
+    base.sbom.format !== candidate.sbom.format ||
+    base.sbom.specVersion !== candidate.sbom.specVersion
+  ) {
+    throw new Error("base and candidate SBOM formats differ");
+  }
+  if (
+    base.stateFormatVersion !== null &&
+    candidate.stateFormatVersion !== null &&
+    base.stateFormatVersion !== candidate.stateFormatVersion
+  ) {
+    throw new Error("base and candidate declare incompatible state formats");
+  }
+  return {
+    releaseSchemaVersion: base.releaseSchemaVersion,
+    runtime: { base: base.runtime, candidate: candidate.runtime },
+    sbom: { base: base.sbom, candidate: candidate.sbom },
+    stateFormatVersion: {
+      base: base.stateFormatVersion,
+      candidate: candidate.stateFormatVersion,
+      declared: base.stateFormatVersion !== null || candidate.stateFormatVersion !== null
+    }
+  };
 }
 
 async function rehearseUpgradeAndRollback({
@@ -316,6 +358,11 @@ async function runReleaseRehearsal(options) {
     }
 
     const scenarios = [];
+    scenarios.push(
+      await runScenario("manifest-compatibility", async () =>
+        rehearseManifestCompatibility(basePreflight, candidatePreflight)
+      )
+    );
     const stateRehearsal = await runScenario("state-backup-restore", () =>
       rehearseState({ stateDir, workDir, clock })
     );
@@ -389,5 +436,6 @@ module.exports = {
   REHEARSAL_KIND,
   REHEARSAL_SCHEMA_VERSION,
   inferStateConfig,
+  rehearseManifestCompatibility,
   runReleaseRehearsal
 };

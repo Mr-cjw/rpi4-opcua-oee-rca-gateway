@@ -257,9 +257,13 @@ monitoring platform outside the Gateway.
   manifest itself is not signed; authenticity still depends on the signed archive
   and detached signature it binds.
 - `release:rehearse` exercises signed install, explicit rollback, failed-health
-  automatic rollback, and state backup/restore in an isolated directory. Service
-  commands and package installation are simulated, so its report is marked as an
-  offline software gate rather than field acceptance.
+  automatic rollback, manifest-schema and declared state-format compatibility,
+  state backup/restore, and records runtime and SBOM metadata in an isolated
+  directory. CI builds separately versioned base and candidate archives, signs
+  both with the same ephemeral key, requires both signatures, and retains the
+  mode-`0600` report. Service commands and package installation are simulated,
+  so its report is marked as an offline software gate rather than field
+  acceptance.
 - `current` and `previous` are switched atomically. A failed health check
   automatically restores and restarts the previous release.
 - The minimum runtime is `Node.js 22.13.0`, matching the upgraded OPC UA
