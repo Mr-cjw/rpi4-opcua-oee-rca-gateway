@@ -18,6 +18,7 @@ const {
   verifyReleaseArchiveSignature
 } = require("../src/release/signature");
 const { sbomSidecarPathForArchive } = require("../src/release/sbom");
+const { generateReleaseAudit } = require("../src/release/vulnerability-audit");
 const { hashFile, pathExists, resolveWithin } = require("../src/release/common");
 const { verifyStateBackup } = require("../src/gateway/state-backup");
 
@@ -33,6 +34,7 @@ function usage() {
       "  npm run release:sign -- --archive <file.tar.gz> --private-key <file.pem> [--signature <file.sig>] [--json]",
       "  npm run release:verify-signature -- --archive <file.tar.gz> --public-key <file.pem> [--signature <file.sig>] [--json]",
       "  npm run release:sbom -- --archive <file.tar.gz> [--output <file.cdx.json>] [--force] [--json]",
+      "  npm run release:audit -- --archive <file.tar.gz> [--checksum <file.sha256>] [--dispositions <file.json>] [--output <file.json>] [--vex-output <file.cdx.json>] [--force] [--json]",
       "  npm run release:install -- --archive <file.tar.gz> [--checksum <file.sha256>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--release-root <directory>] [--state-backup <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:rollback -- [--to <release-id>] [--release-root <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:status -- [--release-root <directory>] [--json]",
@@ -71,6 +73,8 @@ function parseArgs(argv) {
     ["--private-key", "privateKey"],
     ["--public-key", "publicKey"],
     ["--signature", "signature"],
+    ["--dispositions", "dispositions"],
+    ["--vex-output", "vexOutput"],
     ["--to", "to"]
   ]);
   for (let index = 1; index < argv.length; index += 1) {
@@ -171,6 +175,17 @@ function printSignature(result) {
   console.log(`Public key SHA-256: ${result.keyFingerprint}`);
 }
 
+function printAudit(result) {
+  console.log(`Release archive: ${result.archivePath}`);
+  console.log(`Release: ${result.report.release.releaseId}`);
+  console.log(`Audit status: ${result.report.status}`);
+  console.log(
+    `Advisories: ${result.report.summary.advisoryCount} (${result.report.summary.blocking} blocking)`
+  );
+  console.log(`Audit report: ${result.outputPath}`);
+  console.log(`VEX: ${result.vexOutputPath}`);
+}
+
 async function verifySignatureOrThrow(options) {
   if (!options.archive) {
     throw new Error("verify-signature requires --archive <file.tar.gz>");
@@ -197,6 +212,7 @@ async function main() {
     "sign",
     "verify-signature",
     "sbom",
+    "audit",
     "install",
     "rollback",
     "status"
@@ -353,6 +369,29 @@ async function main() {
       }
     } finally {
       await verified.cleanup();
+    }
+    return;
+  }
+
+  if (options.command === "audit") {
+    if (!options.archive) {
+      throw new Error("audit requires --archive <file.tar.gz>");
+    }
+    const result = await generateReleaseAudit({
+      archivePath: options.archive,
+      checksumPath: options.checksum,
+      dispositionsPath: options.dispositions,
+      outputPath: options.output,
+      vexOutputPath: options.vexOutput,
+      force: options.force
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      printAudit(result);
+    }
+    if (result.report.status !== "passed") {
+      process.exitCode = 1;
     }
     return;
   }

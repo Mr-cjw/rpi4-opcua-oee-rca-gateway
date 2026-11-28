@@ -128,8 +128,17 @@ jobs:
           npm run release:verify -- --archive "$ARCHIVE"
           SBOM="${ARCHIVE%.tar.gz}.sbom.cdx.json"
           npm run release:sbom -- --archive "$ARCHIVE" --output "$SBOM"
+          AUDIT="${ARCHIVE%.tar.gz}.audit.json"
+          VEX="${ARCHIVE%.tar.gz}.vex.cdx.json"
+          npm run release:audit -- \
+            --archive "$ARCHIVE" \
+            --dispositions security/advisory-dispositions.json \
+            --output "$AUDIT" \
+            --vex-output "$VEX"
           echo "RELEASE_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           echo "RELEASE_SBOM=$SBOM" >> "$GITHUB_ENV"
+          echo "RELEASE_AUDIT=$AUDIT" >> "$GITHUB_ENV"
+          echo "RELEASE_VEX=$VEX" >> "$GITHUB_ENV"
 
       - name: Sign and verify release smoke
         run: |
@@ -155,4 +164,6 @@ jobs:
             ${{ env.RELEASE_ARCHIVE }}
             ${{ env.RELEASE_ARCHIVE }}.sha256
             ${{ env.RELEASE_SBOM }}
+            ${{ env.RELEASE_AUDIT }}
+            ${{ env.RELEASE_VEX }}
           if-no-files-found: error

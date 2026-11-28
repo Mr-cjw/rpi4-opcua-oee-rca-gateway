@@ -244,6 +244,11 @@ monitoring platform outside the Gateway.
   the key path.
 - CI generates an ephemeral key pair and exercises signing plus verification as a
   smoke test. That key is not a production trust anchor and is not uploaded.
+- `release:audit` verifies the archive, runs a production-only npm audit against
+  the signed lockfile, and emits an audit report plus CycloneDX 1.5 VEX sidecar.
+  The evidence binds release ID, Git commit, archive, SBOM, lockfile, advisory,
+  and disposition-file hashes. High or critical findings fail unless a scoped
+  exception has a VEX justification, owner, and future expiry.
 - `current` and `previous` are switched atomically. A failed health check
   automatically restores and restarts the previous release.
 - The minimum runtime is `Node.js 22.13.0`, matching the upgraded OPC UA
@@ -252,7 +257,8 @@ monitoring platform outside the Gateway.
   zero vulnerabilities after upgrading `node-opcua` from `2.160.0` to `2.188.1`.
   The upgrade removed production advisories that included OPC UA certificate,
   nonce/cache, namespace authorization, and vulnerable transitive packages.
-- CI runs the production-only audit before building the release artifact.
+- CI runs the production-only audit before building the release artifact and
+  runs `release:audit` plus VEX generation against the verified archive.
 
 Residual risks:
 
@@ -267,9 +273,10 @@ Residual risks:
   defeats verification.
 - There is no automatic signing-key rotation, revocation, HSM/KMS integration,
   or OTA signing service. Key lifecycle operations remain manual.
-- The SBOM is an inventory. It does not include vulnerability status, exploit
-  reachability, VEX statements, or a legal license determination, and it does
-  not prove that optional platform-specific packages were exercised on the Pi.
+- The SBOM remains an inventory. Advisory/VEX evidence is a separate point-in-
+  time sidecar and requires manual review of reachability, exploitability, and
+  exception expiry; it is not a legal license determination or proof that
+  optional platform-specific packages were exercised on the Pi.
 - `npm ci` trusts the configured registry and lockfile. A compromised registry,
   build runner, or npm account remains a supply-chain risk.
 - Audit results are point-in-time. Re-run the audit and review advisories before
@@ -356,7 +363,7 @@ bundle; execute the full staged sequence in the pilot runbook on the target Pi.
 | Manual certificate trust | Medium | Unknown certs rejected; explicit fingerprint update and restart | Include certificate rotation in change control and pilot drills |
 | No HA or central queue | Medium | Local durable logs, fsync for accepted quality, idempotent retries | Define station outage tolerance and downstream retry/reconciliation |
 | No per-request audit | Low/Medium | Structured error and process logs; bounded proxy access log for remote deployments | Ship and review edge logs under site retention policy; add per-user identity if required |
-| Dependency or registry compromise | Medium | Exact lockfile, `npm ci`, CI audit, embedded CycloneDX SBOM, immutable signed artifact | Protect CI credentials, review advisories, add VEX/advisory reconciliation and stronger key custody |
+| Dependency or registry compromise | Medium | Exact lockfile, `npm ci`, CI audit, embedded CycloneDX SBOM, release audit/VEX, immutable signed artifact | Protect CI credentials, review advisories and expiry dates, strengthen key custody |
 | Host or physical compromise | High | systemd sandbox, least-privilege account | Harden OS/SSH, restrict physical access, monitor host integrity |
 
 ## 12. Security Incident Response
@@ -389,7 +396,8 @@ The current release is suitable for a controlled pilot only when:
 Open actions before broader deployment:
 
 - Define release-signing key custody, rotation, revocation, and independent
-  attestation where required; reconcile embedded SBOMs against advisories/VEX.
+  attestation where required; retain and review release audit/VEX evidence for
+  every promoted archive.
 - Complete the Raspberry Pi power-cut, disk-full, 72-hour soak, upgrade,
   rollback, and restore gates.
 - Approve, install, and exercise the supplied remote-access template on the

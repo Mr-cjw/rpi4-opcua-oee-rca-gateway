@@ -141,16 +141,17 @@ deployment depends on behavior the Gateway does not provide.
   public-key distribution are manual. There is no built-in OTA signing service
   or automatic trust-store update.
 - The embedded CycloneDX SBOM is a dependency inventory generated from the
-  production lockfile. It is not a vulnerability report, VEX statement, license
-  legal opinion, or proof that optional platform-specific dependencies were
-  exercised on a Raspberry Pi.
+  production lockfile. A separate `release:audit` report and CycloneDX VEX
+  sidecar bind npm advisory analysis and time-limited dispositions to the
+  verified archive, but neither is a license legal opinion or proof that optional
+  platform-specific dependencies were exercised on a Raspberry Pi.
 - There is no automatic over-the-air update service. Installation and rollback
   are operator-driven systemd operations.
 - `npm ci --omit=dev` requires either network access to the approved registry or
   a pre-populated package cache for an offline site.
 - Dependency audit results are a point-in-time signal, not a guarantee. The
-  release process must rerun the audit and review advisories before each field
-  deployment.
+  release process must rerun `release:audit` and review advisories and
+  dispositions before each field deployment.
 - Rollback restores code and the `current`/`previous` links. It does not undo a
   state-format migration unless the release note explicitly defines one and the
   verified pre-upgrade state backup is restored.

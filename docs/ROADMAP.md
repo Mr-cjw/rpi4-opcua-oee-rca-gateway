@@ -335,8 +335,8 @@ The next implementation-sized units are:
    enabled; retain strict hardware readiness reports before and after the run.
 3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
    hardware with the staged `field:drill` workflow; define release-key custody,
-   rotation, and revocation procedures; add advisory/VEX reconciliation for the
-   embedded SBOM.
+   rotation, and revocation procedures; retain the release audit and CycloneDX
+   VEX evidence generated for the embedded SBOM.
 4. Complete a real-PLC certificate-rotation drill, then approve, install, and
    exercise the supplied reverse-proxy/TLS template on the target network before
    exposing the API beyond loopback.

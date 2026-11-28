@@ -494,10 +494,59 @@ npm run release:sbom -- \
 ```
 
 The extracted sidecar is a convenience copy; the embedded `sbom.cdx.json` is the
-authoritative signed copy. The SBOM is an inventory, not a vulnerability-free
-declaration or a VEX statement. Packaging requires an npm release that provides
-`npm sbom --sbom-format=cyclonedx`; the supported Node.js 22.13 baseline ships a
-compatible npm.
+authoritative signed copy. The SBOM is an inventory; vulnerability status and
+VEX analysis are recorded separately against the verified archive. Packaging
+requires an npm release that provides `npm sbom --sbom-format=cyclonedx`; the
+supported Node.js 22.13 baseline ships a compatible npm.
+
+After packaging, reconcile the signed lockfile and SBOM against npm advisories:
+
+```bash
+npm run release:audit -- \
+  --archive dist/release/<archive>.tar.gz \
+  --dispositions security/advisory-dispositions.json \
+  --output dist/release/<release>.audit.json \
+  --vex-output dist/release/<release>.vex.cdx.json
+```
+
+`release:audit` verifies the archive before running
+`npm audit --omit=dev --package-lock-only --json` in the extracted release. The
+report binds the release ID, Git commit, archive SHA-256, SBOM SHA-256 and serial
+number, production lockfile SHA-256, advisory set, and disposition-file SHA-256.
+The VEX sidecar is CycloneDX 1.5 and maps each advisory to its SBOM component.
+Both sidecars are written with mode `0600` and refuse to overwrite existing files
+unless `--force` is supplied.
+
+A high or critical finding fails the gate unless
+`security/advisory-dispositions.json` contains a matching, active disposition.
+Each disposition requires `id`, `package`, `state`, `detail`, `owner`, and
+`expiresAt`; accepting states also require `justification`. `not_affected` and
+`false_positive` are the accepting states. Expired, missing, `in_triage`, and
+`exploitable` dispositions remain blocking for high or critical findings. Keep
+exceptions narrow and review them before the expiry date:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "dispositions": [
+    {
+      "id": "GHSA-xxxx-xxxx-xxxx",
+      "package": "example-package",
+      "state": "not_affected",
+      "justification": "code_not_reachable",
+      "detail": "The vulnerable path is not called by the Gateway runtime.",
+      "owner": "gateway-security",
+      "expiresAt": "2027-11-28T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+The audit report and VEX are external evidence and are not embedded in the
+archive. The report binds the VEX SHA-256 and the VEX binds the release archive,
+SBOM, and disposition-file hashes. Preserve both with the archive checksum and
+signature, and regenerate them for every release because the advisory set is
+point-in-time.
 
 The archive intentionally excludes `node_modules`; the Pi installer runs
 `npm ci --omit=dev`. For an offline site, pre-populate the npm cache or use an
@@ -1368,7 +1417,8 @@ npm audit
 ```
 
 `security:audit` fails on high or critical production vulnerabilities. CI runs
-it before building a release archive.
+it before building a release archive, then runs `release:audit` against the
+verified archive and uploads the audit report and CycloneDX VEX sidecars.
 
 Validate the shared JSON contracts and local documentation links:
 

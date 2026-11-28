@@ -214,6 +214,7 @@ async function generateReleaseSbom(options) {
 module.exports = {
   SBOM_FILE,
   SBOM_FORMAT,
+  deterministicSerialNumber,
   generateReleaseSbom,
   normalizeReleaseSbom,
   sbomSidecarPathForArchive,
