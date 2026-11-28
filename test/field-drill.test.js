@@ -52,11 +52,38 @@ function commissionReport(releaseId, fingerprint, overrides = {}) {
   };
 }
 
+function hardwareReport(overrides = {}) {
+  const overallStatus = overrides.overallStatus || "pass";
+  return {
+    schemaVersion: "1.0",
+    generatedAt: NOW.toISOString(),
+    overallStatus,
+    exitCode: overrides.exitCode ?? (overallStatus === "pass" ? 0 : 1),
+    counts: {
+      pass: overallStatus === "pass" ? 8 : 7,
+      warn: overallStatus === "warn" ? 1 : 0,
+      fail: overallStatus === "fail" ? 1 : 0,
+      skip: 0
+    },
+    model: {
+      text: "Raspberry Pi 4 Model B Rev 1.5",
+      raspberryPi: true,
+      pi4Class: true
+    },
+    hardware: {
+      temperature: { temperatureC: 52 },
+      throttling: { throttled: "0x0", current: [], occurred: [] }
+    },
+    settings: { storagePath: "/var/lib/rpi4-gateway" }
+  };
+}
+
 function makeDependencies(overrides = {}) {
   let bootId = BOOT_BEFORE;
   const calls = {
     cleanup: 0,
     commission: [],
+    hardware: [],
     install: [],
     list: 0,
     rollback: [],
@@ -134,6 +161,14 @@ function makeDependencies(overrides = {}) {
       return dependencies.commissionReports.shift();
     },
     commissionReports: [],
+    runHardwareCheck: async (options) => {
+      calls.hardware.push(options);
+      if (dependencies.hardwareReports.length === 0) {
+        return hardwareReport();
+      }
+      return dependencies.hardwareReports.shift();
+    },
+    hardwareReports: [],
     calls,
     setBootId(value) {
       bootId = value;
@@ -157,6 +192,7 @@ function preflightOptions(root, overrides = {}) {
     originUrl: "http://127.0.0.1:8080",
     releaseRoot: path.join(root, "release-root"),
     service: "rpi4-gateway",
+    storagePath: path.join(root, "state"),
     maxUptimeSeconds: 600,
     execute: false,
     json: false,
@@ -207,6 +243,12 @@ test("field drill completes install, reboot, rotation, rollback, and evidence bu
   assert.equal(preflight.baseline.releaseId, NEW_RELEASE);
   assert.equal(preflight.baseline.currentReleaseId, CURRENT_RELEASE);
   assert.equal(preflight.baseline.bootIdBefore, BOOT_BEFORE);
+  assert.equal(preflight.baseline.hardwarePreflight.overallStatus, "pass");
+  assert.equal(dependencies.calls.hardware.length, 1);
+  assert.deepEqual(dependencies.calls.hardware[0], {
+    storagePath: path.join(root, "state"),
+    strict: true
+  });
   assert.equal(dependencies.calls.cleanup, 1);
 
   const install = await runFieldDrill(phaseOptions(root, "install", true), dependencies);
@@ -241,6 +283,12 @@ test("field drill completes install, reboot, rotation, rollback, and evidence bu
   );
   assert.equal(postReboot.status, "pass");
   assert.equal(postReboot.baseline.bootIdAfter, BOOT_AFTER);
+  assert.equal(postReboot.baseline.hardwarePostReboot.overallStatus, "pass");
+  assert.equal(dependencies.calls.hardware.length, 2);
+  assert.equal(
+    postReboot.hardwareEvidencePath,
+    path.join(stateDir, "hardware-post-reboot.json")
+  );
   assert.equal(
     postReboot.nextPhase,
     "rotate the edge certificate, then rotation-after"
@@ -304,6 +352,7 @@ test("field drill completes install, reboot, rotation, rollback, and evidence bu
     "commission-post-reboot.json",
     "commission-post-rollback.json",
     "commission-rotation-after.json",
+    "hardware-post-reboot.json",
     "install.json",
     "preflight.json",
     "rollback.json"
@@ -329,11 +378,21 @@ test("field drill completes install, reboot, rotation, rollback, and evidence bu
   assert.equal(manifest.boot.after, BOOT_AFTER);
   assert.equal(manifest.certificate.fingerprintBefore, FINGERPRINT_BEFORE);
   assert.equal(manifest.certificate.fingerprintAfter, FINGERPRINT_AFTER);
+  assert.equal(manifest.hardware.preflight.overallStatus, "pass");
+  assert.equal(manifest.hardware.postReboot.overallStatus, "pass");
   assert.equal(manifest.signature.verified, true);
   assert.equal(manifest.stateBackup.fileCount, 3);
   assert.equal(manifest.operations.rollback.commissionStatus, "pass");
   assert.equal(manifest.phases.rollback.status, "pass");
   assert.equal(manifest.phases.finalize.status, "pass");
+  const preflightEvidence = JSON.parse(
+    await fs.readFile(path.join(stateDir, "preflight.json"), "utf8")
+  );
+  assert.equal(preflightEvidence.hardware.overallStatus, "pass");
+  const postRebootHardware = JSON.parse(
+    await fs.readFile(path.join(stateDir, "hardware-post-reboot.json"), "utf8")
+  );
+  assert.equal(postRebootHardware.overallStatus, "pass");
 
   const checksumLines = (await fs.readFile(path.join(stateDir, "SHA256SUMS"), "utf8"))
     .trim()
@@ -350,6 +409,78 @@ test("field drill completes install, reboot, rotation, rollback, and evidence bu
     runFieldDrill(phaseOptions(root, "finalize"), dependencies),
     /evidence (size|checksum) changed: preflight\.json/
   );
+});
+
+test("field drill fails preflight hardware evidence but permits an explicit skip", async (t) => {
+  const root = await makeRoot(t);
+  const dependencies = makeDependencies();
+  dependencies.hardwareReports.push(hardwareReport({ overallStatus: "warn" }));
+
+  await assert.rejects(
+    startDrill(root, dependencies),
+    /hardware readiness check warn with exit code 1/
+  );
+  await assert.rejects(
+    fs.stat(path.join(root, "drill", "drill-state.json")),
+    { code: "ENOENT" }
+  );
+
+  const skippedRoot = await makeRoot(t);
+  const skippedDependencies = makeDependencies();
+  const skipped = await startDrill(skippedRoot, skippedDependencies, {
+    hardware: false
+  });
+  assert.equal(skipped.status, "warn");
+  assert.equal(skipped.baseline.hardwarePreflight, null);
+  assert.deepEqual(skippedDependencies.calls.hardware, []);
+});
+
+test("field drill records a failed post-reboot hardware report and allows retry", async (t) => {
+  const root = await makeRoot(t);
+  const dependencies = makeDependencies();
+  await startDrill(root, dependencies);
+  await runFieldDrill(phaseOptions(root, "install", true), dependencies);
+  dependencies.commissionReports.push(
+    commissionReport(NEW_RELEASE, FINGERPRINT_BEFORE)
+  );
+  await runFieldDrill(phaseOptions(root, "post-install"), dependencies);
+  dependencies.setBootId(BOOT_AFTER);
+  dependencies.commissionReports.push(
+    commissionReport(NEW_RELEASE, FINGERPRINT_BEFORE)
+  );
+  dependencies.hardwareReports.push(
+    hardwareReport({ overallStatus: "fail", exitCode: 1 })
+  );
+
+  const failed = await runFieldDrill(phaseOptions(root, "post-reboot"), dependencies);
+  assert.equal(failed.status, "fail");
+  assert.equal(failed.nextPhase, null);
+  assert.equal(failed.hardwareStatus, "fail");
+  assert.equal(failed.baseline.bootIdAfter, null);
+  assert.equal(
+    failed.hardwareEvidencePath,
+    path.join(root, "drill", "hardware-post-reboot.json")
+  );
+  let state = await readState(root);
+  assert.equal(state.phases["post-reboot"].status, "fail");
+  assert.equal(
+    state.phases["post-reboot"].summary,
+    "post-reboot hardware readiness fail"
+  );
+  assert.ok(
+    state.evidence.some((entry) => entry.path === "hardware-post-reboot.json")
+  );
+
+  dependencies.commissionReports.push(
+    commissionReport(NEW_RELEASE, FINGERPRINT_BEFORE)
+  );
+  const retried = await runFieldDrill(phaseOptions(root, "post-reboot"), dependencies);
+  assert.equal(retried.status, "pass");
+  assert.equal(retried.hardwareStatus, "pass");
+  assert.equal(retried.baseline.bootIdAfter, BOOT_AFTER);
+  state = await readState(root);
+  assert.equal(state.phases["post-reboot"].status, "pass");
+  assert.equal(state.baseline.hardwarePostReboot.overallStatus, "pass");
 });
 
 test("field drill gates mutating phases and incomplete finalization", async (t) => {
@@ -610,11 +741,16 @@ test("field drill arguments and CLI use exit code 2 for usage errors", async (t)
     "rollback",
     "--state-dir",
     "/tmp/drill",
+    "--storage-path",
+    "/var/lib/rpi4-gateway",
+    "--skip-hardware",
     "--execute",
     "--json"
   ]);
   assert.equal(parsed.execute, true);
   assert.equal(parsed.json, true);
+  assert.equal(parsed.storagePath, "/var/lib/rpi4-gateway");
+  assert.equal(parsed.hardware, false);
   assert.equal(parseFieldDrillArgs(["--help"]).help, true);
 
   const root = await makeRoot(t);

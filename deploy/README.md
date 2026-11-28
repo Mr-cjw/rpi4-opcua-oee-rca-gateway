@@ -195,7 +195,11 @@ point-in-time acceptance check, not continuous host monitoring.
 For a staged hardware drill, use one protected state directory across the
 phases. Run the drill as root because install and rollback restart systemd
 services; the state directory and evidence files are created mode `0700` and
-`0600`. The command deliberately does not reboot the Pi or rotate certificates.
+`0600`. Preflight and post-reboot also run the strict Pi hardware check against
+`/var/lib/rpi4-gateway` by default; use `--storage-path` for a different state
+filesystem. `--skip-hardware` is for partial diagnostics and leaves a warning
+in the evidence bundle. The command deliberately does not reboot the Pi or
+rotate certificates.
 
 ```bash
 sudo sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \

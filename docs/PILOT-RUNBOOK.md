@@ -233,6 +233,8 @@ Before starting, prepare:
   in `/etc/rpi4-gateway.env` or a mode-`0600` `--token-file`.
 - The new edge certificate/key and a maintenance window in which nginx can be
   reloaded and the Gateway can be rebooted.
+- A Pi with `vcgencmd` installed, a clean boot, and enough free space on
+  `/var/lib/rpi4-gateway`; preflight and post-reboot fail on hardware warnings.
 
 Run all phases as root because release installation and rollback stop and
 restart systemd services. Keep the same mode-`0700` state directory for every
@@ -242,7 +244,7 @@ phase. Replace the sample timestamp with the drill's UTC start time.
 DRILL_STATE=/var/lib/rpi4-gateway/field-drill-20261128T120000Z
 export DRILL_STATE
 
-# 1. Verify the release, state backup, rollback target, and record boot ID.
+# 1. Verify the release, state backup, rollback target, hardware, and boot ID.
 sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
   cd /opt/rpi4-opcua-oee-rca-gateway/current && \
   npm run field:drill -- \
@@ -287,11 +289,15 @@ sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set 
   npm run field:drill -- --state-dir "$DRILL_STATE" --phase rollback --execute --json'
 ```
 
-The `post-reboot` phase reads `/proc/sys/kernel/random/boot_id`; an unchanged ID
-is a hard failure. `rotation-after` reads the served certificate SHA-256
-fingerprint and fails when it equals the post-install fingerprint. Both phases
-also run the same strict release, systemd, health, PLC/clock/storage, doctor,
-and edge checks as `npm run commission`.
+Preflight and `post-reboot` run the strict hardware check against
+`/var/lib/rpi4-gateway` and store the reports in the evidence bundle. A
+hardware warning or failure blocks progression; `--skip-hardware` is for
+partial diagnostics and leaves a warning. The `post-reboot` phase reads
+`/proc/sys/kernel/random/boot_id`; an unchanged ID is a hard failure.
+`rotation-after` reads the served certificate SHA-256 fingerprint and fails when
+it equals the post-install fingerprint. Every commissioning phase also runs the
+same strict release, systemd, health, PLC/clock/storage, doctor, and edge checks
+as `npm run commission`.
 
 If `rollback --execute` completes the release switch but post-rollback
 commissioning fails, rerun the same phase after fixing the cause. The recorded
@@ -301,19 +307,20 @@ the manifest only after every required phase has passed.
 
 The protected state directory contains `drill-state.json`,
 `drill-manifest.json`, `SHA256SUMS`, and the preflight, install, commission,
-rotation, and rollback JSON evidence. The manifest records release IDs, boot
-IDs, certificate fingerprints, signature-key fingerprint, state-backup summary,
-and phase results. Verify and copy the bundle off the Pi while the change record
-is open:
+hardware, rotation, and rollback JSON evidence. The manifest records release
+IDs, boot IDs, certificate fingerprints, hardware-readiness summaries,
+signature-key fingerprint, state-backup summary, and phase results. Verify and
+copy the bundle off the Pi while the change record is open:
 
 ```bash
 sudo env DRILL_STATE="$DRILL_STATE" sh -c \
   'cd "$DRILL_STATE" && sha256sum -c SHA256SUMS'
 ```
 
-A production drill must not leave preflight warnings for a missing signature or
-state backup. A `WARN` result is still exit code `0`; inspect the JSON `status`
-and final phase results rather than relying only on the shell exit code.
+A production drill must not leave preflight warnings for a missing signature,
+state backup, or skipped hardware check. A `WARN` result is still exit code `0`;
+inspect the JSON `status` and final phase results rather than relying only on
+the shell exit code.
 
 ## 6. Monitoring and Routine Checks
 

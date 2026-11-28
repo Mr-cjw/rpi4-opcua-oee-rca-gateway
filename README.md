@@ -219,8 +219,9 @@ For a staged install, reboot, edge-certificate rotation, and rollback drill on
 the Pi, use `npm run field:drill` with a dedicated mode-`0700` state directory.
 The command never reboots the host or changes certificates by itself; `install`
 and `rollback` also require an explicit `--execute`. It records the release,
-signature, state-backup verification, boot IDs, certificate fingerprints, and
-strict commissioning reports in a checksummed evidence bundle. See
+signature, state-backup verification, boot IDs, certificate fingerprints,
+preflight/post-reboot hardware readiness, and strict commissioning reports in a
+checksummed evidence bundle. See
 [the pilot runbook](docs/PILOT-RUNBOOK.md#53-staged-release-and-certificate-drill).
 
 ```bash

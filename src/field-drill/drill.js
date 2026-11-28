@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { runCommission } = require("../commission/report");
 const { verifyStateBackup } = require("../gateway/state-backup");
+const { runHardwareCheck } = require("../hardware/check");
 const { hashFile, lstatIfExists, writeJsonAtomic } = require("../release/common");
 const { installRelease, listReleases, rollbackRelease } = require("../release/installer");
 const { verifyReleasePackage } = require("../release/package");
@@ -37,6 +38,7 @@ const REQUIRED_FINAL_PHASES = Object.freeze([
 const DEFAULT_ORIGIN_URL = "http://127.0.0.1:8080";
 const DEFAULT_RELEASE_ROOT = "/opt/rpi4-opcua-oee-rca-gateway";
 const DEFAULT_SERVICE = "rpi4-gateway";
+const DEFAULT_STATE_PATH = "/var/lib/rpi4-gateway";
 
 function usageError(message) {
   const error = new Error(message);
@@ -114,6 +116,8 @@ function normalizeConfig(options) {
     stateBackupPath: options.stateBackup ? path.resolve(options.stateBackup) : null,
     releaseRoot,
     service,
+    hardwareCheck: options.hardware !== false,
+    storagePath: path.resolve(options.storagePath || DEFAULT_STATE_PATH),
     healthUrl: healthUrlFor(originUrl),
     healthTimeoutMs: positiveInteger(options.healthTimeoutMs || 30000, "--health-timeout-ms"),
     originUrl,
@@ -230,6 +234,18 @@ async function loadState(stateDir) {
     ) {
       throw new Error(`drill state phase is invalid: ${phase}`);
     }
+  }
+  if (
+    state.config.hardwareCheck !== undefined &&
+    typeof state.config.hardwareCheck !== "boolean"
+  ) {
+    throw new Error("drill state config is invalid: hardwareCheck");
+  }
+  if (
+    state.config.storagePath !== undefined &&
+    (typeof state.config.storagePath !== "string" || state.config.storagePath === "")
+  ) {
+    throw new Error("drill state config is invalid: storagePath");
   }
   for (const entry of state.evidence) {
     if (
@@ -362,6 +378,35 @@ async function runCommissionEvidence(
   return { report, evidencePath };
 }
 
+function hardwareSummary(report) {
+  return {
+    overallStatus: report.overallStatus,
+    exitCode: report.exitCode,
+    model: report.model?.text || null,
+    pi4Class: report.model?.pi4Class ?? null,
+    temperatureC: report.hardware?.temperature?.temperatureC ?? null,
+    throttled: report.hardware?.throttling?.throttled ?? null,
+    currentConditions: report.hardware?.throttling?.current || [],
+    occurredConditions: report.hardware?.throttling?.occurred || [],
+    storagePath: report.settings?.storagePath || null,
+    counts: report.counts || null
+  };
+}
+
+async function runHardwareReport(config, dependencies) {
+  const run = dependencies.runHardwareCheck || runHardwareCheck;
+  return run({
+    storagePath: config.storagePath || DEFAULT_STATE_PATH,
+    strict: true
+  });
+}
+
+async function runHardwareEvidence(stateDir, state, phase, fileName, dependencies) {
+  const report = await runHardwareReport(state.config, dependencies);
+  const evidencePath = await recordEvidence(stateDir, state, phase, fileName, report);
+  return { report, evidencePath };
+}
+
 async function preflight(options, stateDir, dependencies, now) {
   if (await lstatIfExists(statePath(stateDir))) {
     throw new Error(`drill state already exists: ${stateDir}`);
@@ -421,6 +466,18 @@ async function preflight(options, stateDir, dependencies, now) {
   if (!bootId) {
     warnings.push("host boot ID is unavailable; post-reboot verification will fail");
   }
+  let hardware = null;
+  if (config.hardwareCheck) {
+    hardware = await runHardwareReport(config, dependencies);
+    if (hardware.exitCode !== 0 || hardware.overallStatus !== "pass") {
+      throw new Error(
+        `hardware readiness check ${hardware.overallStatus || "failed"} with exit code ` +
+          `${hardware.exitCode}`
+      );
+    }
+  } else {
+    warnings.push("hardware readiness check was skipped");
+  }
   const id = `field-${now().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
   const state = {
     schemaVersion: "1.0",
@@ -441,6 +498,8 @@ async function preflight(options, stateDir, dependencies, now) {
       bootIdAfter: null,
       certificateFingerprintBefore: null,
       certificateFingerprintAfter: null,
+      hardwarePreflight: hardware ? hardwareSummary(hardware) : null,
+      hardwarePostReboot: null,
       signature: signature
         ? {
             verified: true,
@@ -474,7 +533,8 @@ async function preflight(options, stateDir, dependencies, now) {
     stateBackup: state.baseline.stateBackup,
     currentReleaseId: status.current,
     previousReleaseId: status.previous,
-    bootId
+    bootId,
+    hardware
   };
   const evidencePath = await recordEvidence(
     stateDir,
@@ -485,7 +545,7 @@ async function preflight(options, stateDir, dependencies, now) {
   );
   state.phases.preflight = {
     status: evidence.status,
-    summary: "archive, signature, rollback target, and host state checked",
+    summary: "archive, signature, hardware, rollback target, and host state checked",
     completedAt: now().toISOString()
   };
   await saveState(stateDir, state);
@@ -607,13 +667,41 @@ async function postRebootPhase(options, stateDir, state, dependencies) {
   if (fingerprint !== state.baseline.certificateFingerprintBefore) {
     throw new Error("certificate changed before rotation-after was run");
   }
+  let hardware = null;
+  let hardwareEvidencePath = null;
+  if (state.config.hardwareCheck !== false) {
+    const result = await runHardwareEvidence(
+      stateDir,
+      state,
+      "post-reboot",
+      "hardware-post-reboot.json",
+      dependencies
+    );
+    hardware = result.report;
+    hardwareEvidencePath = result.evidencePath;
+    state.baseline.hardwarePostReboot = hardwareSummary(hardware);
+    if (hardware.exitCode !== 0 || hardware.overallStatus !== "pass") {
+      return {
+        status: "fail",
+        summary: `post-reboot hardware readiness ${hardware.overallStatus}`,
+        state,
+        evidencePath,
+        hardwareEvidencePath,
+        baseline: state.baseline,
+        commissionStatus: report.overallStatus,
+        hardwareStatus: hardware.overallStatus
+      };
+    }
+  }
   state.baseline.bootIdAfter = bootId;
   return {
     status: "pass",
     state,
     evidencePath,
+    hardwareEvidencePath,
     baseline: state.baseline,
-    commissionStatus: report.overallStatus
+    commissionStatus: report.overallStatus,
+    hardwareStatus: hardware?.overallStatus || null
   };
 }
 
@@ -793,6 +881,10 @@ async function finalizePhase(options, stateDir, state, dependencies, now) {
       fingerprintBefore: state.baseline.certificateFingerprintBefore,
       fingerprintAfter: state.baseline.certificateFingerprintAfter
     },
+    hardware: {
+      preflight: state.baseline.hardwarePreflight || null,
+      postReboot: state.baseline.hardwarePostReboot || null
+    },
     operations: state.operations || {},
     phases: Object.fromEntries(
       [...REQUIRED_FINAL_PHASES, "finalize"].map((phase) => [phase, state.phases[phase]])
@@ -867,9 +959,11 @@ async function runFieldDrill(options, dependencies = {}) {
   const state = outcome.state;
   state.phases[options.phase] = {
     status: outcome.status,
-    summary: outcome.manifest
-      ? `evidence bundle result ${outcome.manifest.result}`
-      : `${options.phase} completed`,
+    summary:
+      outcome.summary ||
+      (outcome.manifest
+        ? `evidence bundle result ${outcome.manifest.result}`
+        : `${options.phase} ${outcome.status}`),
     completedAt: now().toISOString()
   };
   await saveState(stateDir, state);
@@ -902,11 +996,13 @@ async function runFieldDrill(options, dependencies = {}) {
     stateDir,
     evidencePath: outcome.evidencePath || null,
     commissionEvidencePath: outcome.commissionEvidencePath || null,
+    hardwareEvidencePath: outcome.hardwareEvidencePath || null,
+    hardwareStatus: outcome.hardwareStatus || null,
     manifestPath: resultManifestPath,
     checksumsPath: resultChecksumsPath,
     finalizeStatus:
       outcome.finalizeStatus || (options.phase === "finalize" ? outcome.status : null),
-    nextPhase: NEXT_PHASE[options.phase],
+    nextPhase: outcome.status === "fail" ? null : NEXT_PHASE[options.phase],
     baseline: state.baseline,
     phases: state.phases
   };
@@ -924,6 +1020,9 @@ function formatFieldDrillResult(result) {
   }
   if (result.commissionEvidencePath) {
     lines.push(`Commission evidence: ${result.commissionEvidencePath}`);
+  }
+  if (result.hardwareEvidencePath) {
+    lines.push(`Hardware evidence: ${result.hardwareEvidencePath}`);
   }
   if (result.manifestPath) {
     lines.push(`Manifest: ${result.manifestPath}`);
@@ -949,6 +1048,8 @@ function parseFieldDrillArgs(args) {
     stateBackup: null,
     releaseRoot: DEFAULT_RELEASE_ROOT,
     service: DEFAULT_SERVICE,
+    storagePath: null,
+    hardware: true,
     healthTimeoutMs: 30000,
     url: null,
     httpUrl: null,
@@ -975,6 +1076,7 @@ function parseFieldDrillArgs(args) {
     ["--state-backup", "stateBackup"],
     ["--release-root", "releaseRoot"],
     ["--service", "service"],
+    ["--storage-path", "storagePath"],
     ["--url", "url"],
     ["--http-url", "httpUrl"],
     ["--origin-url", "originUrl"],
@@ -1018,6 +1120,10 @@ function parseFieldDrillArgs(args) {
     }
     if (argument === "--skip-http-redirect") {
       options.skipHttpRedirect = true;
+      continue;
+    }
+    if (argument === "--skip-hardware") {
+      options.hardware = false;
       continue;
     }
     if (argument === "--execute") {

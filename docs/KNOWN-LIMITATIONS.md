@@ -114,10 +114,11 @@ deployment depends on behavior the Gateway does not provide.
   the 72-hour soak, physical power-cut and disk-full tests, long-duration data
   reconciliation, or real PLC certificate-rotation drills.
 - The staged field drill verifies a host boot-ID change and the edge certificate
-  served after an operator-controlled rotation. It does not reboot the Pi,
-  install certificates, prove power-loss recovery, or exercise PLC certificate
-  rotation automatically. Its root-only state and evidence directory must be
-  copied off the device and reviewed after the maintenance window.
+  served after an operator-controlled rotation, and embeds preflight/post-reboot
+  hardware-readiness reports. It does not reboot the Pi, install certificates,
+  prove power-loss recovery, or exercise PLC certificate rotation
+  automatically. Its root-only state and evidence directory must be copied off
+  the device and reviewed after the maintenance window.
 - Credentials are read from environment variables or files. The application
   validates presence and readability, but does not enforce file ownership or
   mode. Operators must enforce `0600` files and a protected environment file.

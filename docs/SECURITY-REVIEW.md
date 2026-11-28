@@ -138,8 +138,8 @@ security material, not ordinary application data.
 - `npm run field:drill` stages signed install, reboot proof, edge-certificate
   rotation, and rollback behind explicit operator actions. It requires
   `--execute` for install and rollback, stores state mode `0600` in a mode-`0700`
-  directory, and emits a checksummed evidence manifest without recording API or
-  client secrets.
+  directory, embeds strict preflight/post-reboot hardware reports, and emits a
+  checksummed evidence manifest without recording API or client secrets.
 - `npm run hardware:check` records point-in-time Pi model, architecture,
   temperature, under-voltage/throttling flags, firmware, NTP, and storage
   headroom. It reads no credentials, treats missing `vcgencmd` telemetry as a
@@ -339,9 +339,9 @@ site's approved scanner and the static nginx policy test.
 `commission` records the combined Pi acceptance evidence without placing API or
 client credentials in the report or on the command line; tokens still come only
 from the environment or a mode-`0600` file. `field:drill` binds the signed
-install, boot-ID change, edge-certificate fingerprint change, rollback, and
-strict commissioning reports into a checksummed bundle; execute the full staged
-sequence in the pilot runbook on the target Pi.
+install, boot-ID change, edge-certificate fingerprint change, hardware
+readiness, rollback, and strict commissioning reports into a checksummed
+bundle; execute the full staged sequence in the pilot runbook on the target Pi.
 
 ## 11. Residual Risk Register
 

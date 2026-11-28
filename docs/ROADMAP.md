@@ -57,8 +57,9 @@ correctness gap in an earlier phase.
 - A field-acceptance report that aggregates release/rollback readiness, systemd,
   health, PLC/clock/storage, OPC UA doctor, and edge evidence with strict gates.
 - A staged Pi field drill that verifies a signed release install, host reboot,
-  edge-certificate rotation, rollback to the original release, and a
-  checksummed evidence bundle without automating reboot or certificate changes.
+  edge-certificate rotation, rollback to the original release, preflight and
+  post-reboot hardware readiness, and a checksummed evidence bundle without
+  automating reboot or certificate changes.
 - A Pi hardware-readiness report for board/architecture profile, temperature,
   under-voltage/throttling history, firmware telemetry, NTP, and storage
   headroom, with strict exit semantics for missing evidence.
@@ -229,8 +230,8 @@ Deliverables:
 - Completed 2026-11-28: `npm run field:drill` provides an explicit staged
   preflight/install/post-install/reboot/post-reboot/certificate-rotation/
   rollback workflow with protected persistent state, boot-ID and certificate-
-  fingerprint gates, retry-safe rollback commissioning, and a checksummed
-  evidence manifest.
+  fingerprint gates, hardware-readiness reports, retry-safe rollback
+  commissioning, and a checksummed evidence manifest.
 - Completed 2026-11-28: `npm run hardware:check` records Pi 4 model/runtime,
   temperature, current and historical throttle/under-voltage flags, firmware,
   NTP, and storage headroom in a mode-`0600` report, with explicit warnings for
