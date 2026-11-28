@@ -250,6 +250,12 @@ monitoring platform outside the Gateway.
   commit, archive, SBOM, lockfile, advisory, disposition-file, and signature
   hashes plus the public-key fingerprint. High or critical findings fail unless a
   scoped exception has a VEX justification, owner, and future expiry.
+- `release:evidence` creates a private, colocated manifest over the archive,
+  checksum, SBOM, audit, VEX, signature, and embedded dispositions.
+  `release:verify-evidence` performs an offline consistency check and fails on
+  any changed artifact, cross-reference, key identity, or failed audit gate. The
+  manifest itself is not signed; authenticity still depends on the signed archive
+  and detached signature it binds.
 - `current` and `previous` are switched atomically. A failed health check
   automatically restores and restarts the previous release.
 - The minimum runtime is `Node.js 22.13.0`, matching the upgraded OPC UA

@@ -152,6 +152,9 @@ deployment depends on behavior the Gateway does not provide.
 - Dependency audit results are a point-in-time signal, not a guarantee. The
   release process must rerun `release:audit` and review advisories and
   dispositions before each field deployment.
+- The release evidence manifest is an unsigned consistency and provenance index.
+  It is not a substitute for the detached archive signature, and it requires the
+  original public key to verify the embedded signature evidence.
 - Rollback restores code and the `current`/`previous` links. It does not undo a
   state-format migration unless the release note explicitly defines one and the
   verified pre-upgrade state backup is restored.

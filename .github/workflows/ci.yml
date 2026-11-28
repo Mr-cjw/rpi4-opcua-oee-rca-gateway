@@ -130,10 +130,12 @@ jobs:
           npm run release:sbom -- --archive "$ARCHIVE" --output "$SBOM"
           AUDIT="${ARCHIVE%.tar.gz}.audit.json"
           VEX="${ARCHIVE%.tar.gz}.vex.cdx.json"
+          EVIDENCE="${ARCHIVE%.tar.gz}.evidence.json"
           echo "RELEASE_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           echo "RELEASE_SBOM=$SBOM" >> "$GITHUB_ENV"
           echo "RELEASE_AUDIT=$AUDIT" >> "$GITHUB_ENV"
           echo "RELEASE_VEX=$VEX" >> "$GITHUB_ENV"
+          echo "RELEASE_EVIDENCE=$EVIDENCE" >> "$GITHUB_ENV"
 
       - name: Sign, verify, and audit release smoke
         run: |
@@ -157,6 +159,14 @@ jobs:
             --dispositions security/advisory-dispositions.json \
             --output "$RELEASE_AUDIT" \
             --vex-output "$RELEASE_VEX"
+          npm run release:evidence -- \
+            --archive "$RELEASE_ARCHIVE" \
+            --sbom "$RELEASE_SBOM" \
+            --audit "$RELEASE_AUDIT" \
+            --vex "$RELEASE_VEX" \
+            --public-key "$KEY_DIR/release-public.pem" \
+            --require-signature \
+            --output "$RELEASE_EVIDENCE"
 
       - name: Upload release audit and VEX
         if: always()
@@ -166,6 +176,7 @@ jobs:
           path: |
             ${{ env.RELEASE_AUDIT }}
             ${{ env.RELEASE_VEX }}
+            ${{ env.RELEASE_EVIDENCE }}
           if-no-files-found: warn
 
       - name: Upload release archive

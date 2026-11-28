@@ -555,6 +555,39 @@ SBOM, and disposition-file hashes. Preserve both with the archive checksum and
 signature, and regenerate them for every release because the advisory set is
 point-in-time.
 
+Create a colocated release-evidence manifest after signing and auditing:
+
+```bash
+npm run release:evidence -- \
+  --archive dist/release/<archive>.tar.gz \
+  --sbom dist/release/<release>.sbom.cdx.json \
+  --audit dist/release/<release>.audit.json \
+  --vex dist/release/<release>.vex.cdx.json \
+  --public-key /secure/release-keys/release-public.pem \
+  --require-signature \
+  --output dist/release/<release>.evidence.json
+```
+
+The command verifies the archive/checksum, compares the SBOM sidecar with the
+signed embedded SBOM, checks the audit report against the release, lockfile,
+SBOM, VEX, and embedded disposition list, verifies the detached signature and
+key fingerprint, and records every artifact SHA-256. The manifest is written
+with mode `0600`; all artifacts must remain in the same directory.
+
+Reverify the bundle without contacting the npm registry:
+
+```bash
+npm run release:verify-evidence -- \
+  --evidence dist/release/<release>.evidence.json \
+  --public-key /secure/release-keys/release-public.pem
+```
+
+Verification fails if any artifact, cross-reference, signature, key identity,
+or audit gate changed. A failed audit is still recorded as failed evidence and
+returns exit code 1. The evidence manifest is not itself signed; authority comes
+from the signed archive and detached signature it binds. Preserve the manifest,
+audit, VEX, SBOM, archive, checksum, and signature together.
+
 The archive intentionally excludes `node_modules`; the Pi installer runs
 `npm ci --omit=dev`. For an offline site, pre-populate the npm cache or use an
 approved internal registry before installing the release. The installer also

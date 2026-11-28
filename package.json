@@ -27,6 +27,8 @@
     "release:verify-signature": "node scripts/gateway-release.js verify-signature",
     "release:sbom": "node scripts/gateway-release.js sbom",
     "release:audit": "node scripts/gateway-release.js audit",
+    "release:evidence": "node scripts/gateway-release.js evidence",
+    "release:verify-evidence": "node scripts/gateway-release.js verify-evidence",
     "release:install": "node scripts/gateway-release.js install",
     "release:rollback": "node scripts/gateway-release.js rollback",
     "release:status": "node scripts/gateway-release.js status",

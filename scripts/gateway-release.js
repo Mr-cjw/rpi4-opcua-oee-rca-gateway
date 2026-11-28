@@ -19,6 +19,10 @@ const {
 } = require("../src/release/signature");
 const { sbomSidecarPathForArchive } = require("../src/release/sbom");
 const { generateReleaseAudit } = require("../src/release/vulnerability-audit");
+const {
+  createReleaseEvidence,
+  verifyReleaseEvidence
+} = require("../src/release/evidence");
 const { hashFile, pathExists, resolveWithin } = require("../src/release/common");
 const { verifyStateBackup } = require("../src/gateway/state-backup");
 
@@ -35,6 +39,8 @@ function usage() {
       "  npm run release:verify-signature -- --archive <file.tar.gz> --public-key <file.pem> [--signature <file.sig>] [--json]",
       "  npm run release:sbom -- --archive <file.tar.gz> [--output <file.cdx.json>] [--force] [--json]",
       "  npm run release:audit -- --archive <file.tar.gz> [--checksum <file.sha256>] [--dispositions <file.json>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--output <file.json>] [--vex-output <file.cdx.json>] [--force] [--json]",
+      "  npm run release:evidence -- --archive <file.tar.gz> --sbom <file.cdx.json> --audit <file.json> --vex <file.cdx.json> [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--output <file.json>] [--force] [--json]",
+      "  npm run release:verify-evidence -- --evidence <file.json> [--public-key <file.pem>] [--json]",
       "  npm run release:install -- --archive <file.tar.gz> [--checksum <file.sha256>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--release-root <directory>] [--state-backup <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:rollback -- [--to <release-id>] [--release-root <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:status -- [--release-root <directory>] [--json]",
@@ -75,6 +81,10 @@ function parseArgs(argv) {
     ["--signature", "signature"],
     ["--dispositions", "dispositions"],
     ["--vex-output", "vexOutput"],
+    ["--sbom", "sbom"],
+    ["--audit", "audit"],
+    ["--vex", "vex"],
+    ["--evidence", "evidence"],
     ["--to", "to"]
   ]);
   for (let index = 1; index < argv.length; index += 1) {
@@ -191,6 +201,25 @@ function printAudit(result) {
   );
 }
 
+function printEvidence(result) {
+  console.log(`Release: ${result.evidence.release.releaseId}`);
+  console.log(`Evidence status: ${result.evidence.status}`);
+  console.log(`Evidence manifest: ${result.outputPath}`);
+  console.log(`Evidence SHA-256: ${result.outputSha256}`);
+  console.log(
+    result.evidence.artifacts.signature
+      ? `Signature: verified (${result.evidence.artifacts.signature.algorithm}, key ${result.evidence.artifacts.signature.keyFingerprint})`
+      : "Signature: not included"
+  );
+}
+
+function printVerifiedEvidence(result) {
+  console.log(`Release evidence verified: ${result.evidencePath}`);
+  console.log(`Release: ${result.release.releaseId}`);
+  console.log(`Evidence status: ${result.status}`);
+  console.log(`Checks: ${result.checks.length}`);
+}
+
 async function verifySignatureOrThrow(options, label = "verify-signature") {
   if (!options.archive) {
     throw new Error(`${label} requires --archive <file.tar.gz>`);
@@ -218,6 +247,8 @@ async function main() {
     "verify-signature",
     "sbom",
     "audit",
+    "evidence",
+    "verify-evidence",
     "install",
     "rollback",
     "status"
@@ -401,6 +432,64 @@ async function main() {
       printAudit(result);
     }
     if (result.report.status !== "passed") {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (options.command === "evidence") {
+    if (!options.archive || !options.sbom || !options.audit || !options.vex) {
+      throw new Error(
+        "evidence requires --archive, --sbom, --audit, and --vex"
+      );
+    }
+    const signaturePath =
+      options.signature ||
+      (options.publicKey || options.requireSignature
+        ? signaturePathFor(options.archive)
+        : undefined);
+    if (options.requireSignature && !signaturePath) {
+      throw new Error("evidence --require-signature requires a signature file");
+    }
+    if (signaturePath && !options.publicKey) {
+      throw new Error("evidence signature verification requires --public-key <file.pem>");
+    }
+    const result = await createReleaseEvidence({
+      archivePath: options.archive,
+      checksumPath: options.checksum,
+      sbomPath: options.sbom,
+      auditPath: options.audit,
+      vexPath: options.vex,
+      signaturePath,
+      publicKeyPath: options.publicKey,
+      outputPath: options.output,
+      force: options.force
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      printEvidence(result);
+    }
+    if (result.evidence.status !== "passed") {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (options.command === "verify-evidence") {
+    if (!options.evidence) {
+      throw new Error("verify-evidence requires --evidence <file.json>");
+    }
+    const result = await verifyReleaseEvidence({
+      evidencePath: options.evidence,
+      publicKeyPath: options.publicKey
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      printVerifiedEvidence(result);
+    }
+    if (result.status !== "passed") {
       process.exitCode = 1;
     }
     return;
