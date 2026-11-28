@@ -56,6 +56,9 @@ correctness gap in an earlier phase.
   paths, private CAs, and mTLS client material, with JSON and strict exit modes.
 - A field-acceptance report that aggregates release/rollback readiness, systemd,
   health, PLC/clock/storage, OPC UA doctor, and edge evidence with strict gates.
+- A staged Pi field drill that verifies a signed release install, host reboot,
+  edge-certificate rotation, rollback to the original release, and a
+  checksummed evidence bundle without automating reboot or certificate changes.
 - Node.js 22.13+ runtime baseline, patched `node-opcua` dependency, production
   dependency audit in CI, and an expanded systemd sandbox.
 - Field-pilot runbook, known-limitations register, and conditional security
@@ -220,6 +223,11 @@ Deliverables:
   acceptance report spanning release/rollback readiness, systemd, health,
   PLC/clock/storage, OPC UA doctor, and edge verification, with a post-reboot
   uptime gate and strict handling for skipped gates.
+- Completed 2026-11-28: `npm run field:drill` provides an explicit staged
+  preflight/install/post-install/reboot/post-reboot/certificate-rotation/
+  rollback workflow with protected persistent state, boot-ID and certificate-
+  fingerprint gates, retry-safe rollback commissioning, and a checksummed
+  evidence manifest.
 
 Acceptance:
 
@@ -314,8 +322,9 @@ The next implementation-sized units are:
 2. Validate NTP synchronization and run the long-duration injected fault matrix
    alongside the 72-hour soak on Raspberry Pi hardware.
 3. Exercise signed release upgrade/rollback and state restore on Raspberry Pi
-   hardware; define release-key custody, rotation, and revocation procedures;
-   add advisory/VEX reconciliation for the embedded SBOM.
+   hardware with the staged `field:drill` workflow; define release-key custody,
+   rotation, and revocation procedures; add advisory/VEX reconciliation for the
+   embedded SBOM.
 4. Complete a real-PLC certificate-rotation drill, then approve, install, and
    exercise the supplied reverse-proxy/TLS template on the target network before
    exposing the API beyond loopback.

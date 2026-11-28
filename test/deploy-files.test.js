@@ -182,6 +182,7 @@ test("package scripts expose state, release, and storage operations", async () =
   assert.equal(packageJson.scripts["release:status"], "node scripts/gateway-release.js status");
   assert.equal(packageJson.scripts["storage:evaluate"], "node scripts/evaluate-storage.js");
   assert.equal(packageJson.scripts["commission"], "node scripts/gateway-commission.js");
+  assert.equal(packageJson.scripts["field:drill"], "node scripts/gateway-field-drill.js");
   assert.equal(packageJson.scripts["edge:verify"], "node scripts/gateway-edge-verify.js");
   assert.equal(packageJson.scripts["e2e:security"], "node scripts/gateway-security-e2e.js");
   assert.equal(packageJson.scripts["e2e:clock"], "node scripts/gateway-clock-e2e.js");

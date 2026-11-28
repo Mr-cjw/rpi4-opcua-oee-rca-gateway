@@ -24,8 +24,10 @@ const RELEASE_FILES = [
   "package.json",
   "scripts/gateway-commission.js",
   "scripts/gateway-edge-verify.js",
+  "scripts/gateway-field-drill.js",
   "src/commission/report.js",
   "src/edge/verify.js",
+  "src/field-drill/drill.js",
   "src/gateway/index.js"
 ];
 
@@ -36,6 +38,7 @@ async function makeWorkspace(t) {
   await fs.mkdir(path.join(sourceDir, "src", "gateway"), { recursive: true });
   await fs.mkdir(path.join(sourceDir, "src", "edge"), { recursive: true });
   await fs.mkdir(path.join(sourceDir, "src", "commission"), { recursive: true });
+  await fs.mkdir(path.join(sourceDir, "src", "field-drill"), { recursive: true });
   await fs.mkdir(path.join(sourceDir, "scripts"), { recursive: true });
   await fs.mkdir(path.join(sourceDir, "deploy"), { recursive: true });
   await fs.writeFile(
@@ -54,8 +57,10 @@ async function makeWorkspace(t) {
   );
   await fs.writeFile(path.join(sourceDir, "scripts", "gateway-commission.js"), '"use strict";\n');
   await fs.writeFile(path.join(sourceDir, "scripts", "gateway-edge-verify.js"), '"use strict";\n');
+  await fs.writeFile(path.join(sourceDir, "scripts", "gateway-field-drill.js"), '"use strict";\n');
   await fs.writeFile(path.join(sourceDir, "src", "commission", "report.js"), '"use strict";\n');
   await fs.writeFile(path.join(sourceDir, "src", "edge", "verify.js"), '"use strict";\n');
+  await fs.writeFile(path.join(sourceDir, "src", "field-drill", "drill.js"), '"use strict";\n');
   await fs.writeFile(path.join(sourceDir, "src", "gateway", "index.js"), '"use strict";\n');
   const releaseRoot = path.join(root, "release-root");
   const stateDir = path.join(root, "state");

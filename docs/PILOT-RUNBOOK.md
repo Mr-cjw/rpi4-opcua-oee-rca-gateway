@@ -208,6 +208,106 @@ Code rollback does not change `/var/lib/rpi4-gateway`. If the release note
 declares a state-format migration, restore the verified pre-upgrade backup only
 after stopping the service and before starting the older release.
 
+### 5.3 Staged Release and Certificate Drill
+
+Use `field:drill` to produce one auditable chain of evidence for a controlled
+Pi drill: signed release install, process restart, edge-certificate rotation,
+and rollback to the original release. It is intentionally operator-driven. The
+tool never reboots the host and never replaces a certificate. `install` and
+`rollback` fail unless `--execute` is supplied.
+
+Before starting, prepare:
+
+- A verified release archive, checksum, detached signature, and release public
+  key. Use `--require-signature` for the pilot record.
+- A verified state backup copied off the Pi. Do not use the live state directory.
+- A known-good current release and its previous release metadata.
+- The approved HTTPS URL, optional private CA or mTLS files, and the API token
+  in `/etc/rpi4-gateway.env` or a mode-`0600` `--token-file`.
+- The new edge certificate/key and a maintenance window in which nginx can be
+  reloaded and the Gateway can be rebooted.
+
+Run all phases as root because release installation and rollback stop and
+restart systemd services. Keep the same mode-`0700` state directory for every
+phase. Replace the sample timestamp with the drill's UTC start time.
+
+```bash
+DRILL_STATE=/var/lib/rpi4-gateway/field-drill-20261128T120000Z
+export DRILL_STATE
+
+# 1. Verify the release, state backup, rollback target, and record boot ID.
+sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run field:drill -- \
+    --state-dir "$DRILL_STATE" --phase preflight \
+    --archive /var/tmp/<release>.tar.gz \
+    --public-key /etc/rpi4-gateway/release-public.pem \
+    --require-signature \
+    --state-backup /var/backups/rpi4-gateway/20261128T120000Z \
+    --url https://gateway.example.invalid --json'
+
+# 2. Install the release and run strict commissioning.
+sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run field:drill -- --state-dir "$DRILL_STATE" --phase install --execute --json'
+sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run field:drill -- --state-dir "$DRILL_STATE" --phase post-install --json'
+
+# 3. Reboot the Pi, reconnect, restore DRILL_STATE, and prove boot ID changed.
+sudo systemctl reboot
+DRILL_STATE=/var/lib/rpi4-gateway/field-drill-20261128T120000Z
+sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run field:drill -- --state-dir "$DRILL_STATE" --phase post-reboot --json'
+
+# 4. Install the new edge certificate, reload nginx, and verify the public edge.
+sudo install -m 0600 -o root -g root /var/tmp/<new-cert>.pem \
+  /etc/rpi4-gateway/tls/fullchain.pem
+sudo install -m 0600 -o root -g root /var/tmp/<new-key>.pem \
+  /etc/rpi4-gateway/tls/privkey.pem
+sudo nginx -t && sudo systemctl reload nginx
+sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run edge:verify -- --url https://gateway.example.invalid --strict --json'
+
+# 5. Require the thumbprint to change, then roll back and auto-finalize.
+sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run field:drill -- --state-dir "$DRILL_STATE" --phase rotation-after --json'
+sudo env DRILL_STATE="$DRILL_STATE" sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run field:drill -- --state-dir "$DRILL_STATE" --phase rollback --execute --json'
+```
+
+The `post-reboot` phase reads `/proc/sys/kernel/random/boot_id`; an unchanged ID
+is a hard failure. `rotation-after` reads the served certificate SHA-256
+fingerprint and fails when it equals the post-install fingerprint. Both phases
+also run the same strict release, systemd, health, PLC/clock/storage, doctor,
+and edge checks as `npm run commission`.
+
+If `rollback --execute` completes the release switch but post-rollback
+commissioning fails, rerun the same phase after fixing the cause. The recorded
+rollback operation is reused, so the release is not switched a second time.
+Completed phases reject accidental replay. Use the `finalize` phase to rebuild
+the manifest only after every required phase has passed.
+
+The protected state directory contains `drill-state.json`,
+`drill-manifest.json`, `SHA256SUMS`, and the preflight, install, commission,
+rotation, and rollback JSON evidence. The manifest records release IDs, boot
+IDs, certificate fingerprints, signature-key fingerprint, state-backup summary,
+and phase results. Verify and copy the bundle off the Pi while the change record
+is open:
+
+```bash
+sudo env DRILL_STATE="$DRILL_STATE" sh -c \
+  'cd "$DRILL_STATE" && sha256sum -c SHA256SUMS'
+```
+
+A production drill must not leave preflight warnings for a missing signature or
+state backup. A `WARN` result is still exit code `0`; inspect the JSON `status`
+and final phase results rather than relying only on the shell exit code.
+
 ## 6. Monitoring and Routine Checks
 
 ### 6.1 Health and Metrics
@@ -361,6 +461,11 @@ certificate or firewall change, and rollback. Immediately after reboot, add
 JSON report with the release ID and configuration change record. A skipped
 doctor or edge gate is a warning and fails `--strict`.
 
+On the target Pi, execute the staged drill in Section 5.3 to bind the signed
+install, boot-ID change, edge-certificate fingerprint change, and rollback into
+one checksummed evidence bundle. A successful drill is required before pilot
+exit, but it does not replace the 72-hour soak or physical power-cut test.
+
 ### 8.2 Hardware and Field Gates
 
 The software gates are not a field acceptance. The following remain mandatory
@@ -373,7 +478,8 @@ before declaring the pilot production-ready:
 - Verified NTP behavior and clock-failure degradation on the target network.
 - Physical power-cut and disk-full recovery tests on the target storage.
 - Install, upgrade, automatic rollback, explicit rollback, and state restore on
-  actual Raspberry Pi hardware.
+  actual Raspberry Pi hardware, preferably through the staged `field:drill`
+  evidence chain.
 - PLC certificate rotation and rejected-certificate behavior with the real PLC.
 - Confirmed OEE inputs and quality reconciliation against the agreed production
   baseline.

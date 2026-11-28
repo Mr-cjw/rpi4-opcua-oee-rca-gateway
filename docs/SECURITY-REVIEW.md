@@ -135,6 +135,11 @@ security material, not ordinary application data.
   health, PLC, clock, storage, OPC UA doctor, and edge verification into a
   mode-`0600` JSON report. Skipped mandatory gates are warnings and fail strict
   acceptance.
+- `npm run field:drill` stages signed install, reboot proof, edge-certificate
+  rotation, and rollback behind explicit operator actions. It requires
+  `--execute` for install and rollback, stores state mode `0600` in a mode-`0700`
+  directory, and emits a checksummed evidence manifest without recording API or
+  client secrets.
 - `GATEWAY_API_TOKEN` protects `/metrics` and `/v1/*` when configured. Bearer
   comparison uses `crypto.timingSafeEqual` after a length check.
 - `/healthz` is intentionally unauthenticated and contains status/identity
@@ -324,7 +329,10 @@ cannot initiate that protocol; the deployed edge must still be confirmed with th
 site's approved scanner and the static nginx policy test.
 `commission` records the combined Pi acceptance evidence without placing API or
 client credentials in the report or on the command line; tokens still come only
-from the environment or a mode-`0600` file.
+from the environment or a mode-`0600` file. `field:drill` binds the signed
+install, boot-ID change, edge-certificate fingerprint change, rollback, and
+strict commissioning reports into a checksummed bundle; execute the full staged
+sequence in the pilot runbook on the target Pi.
 
 ## 11. Residual Risk Register
 

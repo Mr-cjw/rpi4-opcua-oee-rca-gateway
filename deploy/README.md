@@ -175,6 +175,30 @@ restarted within that window. `--skip-doctor` and `--skip-edge` are partial
 diagnostics only: the resulting warnings make `--strict` exit non-zero. Strict
 acceptance also requires a previous release as the rollback target.
 
+For a staged hardware drill, use one protected state directory across the
+phases. Run the drill as root because install and rollback restart systemd
+services; the state directory and evidence files are created mode `0700` and
+`0600`. The command deliberately does not reboot the Pi or rotate certificates.
+
+```bash
+sudo sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; \
+  cd /opt/rpi4-opcua-oee-rca-gateway/current && \
+  npm run field:drill -- \
+    --state-dir /var/lib/rpi4-gateway/field-drill-20261128T120000Z \
+    --phase preflight \
+    --archive /var/tmp/<release>.tar.gz \
+    --require-signature \
+    --public-key /etc/rpi4-gateway/release-public.pem \
+    --state-backup /var/backups/rpi4-gateway/20261128T120000Z \
+    --url https://gateway.example.invalid --json'
+```
+
+Then run `install --execute`, `post-install`, reboot the host, run
+`post-reboot`, rotate and verify the edge certificate, run `rotation-after`, and
+finish with `rollback --execute`. The rollback phase auto-finalizes
+`drill-manifest.json` and `SHA256SUMS`. Follow the full sequence and evidence
+handling in [the pilot runbook](../docs/PILOT-RUNBOOK.md#53-staged-release-and-certificate-drill).
+
 ### Clock synchronization
 
 Production OEE and RCA timestamps must use a synchronized Pi clock. The example

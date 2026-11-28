@@ -28,8 +28,10 @@ const REQUIRED_RELEASE_FILES = Object.freeze([
   "package.json",
   "scripts/gateway-commission.js",
   "scripts/gateway-edge-verify.js",
+  "scripts/gateway-field-drill.js",
   "src/commission/report.js",
   "src/edge/verify.js",
+  "src/field-drill/drill.js",
   "src/gateway/index.js"
 ]);
 

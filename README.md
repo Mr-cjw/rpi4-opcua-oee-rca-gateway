@@ -207,6 +207,14 @@ for the commissioning record. `--skip-doctor` and `--skip-edge` are for partial
 diagnostics; skipped gates are warnings and make `--strict` fail. Strict
 acceptance also requires a previous release as the rollback target.
 
+For a staged install, reboot, edge-certificate rotation, and rollback drill on
+the Pi, use `npm run field:drill` with a dedicated mode-`0700` state directory.
+The command never reboots the host or changes certificates by itself; `install`
+and `rollback` also require an explicit `--execute`. It records the release,
+signature, state-backup verification, boot IDs, certificate fingerprints, and
+strict commissioning reports in a checksummed evidence bundle. See
+[the pilot runbook](docs/PILOT-RUNBOOK.md#53-staged-release-and-certificate-drill).
+
 ```bash
 curl http://127.0.0.1:8080/healthz
 curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8080/metrics

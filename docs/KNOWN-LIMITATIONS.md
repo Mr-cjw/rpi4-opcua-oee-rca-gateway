@@ -113,6 +113,11 @@ deployment depends on behavior the Gateway does not provide.
 - The commissioning report is a point-in-time aggregation. It does not replace
   the 72-hour soak, physical power-cut and disk-full tests, long-duration data
   reconciliation, or real PLC certificate-rotation drills.
+- The staged field drill verifies a host boot-ID change and the edge certificate
+  served after an operator-controlled rotation. It does not reboot the Pi,
+  install certificates, prove power-loss recovery, or exercise PLC certificate
+  rotation automatically. Its root-only state and evidence directory must be
+  copied off the device and reviewed after the maintenance window.
 - Credentials are read from environment variables or files. The application
   validates presence and readability, but does not enforce file ownership or
   mode. Operators must enforce `0600` files and a protected environment file.
@@ -175,7 +180,8 @@ open for the Raspberry Pi pilot:
 - Disk-full and storage-I/O-failure behavior at the configured thresholds.
 - NTP loss, offset, and recovery validation on the plant network.
 - Release install, upgrade, automatic rollback, explicit rollback, and state
-  restore on an actual Raspberry Pi.
+  restore on an actual Raspberry Pi, including a completed staged field drill
+  with signed release, reboot, edge-certificate rotation, and rollback evidence.
 - Real PLC certificate rotation and rejected-certificate handling.
 - Long-duration event-sequence and quality-idempotency validation against the
   production QA/MES retry behavior.
