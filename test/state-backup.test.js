@@ -60,6 +60,7 @@ test("state backup records checksums and missing optional files", async (t) => {
   });
 
   assert.equal(result.manifest.schemaVersion, "1.0");
+  assert.equal(result.manifest.stateFormatVersion, "1.0");
   assert.equal(result.manifest.fileCount, 5);
   assert.equal(result.manifest.createdAt, new Date(NOW).toISOString());
   assert.deepEqual(result.manifest.missingFiles.sort(), [
@@ -86,6 +87,12 @@ test("state backup records checksums and missing optional files", async (t) => {
     }),
     /already exists/
   );
+
+  const manifestPath = path.join(outputPath, MANIFEST_FILE);
+  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  manifest.stateFormatVersion = "2.0";
+  await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  await assert.rejects(verifyStateBackup({ backupDir: outputPath }), /unsupported state format/);
 });
 
 test("state backup verification rejects tampering and unsafe manifest paths", async (t) => {

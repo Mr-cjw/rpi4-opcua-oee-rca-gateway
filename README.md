@@ -431,10 +431,12 @@ The backup includes the active and rotated process-context/quality JSONL files,
 the quality idempotency ledger, and the work-context state. It records a
 SHA-256 checksum, byte count, and file mode for every file in
 `state-manifest.json`; missing optional files and zero-byte logs are listed
-explicitly. Verification rejects missing files, size/checksum changes, and
-unsafe manifest paths. Restore verifies the complete backup before replacing
-any destination, stages all copies first, and atomically renames each file into
-place. Unrelated files already present in the state directory are left alone.
+explicitly. The manifest also declares the Gateway state format version.
+Verification rejects missing files, size/checksum changes, unsupported state
+formats, and unsafe manifest paths. Restore verifies the complete backup before
+replacing any destination, stages all copies first, and atomically renames each
+file into place. Unrelated files already present in the state directory are left
+alone.
 
 OPC UA PKI material is deliberately excluded from the state backup and should
 be backed up separately under the certificate-management procedure. Copy the
@@ -500,7 +502,10 @@ The archive contains tracked source, `package-lock.json`, deploy files, a
 dependencies, and an external `<archive>.tar.gz.sha256`. Untracked files,
 `node_modules`, state, credentials, and PKI material are excluded. Packaging
 fails when tracked files are modified; `--allow-dirty` is only for diagnostic
-builds and marks the release ID as dirty.
+builds and marks the release ID as dirty. The manifest declares the Gateway
+state format version; verification rejects an unsupported format. Increment the
+state format version whenever persisted event, idempotency, work-context, or
+backup semantics change, and pair any migration with an explicit rollback plan.
 
 The embedded SBOM is listed in the release manifest, covered by the internal
 checksums, and authenticated by the archive signature. Extract a sidecar for

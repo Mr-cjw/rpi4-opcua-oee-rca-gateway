@@ -488,11 +488,13 @@ install/health-check/rollback cycle. Preserve the evidence manifest, audit repor
 and CycloneDX VEX sidecar with the archive checksum and signature. Confirm the
 extracted SBOM identifies the expected application version and production
 component set, and that every high or critical advisory has an active disposition
-or no longer appears. Record the public-key SHA-256 fingerprint from the signature
-report and pass it through `--signer-fingerprint` during verification, evidence,
-rehearsal, and signed install. A different public key must fail even if it
-produces a cryptographically valid signature. The release private key must remain
-on the trusted signing host and must not be copied to the Pi. Key rotation and
+or no longer appears. Confirm the release manifest declares the expected Gateway
+state format version and that the rehearsal reports it as compatible. Record the
+public-key SHA-256 fingerprint from the signature report and pass it through
+`--signer-fingerprint` during verification, evidence, rehearsal, and signed
+install. A different public key must fail even if it produces a
+cryptographically valid signature. The release private key must remain on the
+trusted signing host and must not be copied to the Pi. Key rotation and
 revocation are change-controlled: approve the replacement fingerprint before
 distributing the new public key, and reject the old fingerprint after cutover.
 

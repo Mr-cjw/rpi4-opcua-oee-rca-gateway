@@ -172,7 +172,9 @@ test("offline release rehearsal covers upgrade, rollback, auto-rollback, and sta
   assert.equal(compatibility.runtime.base.minimumNodeVersion, "22.13.0");
   assert.equal(compatibility.sbom.base.format, "CycloneDX");
   assert.equal(compatibility.sbom.candidate.specVersion, "1.5");
-  assert.equal(compatibility.stateFormatVersion.declared, false);
+  assert.equal(compatibility.stateFormatVersion.base, "1.0");
+  assert.equal(compatibility.stateFormatVersion.candidate, "1.0");
+  assert.equal(compatibility.stateFormatVersion.declared, true);
   const stateScenario = result.report.scenarios[1];
   assert.equal(stateScenario.details.backupFileCount, 5);
   assert.equal(stateScenario.details.restoredFiles.length, 5);

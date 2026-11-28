@@ -17,6 +17,7 @@ const {
   generateReleaseSbom,
   validateCycloneDxSbom
 } = require("./sbom");
+const { STATE_FORMAT_VERSION } = require("../gateway/state-format");
 
 const RELEASE_SCHEMA_VERSION = "1.0";
 const MANIFEST_FILE = "release-manifest.json";
@@ -206,6 +207,7 @@ async function createReleasePackage(options) {
       product: packageJson.name,
       version,
       releaseId,
+      stateFormatVersion: STATE_FORMAT_VERSION,
       createdAt,
       git: { commit, dirty },
       runtime: {
@@ -313,6 +315,14 @@ function validateManifest(manifest) {
   }
   if (!Number.isFinite(Date.parse(manifest.createdAt))) {
     throw new Error("release manifest createdAt is invalid");
+  }
+  if (
+    manifest.stateFormatVersion !== undefined &&
+    manifest.stateFormatVersion !== STATE_FORMAT_VERSION
+  ) {
+    throw new Error(
+      `unsupported release state format: ${manifest.stateFormatVersion || "missing"}`
+    );
   }
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
     throw new Error("release manifest must contain at least one file");

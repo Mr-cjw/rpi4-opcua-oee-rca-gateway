@@ -4,6 +4,7 @@ const { createHash, randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
+const { STATE_FORMAT_VERSION } = require("./state-format");
 
 const BACKUP_SCHEMA_VERSION = "1.0";
 const MANIFEST_FILE = "state-manifest.json";
@@ -105,6 +106,14 @@ function validateManifest(manifest) {
       `unsupported state backup schema: ${manifest.schemaVersion || "missing"}`
     );
   }
+  if (
+    manifest.stateFormatVersion !== undefined &&
+    manifest.stateFormatVersion !== STATE_FORMAT_VERSION
+  ) {
+    throw new Error(
+      `unsupported state format: ${manifest.stateFormatVersion || "missing"}`
+    );
+  }
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
     throw new Error("state backup manifest must contain at least one file");
   }
@@ -200,6 +209,7 @@ async function createStateBackup(options) {
 
     const manifest = {
       schemaVersion: BACKUP_SCHEMA_VERSION,
+      stateFormatVersion: STATE_FORMAT_VERSION,
       createdAt: new Date(clock()).toISOString(),
       sourceStateDir: stateDir,
       fileCount: files.length,

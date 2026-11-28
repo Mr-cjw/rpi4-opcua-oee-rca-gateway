@@ -302,9 +302,10 @@ Deliverables:
   minimum/maximum CPU temperature and current/historical under-voltage or
   throttling flags, and fails the run when Pi telemetry is missing or unhealthy.
 - Completed 2026-11-28: versioned release packaging with per-file SHA-256,
-  archive checksums, Git/runtime provenance, Node engine checks, immutable
-  release directories, health-checked upgrades with automatic rollback, explicit
-  rollback/status commands, and state-backup/migration procedures.
+  archive checksums, Git/runtime/state-format provenance, Node engine checks,
+  immutable release directories, health-checked upgrades with automatic
+  rollback, explicit rollback/status commands, and state-backup/migration
+  procedures.
 - Completed 2026-11-28: security review of OPC UA, HTTP, logs, secrets, release
   integrity, dependencies, and the systemd sandbox.
 - Completed 2026-11-28: field-pilot runbook with acceptance/exit criteria and a

@@ -13,6 +13,7 @@ const {
   MANIFEST_FILE,
   SBOM_FILE,
   createReleasePackage,
+  validateManifest,
   verifyReleasePackage
 } = require("../src/release/package");
 
@@ -105,6 +106,7 @@ test("release package includes a manifest, internal checksums, and archive check
   });
 
   assert.equal(result.manifest.schemaVersion, "1.0");
+  assert.equal(result.manifest.stateFormatVersion, "1.0");
   assert.equal(result.manifest.releaseId, "1.2.3-aaaaaaaaaaaa");
   assert.equal(result.manifest.fileCount, RELEASE_FILES.length + 1);
   assert.equal(result.manifest.createdAt, new Date(NOW).toISOString());
@@ -116,6 +118,10 @@ test("release package includes a manifest, internal checksums, and archive check
   assert.match(
     await fs.readFile(result.checksumPath, "utf8"),
     new RegExp(`^${result.archiveSha256}  ${path.basename(result.archivePath)}$`, "m")
+  );
+  assert.throws(
+    () => validateManifest({ ...result.manifest, stateFormatVersion: "2.0" }),
+    /unsupported release state format/
   );
 
   const verified = await verifyReleasePackage({ archivePath: result.archivePath });
