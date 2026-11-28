@@ -30,6 +30,48 @@ sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; npm run doc
 Use `npm run doctor -- --json` to archive the report or `--strict` in change
 control when warnings must block commissioning. The doctor only reads the PLC.
 
+### OPC UA security, credentials, and certificates
+
+The example environment targets `SignAndEncrypt` with `Basic256Sha256` and sets
+`OPCUA_TRUST_UNKNOWN_CERTIFICATES=false`. With `NODE_ENV=production`, the
+Gateway refuses to start with `None` security or automatic unknown-certificate
+trust unless `GATEWAY_ALLOW_INSECURE_OPCUA=true` is explicitly set for an
+isolated test deployment.
+
+Store credentials in files readable only by the service account instead of
+inline environment values:
+
+```bash
+sudo install -d -o rpi4-gateway -g rpi4-gateway -m 0750 /etc/rpi4-gateway
+sudo -u rpi4-gateway sh -c 'umask 077; printf "%s\n" "replace-with-opcua-user" > /etc/rpi4-gateway/opcua-user'
+sudo -u rpi4-gateway sh -c 'umask 077; printf "%s\n" "replace-with-opcua-password" > /etc/rpi4-gateway/opcua-password'
+```
+
+Set `OPCUA_USERNAME_FILE=/etc/rpi4-gateway/opcua-user` and
+`OPCUA_PASSWORD_FILE=/etc/rpi4-gateway/opcua-password`. Confirm
+`stat -c '%a %U:%G %n' /etc/rpi4-gateway/opcua-*` reports mode `600` and the
+Gateway service owner. Never put production passwords in Git, shell history, or
+the JSONL logs.
+
+Provision the PLC certificate under
+`$OPCUA_CLIENT_PKI_ROOT/gateway-client/trusted/certs/`. A rejected certificate
+appears under `rejected/certs/`; compare its SHA-256 fingerprint with the PLC
+commissioning record before moving only that file into `trusted/certs/` and
+removing the obsolete certificate. Then run:
+
+```bash
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway && npm run doctor -- --strict'
+sudo systemctl restart rpi4-gateway.service
+curl http://127.0.0.1:8080/healthz
+```
+
+Certificate trust is loaded at Gateway startup, so a PLC certificate rotation
+requires restarting the service after updating the trust folder. Back up the
+Gateway client certificate/key and the trusted PLC certificate off the Pi using
+an approved encrypted process; they are excluded from ordinary state backups.
+For managed PKI, set both `OPCUA_CLIENT_CERTIFICATE_FILE` and
+`OPCUA_CLIENT_PRIVATE_KEY_FILE` in the environment file.
+
 The service uses `StateDirectory=rpi4-gateway`, so `/var/lib/rpi4-gateway` is
 created with the service user's ownership. JSONL logs and the OPC UA client PKI
 directory live there. Runtime work order/SN/correlation/product updates are
@@ -120,7 +162,12 @@ the configured skew threshold.
 - Keep `GATEWAY_HTTP_HOST=127.0.0.1` unless a reverse proxy and network policy
   are in place. Set `GATEWAY_API_TOKEN` if the API is reachable beyond loopback.
 - Use a secured OPC UA endpoint for a real PLC. `None` security is for isolated
-  mock/testing only.
+  mock/testing only; `NODE_ENV=production` rejects it unless the explicit
+  insecure override is set.
+- Keep unknown server certificates untrusted. Update the Gateway trust folder
+  from the PLC commissioning record and restart the service after rotation.
+- Run `npm run e2e:security` after changing security modes, policies,
+  credentials, or certificate-trust handling.
 - The Gateway only reads PLC points. It does not write controls.
 - Run `npm run doctor` after every NodeId, credential, certificate, or PLC
   firmware change. A failed result should block production cutover.

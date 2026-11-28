@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("node:crypto");
 const path = require("node:path");
 const {
   DataType,
@@ -27,6 +28,18 @@ const NODE_IDS = Object.freeze({
   triggerTemperatureSpike: "ns=1;s=MockPLC.TriggerTemperatureSpike",
   resumeNormal: "ns=1;s=MockPLC.ResumeNormal"
 });
+
+function secureTextEqual(actual, expected) {
+  if (typeof actual !== "string" || typeof expected !== "string") {
+    return false;
+  }
+  const actualBuffer = Buffer.from(actual, "utf8");
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(actualBuffer, expectedBuffer)
+  );
+}
 
 function variableValue(dataType, value) {
   return { dataType, value };
@@ -305,13 +318,23 @@ function createMockPlcServer(options = loadConfig()) {
 
   const serverCertificateManager = new OPCUACertificateManager({
     rootFolder: path.join(opcua.pkiRoot, "server"),
-    automaticallyAcceptUnknownCertificate: true
+    automaticallyAcceptUnknownCertificate: opcua.trustUnknownClientCertificates
   });
 
   const userCertificateManager = new OPCUACertificateManager({
     rootFolder: path.join(opcua.pkiRoot, "server-user"),
-    automaticallyAcceptUnknownCertificate: true
+    automaticallyAcceptUnknownCertificate: opcua.trustUnknownClientCertificates
   });
+
+  const userManager = {
+    isValidUser(username, password) {
+      return (
+        Boolean(opcua.username) &&
+        secureTextEqual(username, opcua.username) &&
+        secureTextEqual(password, opcua.password)
+      );
+    }
+  };
 
   const server = new OPCUAServer({
     host: opcua.host,
@@ -320,9 +343,10 @@ function createMockPlcServer(options = loadConfig()) {
     hostname: opcua.hostname,
     port: opcua.port,
     resourcePath: opcua.resourcePath,
-    allowAnonymous: true,
-    securityModes: [MessageSecurityMode.None],
-    securityPolicies: [SecurityPolicy.None],
+    allowAnonymous: opcua.allowAnonymous,
+    userManager,
+    securityModes: opcua.securityModes.map((mode) => MessageSecurityMode[mode]),
+    securityPolicies: opcua.securityPolicies.map((policy) => SecurityPolicy[policy]),
     maxConnectionsPerEndpoint: opcua.maxConnectionsPerEndpoint,
     serverCapabilities: {
       maxSessions: opcua.maxSessions,

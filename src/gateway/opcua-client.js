@@ -156,6 +156,9 @@ class OpcUaGatewayClient extends EventEmitter {
       pkiRoot: path.resolve(process.cwd(), ".pki"),
       securityMode: "None",
       securityPolicy: "None",
+      trustUnknownCertificates: false,
+      clientCertificateFile: null,
+      clientPrivateKeyFile: null,
       username: "",
       password: "",
       requestedSessionTimeout: 60000,
@@ -323,9 +326,9 @@ class OpcUaGatewayClient extends EventEmitter {
   async _connectOnce() {
     const certificateManager = new OPCUACertificateManager({
       rootFolder: path.join(this.options.pkiRoot, "gateway-client"),
-      automaticallyAcceptUnknownCertificate: true
+      automaticallyAcceptUnknownCertificate: this.options.trustUnknownCertificates
     });
-    const client = OPCUAClient.create({
+    const clientOptions = {
       applicationName: this.options.applicationName,
       applicationUri: this.options.applicationUri,
       clientCertificateManager: certificateManager,
@@ -340,7 +343,12 @@ class OpcUaGatewayClient extends EventEmitter {
         maxRetry: 0,
         randomisationFactor: this.options.connection.randomisationFactor
       }
-    });
+    };
+    if (this.options.clientCertificateFile) {
+      clientOptions.certificateFile = this.options.clientCertificateFile;
+      clientOptions.privateKeyFile = this.options.clientPrivateKeyFile;
+    }
+    const client = OPCUAClient.create(clientOptions);
 
     this._certificateManager = certificateManager;
     this._client = client;
@@ -358,7 +366,8 @@ class OpcUaGatewayClient extends EventEmitter {
     this._log("info", "Connecting to OPC UA server", {
       endpointUrl: this.options.endpointUrl,
       securityMode: this.options.securityMode,
-      securityPolicy: this.options.securityPolicy
+      securityPolicy: this.options.securityPolicy,
+      trustUnknownCertificates: this.options.trustUnknownCertificates
     });
 
     await client.connect(this.options.endpointUrl);

@@ -27,6 +27,11 @@ test("gateway environment template includes persistence and API safeguards", asy
 
   for (const name of [
     "OPCUA_ENDPOINT",
+    "OPCUA_SECURITY_MODE",
+    "OPCUA_SECURITY_POLICY",
+    "OPCUA_CLIENT_PKI_ROOT",
+    "OPCUA_TRUST_UNKNOWN_CERTIFICATES",
+    "GATEWAY_ALLOW_INSECURE_OPCUA",
     "OPCUA_DEVICE_STATUS_NODE",
     "OPCUA_TOTAL_PRODUCED_NODE",
     "GATEWAY_LINE_ID",
@@ -67,6 +72,9 @@ test("gateway environment template includes persistence and API safeguards", asy
     assert.match(env, new RegExp(`^${name}=`, "m"));
   }
   assert.match(env, /^GATEWAY_HTTP_HOST=127\.0\.0\.1$/m);
+  assert.match(env, /^OPCUA_SECURITY_MODE=SignAndEncrypt$/m);
+  assert.match(env, /^OPCUA_SECURITY_POLICY=Basic256Sha256$/m);
+  assert.match(env, /^OPCUA_TRUST_UNKNOWN_CERTIFICATES=false$/m);
   assert.match(env, /^GATEWAY_API_TOKEN=replace-with-strong-token$/m);
   assert.match(env, /^PROCESS_CONTEXT_LOG=\/var\/lib\/rpi4-gateway\//m);
   assert.match(env, /^QUALITY_EVENT_LOG=\/var\/lib\/rpi4-gateway\//m);
@@ -82,4 +90,5 @@ test("package scripts expose state backup, restore, and storage evaluation comma
   assert.equal(packageJson.scripts["state:verify"], "node scripts/gateway-state.js verify");
   assert.equal(packageJson.scripts["state:restore"], "node scripts/gateway-state.js restore");
   assert.equal(packageJson.scripts["storage:evaluate"], "node scripts/evaluate-storage.js");
+  assert.equal(packageJson.scripts["e2e:security"], "node scripts/gateway-security-e2e.js");
 });

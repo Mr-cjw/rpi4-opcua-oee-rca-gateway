@@ -1,6 +1,9 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
 const { loadGatewayConfig } = require("../src/gateway/config");
 
@@ -190,6 +193,120 @@ test("gateway config validates live PLC diagnostic thresholds", () => {
     () => loadGatewayConfig({ OPCUA_DATA_CHANGE_TRIGGER: "invalid" }),
     /OPCUA_DATA_CHANGE_TRIGGER/
   );
+});
+
+test("gateway config injects OPC UA credentials from secret files", async () => {
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "gateway-credentials-"));
+  const usernameFile = path.join(runDir, "username");
+  const passwordFile = path.join(runDir, "password");
+  const emptyFile = path.join(runDir, "empty");
+  try {
+    await fs.writeFile(usernameFile, "  gateway-operator  \n");
+    await fs.writeFile(passwordFile, "correct-horse-battery-staple\n");
+    await fs.writeFile(emptyFile, "\n");
+
+    const config = loadGatewayConfig({
+      OPCUA_USERNAME_FILE: usernameFile,
+      OPCUA_PASSWORD_FILE: passwordFile
+    });
+    assert.equal(config.username, "gateway-operator");
+    assert.equal(config.password, "correct-horse-battery-staple");
+
+    assert.throws(
+      () =>
+        loadGatewayConfig({
+          OPCUA_USERNAME: "inline-user",
+          OPCUA_USERNAME_FILE: usernameFile,
+          OPCUA_PASSWORD_FILE: passwordFile
+        }),
+      /OPCUA_USERNAME and OPCUA_USERNAME_FILE cannot be configured together/
+    );
+    assert.throws(
+      () => loadGatewayConfig({ OPCUA_USERNAME_FILE: usernameFile }),
+      /OPCUA_USERNAME and OPCUA_PASSWORD must be configured together/
+    );
+    assert.throws(
+      () =>
+        loadGatewayConfig({
+          OPCUA_USERNAME_FILE: usernameFile,
+          OPCUA_PASSWORD_FILE: emptyFile
+        }),
+      /OPCUA_PASSWORD must not be empty/
+    );
+    assert.throws(
+      () =>
+        loadGatewayConfig({
+          OPCUA_USERNAME_FILE: usernameFile,
+          OPCUA_PASSWORD_FILE: path.join(runDir, "missing")
+        }),
+      /OPCUA_PASSWORD_FILE is not readable/
+    );
+  } finally {
+    await fs.rm(runDir, { recursive: true, force: true });
+  }
+});
+
+test("gateway config validates OPC UA transport security and certificate trust", async () => {
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "gateway-security-"));
+  try {
+    const certificateFile = path.join(runDir, "client.pem");
+    const privateKeyFile = path.join(runDir, "client-key.pem");
+    await fs.writeFile(certificateFile, "certificate-placeholder");
+    await fs.writeFile(privateKeyFile, "private-key-placeholder");
+
+    const config = loadGatewayConfig({
+      OPCUA_SECURITY_MODE: "signandencrypt",
+      OPCUA_SECURITY_POLICY: "basic256sha256",
+      OPCUA_TRUST_UNKNOWN_CERTIFICATES: "false",
+      OPCUA_CLIENT_CERTIFICATE_FILE: certificateFile,
+      OPCUA_CLIENT_PRIVATE_KEY_FILE: privateKeyFile
+    });
+    assert.equal(config.securityMode, "SignAndEncrypt");
+    assert.equal(config.securityPolicy, "Basic256Sha256");
+    assert.equal(config.trustUnknownCertificates, false);
+    assert.equal(config.clientCertificateFile, path.resolve(certificateFile));
+    assert.equal(config.clientPrivateKeyFile, path.resolve(privateKeyFile));
+
+    assert.throws(
+      () =>
+        loadGatewayConfig({
+          OPCUA_SECURITY_MODE: "Sign",
+          OPCUA_SECURITY_POLICY: "None"
+        }),
+      /secured modes require a non-None policy/
+    );
+    assert.throws(
+      () => loadGatewayConfig({ OPCUA_SECURITY_MODE: "Invalid" }),
+      /OPCUA_SECURITY_MODE/
+    );
+    assert.throws(
+      () => loadGatewayConfig({ OPCUA_CLIENT_CERTIFICATE_FILE: certificateFile }),
+      /must be configured together/
+    );
+    assert.throws(
+      () => loadGatewayConfig({ NODE_ENV: "production" }),
+      /production OPC UA requires a secured endpoint/
+    );
+    assert.throws(
+      () =>
+        loadGatewayConfig({
+          NODE_ENV: "production",
+          OPCUA_SECURITY_MODE: "Sign",
+          OPCUA_SECURITY_POLICY: "Basic256Sha256",
+          OPCUA_TRUST_UNKNOWN_CERTIFICATES: "true"
+        }),
+      /production OPC UA requires a secured endpoint/
+    );
+
+    const explicitlyInsecure = loadGatewayConfig({
+      NODE_ENV: "production",
+      GATEWAY_ALLOW_INSECURE_OPCUA: "true"
+    });
+    assert.equal(explicitlyInsecure.allowInsecureOpcua, true);
+    assert.equal(explicitlyInsecure.securityMode, "None");
+  } finally {
+    await fs.rm(runDir, { recursive: true, force: true });
+  }
 });
 
 test("gateway config validates storage pressure thresholds", () => {

@@ -68,6 +68,10 @@ OPCUA_HOSTNAME=192.168.1.50 npm start
 
 The default security mode is `None` with anonymous access. This is intentional
 for isolated E2E tests and is not suitable for an untrusted production network.
+Set `MOCK_PLC_SECURITY_MODES`, `MOCK_PLC_SECURITY_POLICIES`, and the
+`MOCK_PLC_*` credential variables to exercise Sign, Sign&Encrypt, and username
+authentication; the Mock PLC still defaults to the compatibility settings used
+by existing tests.
 
 ## Gateway OPC UA Client
 
@@ -709,10 +713,15 @@ atomic temporary files, not only for the current file sizes.
 | Variable | Default | Description |
 |---|---:|---|
 | `OPCUA_ENDPOINT` | `opc.tcp://localhost:4840/UA/MockPLC` | Server endpoint |
-| `OPCUA_SECURITY_MODE` | `None` | OPC UA message security mode |
-| `OPCUA_SECURITY_POLICY` | `None` | OPC UA security policy |
+| `OPCUA_SECURITY_MODE` | `None` | `None`, `Sign`, or `SignAndEncrypt` |
+| `OPCUA_SECURITY_POLICY` | `None` | `None`, `Basic256Sha256`, `Aes128_Sha256_RsaOaep`, or `Aes256_Sha256_RsaPss` |
+| `OPCUA_TRUST_UNKNOWN_CERTIFICATES` | `false` | Automatically trust and persist every new server certificate; keep `false` in production |
+| `OPCUA_CLIENT_CERTIFICATE_FILE` | unset | Pre-provisioned client certificate; requires the private key setting |
+| `OPCUA_CLIENT_PRIVATE_KEY_FILE` | unset | Pre-provisioned client private key; requires the certificate setting |
 | `OPCUA_USERNAME` | empty | Username authentication |
 | `OPCUA_PASSWORD` | empty | Password, required with username |
+| `OPCUA_USERNAME_FILE` / `OPCUA_PASSWORD_FILE` | unset | Read credentials from 0600 files instead of the environment |
+| `GATEWAY_ALLOW_INSECURE_OPCUA` | `false` | Explicitly allows `None` security or unknown-certificate auto-trust when `NODE_ENV=production` |
 | `OPCUA_CLIENT_NAME` | `RCA-Gateway-OPCUA-Client` | Application name |
 | `OPCUA_CLIENT_PKI_ROOT` | `<cwd>/.pki` | Client certificate directory |
 | `OPCUA_SESSION_TIMEOUT_MS` | `60000` | Requested session timeout |
@@ -730,6 +739,48 @@ Example against a remote server:
 ```bash
 OPCUA_ENDPOINT=opc.tcp://192.168.1.50:4840/UA/MockPLC OPCUA_PUBLISHING_INTERVAL_MS=200 npm run gateway
 ```
+
+### Secured OPC UA, credentials, and certificate rotation
+
+Use `OPCUA_SECURITY_MODE=SignAndEncrypt` with
+`OPCUA_SECURITY_POLICY=Basic256Sha256` (or a stronger policy supported by the
+PLC) for a field deployment. `Sign` is available for commissioning only when the
+PLC cannot support encrypted messages. When `NODE_ENV=production`, startup fails
+for `None` security or `OPCUA_TRUST_UNKNOWN_CERTIFICATES=true` unless
+`GATEWAY_ALLOW_INSECURE_OPCUA=true` is set explicitly.
+
+Prefer credential files over inline environment values:
+
+```bash
+sudo install -d -o rpi4-gateway -g rpi4-gateway -m 0750 /etc/rpi4-gateway
+sudo sh -c 'umask 077; printf "%s\n" "$OPCUA_USER" > /etc/rpi4-gateway/opcua-user'
+sudo sh -c 'umask 077; printf "%s\n" "$OPCUA_SECRET" > /etc/rpi4-gateway/opcua-password'
+```
+
+Configure `OPCUA_USERNAME_FILE` and `OPCUA_PASSWORD_FILE` together. Inline and
+file forms of the same value cannot be combined, empty files are rejected, and
+credentials are never written to logs or doctor reports.
+
+Keep `OPCUA_TRUST_UNKNOWN_CERTIFICATES=false`. Provision the PLC server
+certificate under:
+
+```text
+$OPCUA_CLIENT_PKI_ROOT/gateway-client/trusted/certs/
+```
+
+An unapproved certificate is placed in the sibling `rejected/certs/` folder so
+its fingerprint can be compared with the PLC commissioning record. Move only the
+approved certificate into `trusted/certs`, remove obsolete certificates, then
+run `npm run doctor` and restart the Gateway. Certificate trust is loaded at
+Gateway startup; after a PLC certificate rotation, update the trust folder and
+restart the service. The Mock PLC implements this rotation path in
+`npm run e2e:security`, including Sign, Sign&Encrypt, file-based credentials,
+wrong-password/anonymous rejection, and explicit trust after rotation.
+
+If no client certificate/key pair is configured, node-opcua generates one under
+`$OPCUA_CLIENT_PKI_ROOT/gateway-client/own/`. For managed PKI deployments, set
+both `OPCUA_CLIENT_CERTIFICATE_FILE` and `OPCUA_CLIENT_PRIVATE_KEY_FILE`; protect
+the private key with filesystem permissions and an off-device encrypted backup.
 
 ## OPC UA Address Space
 
@@ -852,6 +903,12 @@ All configuration is supplied through environment variables.
 | `OPCUA_MAX_SESSIONS` | `32` | Maximum sessions reported/enforced |
 | `OPCUA_MAX_CONNECTIONS` | `32` | Connections per endpoint |
 | `OPCUA_PKI_ROOT` | `<cwd>/.pki` | Writable certificate directory |
+| `MOCK_PLC_SECURITY_MODES` | `None` | Comma-separated `None`, `Sign`, and/or `SignAndEncrypt` endpoints |
+| `MOCK_PLC_SECURITY_POLICIES` | `None` | Comma-separated `None`, `Basic256Sha256`, `Aes128_Sha256_RsaOaep`, or `Aes256_Sha256_RsaPss` |
+| `MOCK_PLC_ALLOW_ANONYMOUS` | `true` | Allow anonymous sessions; set `false` to require a username |
+| `MOCK_PLC_USERNAME` / `MOCK_PLC_PASSWORD` | empty | Inline Mock PLC test credentials; never use for a real PLC |
+| `MOCK_PLC_USERNAME_FILE` / `MOCK_PLC_PASSWORD_FILE` | empty | File-based Mock PLC test credentials |
+| `MOCK_PLC_TRUST_UNKNOWN_CLIENT_CERTIFICATES` | `true` | Auto-trust client certificates for isolated security tests |
 | `SIM_INTERVAL_MS` | `500` | Simulation and value update interval |
 | `SIM_SEED` | `8675309` | Random seed |
 | `SIM_NOMINAL_OUTPUT` | `120` | Normal production rate, units/minute |
@@ -1067,6 +1124,9 @@ injects a downtime, verifies the normalized native alarm event, and then cleans
 up the session and subscription.
 The doctor tests cover counter/type failures, timestamp warnings, and a live
 connection against the Mock PLC.
+Security tests cover file-based credential injection, invalid credential
+combinations, production insecure-mode rejection, Sign, Sign&Encrypt, anonymous
+and wrong-password rejection, and certificate rotation with explicit trust.
 
 Run a complete server + client smoke test. This command starts its own server on
 port `48401`, verifies reads, variable subscriptions, native OPC UA events,
@@ -1091,6 +1151,15 @@ pause/resume, and automatic recovery after a PLC restart:
 
 ```bash
 npm run e2e:diagnostics
+```
+
+Run the secured OPC UA path. This starts a username-protected Mock PLC with Sign
+and Sign&Encrypt endpoints, connects with credentials from files, verifies
+anonymous and wrong-password rejection, rotates the server certificate, proves
+the new certificate is rejected until trusted, and reconnects after restart:
+
+```bash
+npm run e2e:security
 ```
 
 Validate the shared JSON contracts and local documentation links:
@@ -1276,7 +1345,9 @@ OPCUA_PKI_ROOT=/var/lib/opcua-mock/pki npm start
 
 This is a test double, not a PLC emulator suitable for safety, certification, or
 production control. It intentionally exposes anonymous/no-security endpoints by
-default. It does not model OPC UA redundancy, certificate rotation, PLC scan
-cycles, fieldbus jitter, packet loss, or device-specific vendor diagnostics. For
-industrial deployment, use an OPC UA stack with certificate-based security,
-auditable session policy, monitoring, and a tested resource-limit policy.
+default unless `MOCK_PLC_*` security variables are set. It models explicit
+certificate trust and a restart-based certificate rotation, but not zero-downtime
+rotation, OPC UA redundancy, PLC scan cycles, fieldbus jitter, packet loss, or
+device-specific vendor diagnostics. For industrial deployment, use an OPC UA
+stack with certificate-based security, auditable session policy, monitoring, and
+a tested resource-limit policy.

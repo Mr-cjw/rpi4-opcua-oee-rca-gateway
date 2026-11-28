@@ -4,16 +4,18 @@ const path = require("node:path");
 const {
   AttributeIds,
   DataType,
-  MessageSecurityMode,
   OPCUACertificateManager,
   OPCUAClient,
-  SecurityPolicy,
   StatusCodes,
   TimestampsToReturn,
+  UserTokenType,
   constructEventFilter,
+  coerceMessageSecurityMode,
+  coerceSecurityPolicy,
   ofType
 } = require("node-opcua");
 const { loadConfig } = require("../src/config");
+const { loadGatewayConfig } = require("../src/gateway/config");
 const { NODE_IDS } = require("../src/server");
 
 function withTimeout(promise, timeoutMs, label) {
@@ -37,23 +39,30 @@ function monitor(subscription, itemToMonitor, parameters) {
 
 async function main() {
   const config = loadConfig();
+  const gatewayConfig = loadGatewayConfig(process.env);
   const endpointUrl =
     process.env.OPCUA_ENDPOINT ||
     `opc.tcp://localhost:${config.opcua.port}${config.opcua.resourcePath}`;
-  const client = OPCUAClient.create({
+  const clientCertificateManager = new OPCUACertificateManager({
+    rootFolder: path.join(gatewayConfig.pkiRoot, "smoke-client"),
+    automaticallyAcceptUnknownCertificate: gatewayConfig.trustUnknownCertificates
+  });
+  const clientOptions = {
     endpointMustExist: false,
-    securityMode: MessageSecurityMode.None,
-    securityPolicy: SecurityPolicy.None,
+    securityMode: coerceMessageSecurityMode(gatewayConfig.securityMode),
+    securityPolicy: coerceSecurityPolicy(gatewayConfig.securityPolicy),
     connectionStrategy: {
       initialDelay: 250,
       maxRetry: 3,
       maxDelay: 2000
     },
-    clientCertificateManager: new OPCUACertificateManager({
-      rootFolder: path.join(config.opcua.pkiRoot, "smoke-client"),
-      automaticallyAcceptUnknownCertificate: true
-    })
-  });
+    clientCertificateManager
+  };
+  if (gatewayConfig.clientCertificateFile) {
+    clientOptions.certificateFile = gatewayConfig.clientCertificateFile;
+    clientOptions.privateKeyFile = gatewayConfig.clientPrivateKeyFile;
+  }
+  const client = OPCUAClient.create(clientOptions);
 
   let session;
   let subscription;
@@ -62,7 +71,14 @@ async function main() {
 
   try {
     await client.connect(endpointUrl);
-    session = await client.createSession();
+    const userIdentity = gatewayConfig.username
+      ? {
+          type: UserTokenType.UserName,
+          userName: gatewayConfig.username,
+          password: gatewayConfig.password
+        }
+      : { type: UserTokenType.Anonymous };
+    session = await client.createSession(userIdentity);
 
     console.log(`Connected to ${endpointUrl}`);
     const values = {};

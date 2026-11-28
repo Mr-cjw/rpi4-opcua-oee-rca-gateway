@@ -12,11 +12,19 @@ const {
   DEFAULT_CLOCK_SKEW_WARNING_MS,
   DEFAULT_STALE_WARNING_MS
 } = require("./plc-diagnostics");
+const { resolveCredentialPair } = require("../secret-file");
 
 const DATA_CHANGE_TRIGGERS = Object.freeze([
   "StatusValueTimestamp",
   "StatusValue",
   "Status"
+]);
+const SECURITY_MODES = Object.freeze(["None", "Sign", "SignAndEncrypt"]);
+const SECURITY_POLICIES = Object.freeze([
+  "None",
+  "Basic256Sha256",
+  "Aes128_Sha256_RsaOaep",
+  "Aes256_Sha256_RsaPss"
 ]);
 
 function integerFromEnv(env, name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -93,6 +101,14 @@ function statePathFromEnv(env, name, defaultFile) {
   return path.resolve(raw || path.join(process.cwd(), "data", defaultFile));
 }
 
+function readOptionalPath(env, name) {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return null;
+  }
+  return path.resolve(raw);
+}
+
 function alarmCodesFromEnv(env, name) {
   const raw = env[name];
   if (raw === undefined || raw.trim() === "") {
@@ -146,10 +162,45 @@ function nodeIdFromEnv(env, name, fallback, { optional = false } = {}) {
 }
 
 function loadGatewayConfig(env = process.env) {
-  const username = env.OPCUA_USERNAME || "";
-  const password = env.OPCUA_PASSWORD || "";
-  if (Boolean(username) !== Boolean(password)) {
-    throw new Error("OPCUA_USERNAME and OPCUA_PASSWORD must be configured together");
+  const credentials = resolveCredentialPair(env, {
+    usernameName: "OPCUA_USERNAME",
+    passwordName: "OPCUA_PASSWORD",
+    usernameFileName: "OPCUA_USERNAME_FILE",
+    passwordFileName: "OPCUA_PASSWORD_FILE"
+  });
+  const securityMode = enumFromEnv(env, "OPCUA_SECURITY_MODE", "None", SECURITY_MODES);
+  const securityPolicy = enumFromEnv(
+    env,
+    "OPCUA_SECURITY_POLICY",
+    "None",
+    SECURITY_POLICIES
+  );
+  if ((securityMode === "None") !== (securityPolicy === "None")) {
+    throw new Error(
+      "OPCUA_SECURITY_MODE=None requires OPCUA_SECURITY_POLICY=None, and secured modes require a non-None policy"
+    );
+  }
+  const trustUnknownCertificates = booleanFromEnv(
+    env,
+    "OPCUA_TRUST_UNKNOWN_CERTIFICATES",
+    false
+  );
+  const allowInsecureOpcua = booleanFromEnv(env, "GATEWAY_ALLOW_INSECURE_OPCUA", false);
+  if (
+    env.NODE_ENV === "production" &&
+    !allowInsecureOpcua &&
+    (securityMode === "None" || trustUnknownCertificates)
+  ) {
+    throw new Error(
+      "production OPC UA requires a secured endpoint and OPCUA_TRUST_UNKNOWN_CERTIFICATES=false; set GATEWAY_ALLOW_INSECURE_OPCUA=true only for an explicitly isolated deployment"
+    );
+  }
+  const clientCertificateFile = readOptionalPath(env, "OPCUA_CLIENT_CERTIFICATE_FILE");
+  const clientPrivateKeyFile = readOptionalPath(env, "OPCUA_CLIENT_PRIVATE_KEY_FILE");
+  if (Boolean(clientCertificateFile) !== Boolean(clientPrivateKeyFile)) {
+    throw new Error(
+      "OPCUA_CLIENT_CERTIFICATE_FILE and OPCUA_CLIENT_PRIVATE_KEY_FILE must be configured together"
+    );
   }
 
   const timeZone = env.OEE_TIMEZONE || defaultTimeZone();
@@ -254,10 +305,14 @@ function loadGatewayConfig(env = process.env) {
     applicationUri:
       env.OPCUA_CLIENT_APPLICATION_URI || "urn:rpi4:gateway:opcua-client",
     pkiRoot: path.resolve(env.OPCUA_CLIENT_PKI_ROOT || path.join(process.cwd(), ".pki")),
-    securityMode: env.OPCUA_SECURITY_MODE || "None",
-    securityPolicy: env.OPCUA_SECURITY_POLICY || "None",
-    username,
-    password,
+    securityMode,
+    securityPolicy,
+    trustUnknownCertificates,
+    allowInsecureOpcua,
+    clientCertificateFile,
+    clientPrivateKeyFile,
+    username: credentials.username,
+    password: credentials.password,
     requestedSessionTimeout: integerFromEnv(env, "OPCUA_SESSION_TIMEOUT_MS", 60000, {
       min: 1000,
       max: 3600000

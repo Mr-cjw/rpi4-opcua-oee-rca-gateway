@@ -574,9 +574,9 @@ async function runGatewayDoctor(config, overrides = {}) {
   };
   const certificateManager = new OPCUACertificateManager({
     rootFolder: path.join(config.pkiRoot, "doctor"),
-    automaticallyAcceptUnknownCertificate: true
+    automaticallyAcceptUnknownCertificate: config.trustUnknownCertificates === true
   });
-  const client = OPCUAClient.create({
+  const clientOptions = {
     applicationName: `${config.applicationName || "RCA-Gateway"}-Doctor`,
     applicationUri: config.applicationUri || "urn:rpi4:gateway:opcua-doctor",
     clientCertificateManager: certificateManager,
@@ -591,7 +591,12 @@ async function runGatewayDoctor(config, overrides = {}) {
       maxRetry: 0,
       randomisationFactor: 0
     }
-  });
+  };
+  if (config.clientCertificateFile) {
+    clientOptions.certificateFile = config.clientCertificateFile;
+    clientOptions.privateKeyFile = config.clientPrivateKeyFile;
+  }
+  const client = OPCUAClient.create(clientOptions);
 
   let session = null;
   try {
