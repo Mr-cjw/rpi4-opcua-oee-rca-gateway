@@ -68,14 +68,19 @@ async function getMetrics(runtime) {
 
 async function waitForHealth(runtime, predicate, timeoutMs, description) {
   let health;
-  await waitFor(
-    async () => {
-      health = await getHealth(runtime);
-      return predicate(health);
-    },
-    timeoutMs,
-    description
-  );
+  try {
+    await waitFor(
+      async () => {
+        health = await getHealth(runtime);
+        return predicate(health);
+      },
+      timeoutMs,
+      description
+    );
+  } catch (error) {
+    error.message += `; last health: ${health ? JSON.stringify(health) : "unavailable"}`;
+    throw error;
+  }
   return health;
 }
 
@@ -142,9 +147,11 @@ async function main() {
       GATEWAY_PLC_STALE_WARNING_MS: "1000",
       GATEWAY_PLC_CLOCK_SKEW_WARNING_MS: "1000"
     });
-    runtime = new GatewayRuntime(gatewayConfig, {
-      logger: { info() {}, warn() {}, error() {} }
-    });
+    const logger =
+      process.env.DEBUG_DIAGNOSTICS_E2E === "1"
+        ? console
+        : { info() {}, warn() {}, error() {} };
+    runtime = new GatewayRuntime(gatewayConfig, { logger });
 
     await runtime.start();
     await waitFor(

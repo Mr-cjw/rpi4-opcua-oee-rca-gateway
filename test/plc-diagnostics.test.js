@@ -132,6 +132,34 @@ test("PLC diagnostics tracks reconnect gaps and event-subscription recovery", ()
   assert.equal(status.eventSubscription.recoveries, 1);
 });
 
+test("PLC diagnostics ignores stale source timestamps on the alarm snapshot", () => {
+  const diagnostics = new PlcDiagnostics({
+    clock: () => START,
+    staleWarningMs: 1000,
+    clockSkewWarningMs: 1000,
+    eventSubscriptionConfigured: true
+  });
+  diagnostics.recordConnectionAttempt();
+  diagnostics.recordConnected({ subscriptionId: 10 });
+  diagnostics.recordEventSubscription("active");
+  diagnostics.observe(observation(START));
+  diagnostics.observe(
+    observation(START, {
+      name: "alarmEvents",
+      nodeId: "ns=1;s=MockPLC.AlarmEvents",
+      value: "{\"sequence\":4,\"active\":[]}",
+      sourceTimestamp: iso(START - 60000),
+      serverTimestamp: iso(START)
+    })
+  );
+
+  const status = diagnostics.getStatus();
+  const alarmEvents = status.variables.find((variable) => variable.name === "alarmEvents");
+  assert.equal(status.status, "ok");
+  assert.equal(status.summary.clockSkewValues, 0);
+  assert.deepEqual(alarmEvents.issues, []);
+});
+
 test("PLC diagnostics exposes connection failures and disabled event subscription", () => {
   const diagnostics = new PlcDiagnostics({
     clock: () => START,

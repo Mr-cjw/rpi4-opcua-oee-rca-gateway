@@ -265,7 +265,11 @@ class PlcDiagnostics {
     } else if (sourceTimestampFutureMs > this.clockSkewWarningMs) {
       issues.push("future_source_timestamp");
     }
-    if (Number.isFinite(clockSkewMs) && clockSkewMs > this.clockSkewWarningMs) {
+    if (
+      variable.name !== "alarmEvents" &&
+      Number.isFinite(clockSkewMs) &&
+      clockSkewMs > this.clockSkewWarningMs
+    ) {
       issues.push("source_server_clock_skew");
     }
     const stale = variable.name !== "alarmEvents" && ageMs > this.staleWarningMs;
