@@ -1,6 +1,6 @@
 # Raspberry Pi Gateway Roadmap
 
-Status date: 2026-11-27
+Status date: 2026-11-28
 
 ## Goal
 
@@ -42,6 +42,9 @@ correctness gap in an earlier phase.
 - Time-window RCA for downtime and temperature anomalies, scoped by work context.
 - Local HTTP API, bearer token option, Prometheus metrics, systemd deployment, and E2E tests.
 - A read-only OPC UA commissioning doctor for NodeIds, types, status, timestamps, counters, and events.
+- Immutable release archives with manifest/checksum verification, atomic
+  `current` switching, health-checked upgrade, automatic rollback, and explicit
+  rollback/status commands.
 
 ## Milestones
 
@@ -250,7 +253,10 @@ Deliverables:
 - Completed 2026-11-27: repeatable soak harness covering API load, quality
   ingestion, fault injection, PLC reconnect cycles, retention and log-budget
   checks. A full 72-hour run remains a release gate.
-- Versioned release packaging, upgrade, rollback, and state-migration procedures.
+- Completed 2026-11-28: versioned release packaging with per-file SHA-256,
+  archive checksums, Git/runtime provenance, Node engine checks, immutable
+  release directories, health-checked upgrades with automatic rollback, explicit
+  rollback/status commands, and state-backup/migration procedures.
 - A 72-hour soak test with fault injection, reconnect cycles, storage pressure, and API load.
 - Security review of OPC UA, HTTP, logs, secrets, and the systemd sandbox.
 - Field-pilot runbook, acceptance criteria, and a known-limitations document.
@@ -270,7 +276,8 @@ The next implementation-sized units are:
    adoption gates are met.
 2. Validate NTP synchronization and run the long-duration injected fault matrix
    alongside the 72-hour soak on Raspberry Pi hardware.
-3. Add release packaging, upgrade, and rollback procedures.
+3. Exercise release upgrade/rollback and state restore on Raspberry Pi hardware;
+   add artifact signing if releases leave the trusted administrative channel.
 
 M1 is complete, and the live PLC diagnostics software is complete. Prioritize
 the remaining M2 hardware/durability gates and M3 security/E2E validation before

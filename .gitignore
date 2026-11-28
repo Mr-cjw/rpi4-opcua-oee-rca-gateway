@@ -232,3 +232,9 @@ coverage/
 data/
 *.jsonl
 !test/fixtures/legacy-jsonl/*.jsonl
+
+# Versioned production release layout
+/releases/
+/current
+/previous
+/last-release.json

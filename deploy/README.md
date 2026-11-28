@@ -1,23 +1,29 @@
 # Raspberry Pi Gateway Deployment
 
-The unit assumes the repository is installed at
-`/opt/rpi4-opcua-oee-rca-gateway` and runs as the `rpi4-gateway` user.
+The unit runs an immutable release through
+`/opt/rpi4-opcua-oee-rca-gateway/current` as the `rpi4-gateway` user. Production
+installs should use a verified release archive rather than editing the live
+version in place.
 
 ```bash
 sudo useradd --system --home /var/lib/rpi4-gateway --shell /usr/sbin/nologin rpi4-gateway
-sudo mkdir -p /opt/rpi4-opcua-oee-rca-gateway
-# Copy or clone the repository into /opt/rpi4-opcua-oee-rca-gateway first.
-cd /opt/rpi4-opcua-oee-rca-gateway
-sudo npm ci --omit=dev
-
-sudo install -m 0644 deploy/rpi4-gateway.service /etc/systemd/system/rpi4-gateway.service
-sudo install -m 0600 deploy/rpi4-gateway.env.example /etc/rpi4-gateway.env
+cd /var/tmp
+sha256sum -c <archive>.tar.gz.sha256
+sudo install -d -m 0755 /opt/rpi4-gateway-bootstrap
+sudo tar -xzf /var/tmp/<archive>.tar.gz -C /opt/rpi4-gateway-bootstrap
+sudo install -m 0644 /opt/rpi4-gateway-bootstrap/deploy/rpi4-gateway.service /etc/systemd/system/rpi4-gateway.service
+sudo install -m 0600 /opt/rpi4-gateway-bootstrap/deploy/rpi4-gateway.env.example /etc/rpi4-gateway.env
 sudo editor /etc/rpi4-gateway.env
 
 sudo systemctl daemon-reload
+sudo /usr/bin/node /opt/rpi4-gateway-bootstrap/scripts/gateway-release.js install \
+  --archive /var/tmp/<archive>.tar.gz \
+  --checksum /var/tmp/<archive>.tar.gz.sha256 \
+  --release-root /opt/rpi4-opcua-oee-rca-gateway
 sudo systemctl enable --now rpi4-gateway.service
 sudo systemctl status rpi4-gateway.service --no-pager
 curl http://127.0.0.1:8080/healthz
+sudo rm -rf /opt/rpi4-gateway-bootstrap
 ```
 
 Before starting or restarting a real-PLC deployment, run the commissioning
@@ -60,7 +66,7 @@ commissioning record before moving only that file into `trusted/certs/` and
 removing the obsolete certificate. Then run:
 
 ```bash
-sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway && npm run doctor -- --strict'
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway/current && npm run doctor -- --strict'
 sudo systemctl restart rpi4-gateway.service
 curl http://127.0.0.1:8080/healthz
 ```
@@ -120,7 +126,7 @@ state files:
 ```bash
 sudo systemctl stop rpi4-gateway.service
 sudo install -d -o rpi4-gateway -g rpi4-gateway -m 0750 /var/backups/rpi4-gateway
-sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway && npm run state:backup -- --output /var/backups/rpi4-gateway/20261127T120000'
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway/current && npm run state:backup -- --output /var/backups/rpi4-gateway/20261127T120000'
 sudo systemctl start rpi4-gateway.service
 curl http://127.0.0.1:8080/healthz
 ```
@@ -129,7 +135,7 @@ Verify the backup before moving it off the Pi, and periodically test a restore
 on a spare directory or device:
 
 ```bash
-sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway && npm run state:verify -- --backup /var/backups/rpi4-gateway/20261127T120000'
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway/current && npm run state:verify -- --backup /var/backups/rpi4-gateway/20261127T120000'
 ```
 
 To restore, stop the service and use `--force` only after confirming the target
@@ -138,7 +144,7 @@ stages all files, and atomically replaces each destination:
 
 ```bash
 sudo systemctl stop rpi4-gateway.service
-sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway && npm run state:restore -- --backup /var/backups/rpi4-gateway/20261127T120000 --force'
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway/current && npm run state:restore -- --backup /var/backups/rpi4-gateway/20261127T120000 --force'
 sudo systemctl start rpi4-gateway.service
 curl http://127.0.0.1:8080/healthz
 ```
@@ -147,6 +153,44 @@ The backup excludes OPC UA PKI private keys and certificates; back those up
 through the certificate procedure. Files in the state directory that are not
 listed in the manifest remain untouched, so inspect stale rotated segments
 after restoring an older snapshot.
+
+### Versioned releases and rollback
+
+The release root contains immutable `releases/<release-id>` directories,
+`current` and `previous` symlinks, and `last-release.json`. The installer
+verifies the archive and checksum, installs production dependencies in staging,
+atomically switches `current`, restarts the service, and checks `/healthz`. A
+failed health check automatically restores the previous release.
+
+Upgrade procedure:
+
+```bash
+sudo systemctl stop rpi4-gateway.service
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway/current && npm run state:backup -- --output /var/backups/rpi4-gateway/20261128T120000'
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway/current && npm run state:verify -- --backup /var/backups/rpi4-gateway/20261128T120000'
+sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-release.js install \
+  --archive /var/tmp/<archive>.tar.gz \
+  --checksum /var/tmp/<archive>.tar.gz.sha256 \
+  --release-root /opt/rpi4-opcua-oee-rca-gateway \
+  --state-backup /var/backups/rpi4-gateway/20261128T120000
+curl http://127.0.0.1:8080/healthz
+```
+
+Inspect or roll back the code:
+
+```bash
+sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-release.js status \
+  --release-root /opt/rpi4-opcua-oee-rca-gateway
+sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-release.js rollback \
+  --release-root /opt/rpi4-opcua-oee-rca-gateway
+```
+
+Code rollback does not modify `/var/lib/rpi4-gateway`. If a future release note
+declares a state-format migration, stop the service, restore the verified
+pre-upgrade backup with the state restore command, then run the code rollback so
+the old release starts only after its data format is restored. Keep the failed
+release directory and `last-release.json` for diagnosis until the incident is
+closed.
 
 ### Live PLC diagnostics and alerts
 
@@ -214,6 +258,9 @@ the configured skew threshold.
   thresholds, or subscription timing; it exercises the injected PLC fault path.
 - Run `npm run e2e:clock` after changing NTP detection, clock thresholds, or
   health-degradation behavior.
+- Build and verify a release archive before every Pi upgrade, retain the prior
+  verified archive and state backup, and exercise a rollback during change
+  control rather than only after a failed field upgrade.
 - Keep at least one recent verified state backup off the Raspberry Pi. A
   backup stored on the same failing SD card or SSD does not protect accepted
   quality events after hardware loss.

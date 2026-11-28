@@ -10,13 +10,13 @@ const ROOT = path.resolve(__dirname, "..");
 test("gateway systemd unit uses the runtime entry point and hardened state", async () => {
   const unit = await fs.readFile(path.join(ROOT, "deploy", "rpi4-gateway.service"), "utf8");
 
-  assert.match(unit, /^WorkingDirectory=\/opt\/rpi4-opcua-oee-rca-gateway$/m);
+  assert.match(unit, /^WorkingDirectory=\/opt\/rpi4-opcua-oee-rca-gateway\/current$/m);
   assert.match(unit, /^EnvironmentFile=\/etc\/rpi4-gateway\.env$/m);
   assert.match(unit, /^ExecStart=\/usr\/bin\/node src\/gateway\/index\.js$/m);
   assert.match(unit, /^Restart=on-failure$/m);
   assert.match(unit, /^StateDirectory=rpi4-gateway$/m);
   assert.match(unit, /^ProtectSystem=strict$/m);
-  assert.match(unit, /^ReadWritePaths=\/opt\/rpi4-opcua-oee-rca-gateway\/data$/m);
+  assert.doesNotMatch(unit, /^ReadWritePaths=\/opt\/rpi4-opcua-oee-rca-gateway\/data$/m);
 });
 
 test("gateway environment template includes persistence and API safeguards", async () => {
@@ -86,13 +86,21 @@ test("gateway environment template includes persistence and API safeguards", asy
   assert.match(env, /^GATEWAY_WORK_CONTEXT_FILE=\/var\/lib\/rpi4-gateway\//m);
 });
 
-test("package scripts expose state backup, restore, and storage evaluation commands", async () => {
+test("package scripts expose state, release, and storage operations", async () => {
   const packageJson = JSON.parse(
     await fs.readFile(path.join(ROOT, "package.json"), "utf8")
   );
   assert.equal(packageJson.scripts["state:backup"], "node scripts/gateway-state.js backup");
   assert.equal(packageJson.scripts["state:verify"], "node scripts/gateway-state.js verify");
   assert.equal(packageJson.scripts["state:restore"], "node scripts/gateway-state.js restore");
+  assert.equal(
+    packageJson.scripts["release:package"],
+    "node scripts/gateway-release.js package"
+  );
+  assert.equal(packageJson.scripts["release:verify"], "node scripts/gateway-release.js verify");
+  assert.equal(packageJson.scripts["release:install"], "node scripts/gateway-release.js install");
+  assert.equal(packageJson.scripts["release:rollback"], "node scripts/gateway-release.js rollback");
+  assert.equal(packageJson.scripts["release:status"], "node scripts/gateway-release.js status");
   assert.equal(packageJson.scripts["storage:evaluate"], "node scripts/evaluate-storage.js");
   assert.equal(packageJson.scripts["e2e:security"], "node scripts/gateway-security-e2e.js");
   assert.equal(packageJson.scripts["e2e:clock"], "node scripts/gateway-clock-e2e.js");

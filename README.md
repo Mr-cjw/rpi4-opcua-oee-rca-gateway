@@ -397,6 +397,69 @@ be backed up separately under the certificate-management procedure. Copy the
 completed backup off the Raspberry Pi; a backup on the same failed SD card or
 SSD is not a recovery plan.
 
+### Release packaging, upgrade, and rollback
+
+Production deployments use immutable release directories under
+`/opt/rpi4-opcua-oee-rca-gateway/releases/`. The unit runs
+`/opt/rpi4-opcua-oee-rca-gateway/current`, which is an atomic symlink to one
+release. `previous` points to the last successful release and `last-release.json`
+records the latest install or rollback result. State remains under
+`/var/lib/rpi4-gateway` and is never replaced by a code upgrade.
+
+Build a versioned archive from a clean tracked tree and verify it before copying
+it to the Pi:
+
+```bash
+npm run release:package -- --output dist/release
+npm run release:verify -- --archive dist/release/<archive>.tar.gz
+```
+
+The archive contains tracked source, `package-lock.json`, deploy files, a
+`release-manifest.json` with file hashes and Git provenance, internal
+`SHA256SUMS`, and an external `<archive>.tar.gz.sha256`. Untracked files,
+`node_modules`, state, credentials, and PKI material are excluded. Packaging
+fails when tracked files are modified; `--allow-dirty` is only for diagnostic
+builds and marks the release ID as dirty.
+
+The archive intentionally excludes `node_modules`; the Pi installer runs
+`npm ci --omit=dev`. For an offline site, pre-populate the npm cache or use an
+approved internal registry before installing the release.
+
+Before an upgrade, stop the service and create, verify, and copy a state backup
+off the device. The installer verifies the archive, runs
+`npm ci --omit=dev` in a staging directory, switches `current` atomically,
+restarts the service, and waits for `/healthz`. If the new process does not
+answer, it automatically restores `previous` and restarts it.
+
+```bash
+sudo systemctl stop rpi4-gateway.service
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway/current && npm run state:backup -- --output /var/backups/rpi4-gateway/20261128T120000'
+sudo -u rpi4-gateway sh -c 'set -a; . /etc/rpi4-gateway.env; set +a; cd /opt/rpi4-opcua-oee-rca-gateway/current && npm run state:verify -- --backup /var/backups/rpi4-gateway/20261128T120000'
+sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-release.js install \
+  --archive /var/tmp/<archive>.tar.gz \
+  --checksum /var/tmp/<archive>.tar.gz.sha256 \
+  --release-root /opt/rpi4-opcua-oee-rca-gateway \
+  --state-backup /var/backups/rpi4-gateway/20261128T120000
+curl http://127.0.0.1:8080/healthz
+```
+
+Rollback switches back to `previous` with the same stop, health-check, and
+automatic restore behavior. Use `release:status` to inspect installed,
+current, and previous releases:
+
+```bash
+sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-release.js rollback \
+  --release-root /opt/rpi4-opcua-oee-rca-gateway
+sudo /usr/bin/node /opt/rpi4-opcua-oee-rca-gateway/current/scripts/gateway-release.js status \
+  --release-root /opt/rpi4-opcua-oee-rca-gateway
+```
+
+Current releases have no on-disk state-format migration, so rollback only
+changes code and leaves accepted events untouched. For a future release that
+migrates state, the release note must identify the migration and rollback
+procedure. Restore the verified pre-upgrade state backup while the service is
+stopped, then perform the code rollback before starting the old release.
+
 ### Event sequence integrity
 
 New process-context and quality events carry an optional positive integer
@@ -1252,8 +1315,9 @@ temporary run directory path when `SOAK_KEEP_RUN_DIR=1` or the run fails.
 
 GitHub Actions runs contract/docs checks and tests on Node 20 and 22, then runs
 the Mock PLC E2E, Gateway E2E, commissioning doctor, and a 20-second soak smoke
-on Node 20. The workflow is `.github/workflows/ci.yml`; the soak report is
-uploaded as an artifact.
+on Node 20. It also builds and verifies a release archive and uploads it with
+its external checksum. The workflow is `.github/workflows/ci.yml`; the soak
+report and release archive are uploaded as artifacts.
 
 | Variable | Default | Description |
 |---|---:|---|

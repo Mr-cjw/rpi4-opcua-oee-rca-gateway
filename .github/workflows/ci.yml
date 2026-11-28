@@ -93,3 +93,37 @@ jobs:
           name: soak-report-node20
           path: data/soak-report.json
           if-no-files-found: warn
+
+  release:
+    name: Release archive
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and verify release
+        run: |
+          npm run release:package -- --output dist/release
+          ARCHIVE=$(find dist/release -maxdepth 1 -name '*.tar.gz' -print -quit)
+          npm run release:verify -- --archive "$ARCHIVE"
+          echo "RELEASE_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpi4-gateway-release
+          path: |
+            ${{ env.RELEASE_ARCHIVE }}
+            ${{ env.RELEASE_ARCHIVE }}.sha256
+          if-no-files-found: error
