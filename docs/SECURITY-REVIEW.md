@@ -256,6 +256,10 @@ monitoring platform outside the Gateway.
   any changed artifact, cross-reference, key identity, or failed audit gate. The
   manifest itself is not signed; authenticity still depends on the signed archive
   and detached signature it binds.
+- `release:rehearse` exercises signed install, explicit rollback, failed-health
+  automatic rollback, and state backup/restore in an isolated directory. Service
+  commands and package installation are simulated, so its report is marked as an
+  offline software gate rather than field acceptance.
 - `current` and `previous` are switched atomically. A failed health check
   automatically restores and restarts the previous release.
 - The minimum runtime is `Node.js 22.13.0`, matching the upgraded OPC UA

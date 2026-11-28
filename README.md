@@ -588,6 +588,33 @@ returns exit code 1. The evidence manifest is not itself signed; authority comes
 from the signed archive and detached signature it binds. Preserve the manifest,
 audit, VEX, SBOM, archive, checksum, and signature together.
 
+Rehearse a signed upgrade without a Raspberry Pi or live service:
+
+```bash
+npm run release:rehearse -- \
+  --base-archive dist/release/<base>.tar.gz \
+  --candidate-archive dist/release/<candidate>.tar.gz \
+  --state-dir /var/lib/rpi4-gateway \
+  --public-key /secure/release-keys/release-public.pem \
+  --require-signature \
+  --output dist/release/<release>.rehearsal.json
+```
+
+The rehearsal uses the production package verification, installation, symlink,
+rollback, and state-backup code with `systemctl`, the service health endpoint,
+and `npm ci` simulated. It covers:
+
+- base install followed by candidate upgrade and explicit rollback to base;
+- candidate upgrade with a failing health check and automatic restoration of
+  base;
+- state backup verification, mutation of a restored copy, forced restore, and
+  checksum comparison of every restored file.
+
+The report is mode `0600` and records archive signatures, release IDs, final
+`current`/`previous` links, state hashes, and the simulation limitations. It is a
+software regression and procedure gate only; it does not replace systemd,
+network, power-loss, reboot, or Raspberry Pi hardware acceptance.
+
 The archive intentionally excludes `node_modules`; the Pi installer runs
 `npm ci --omit=dev`. For an offline site, pre-populate the npm cache or use an
 approved internal registry before installing the release. The installer also

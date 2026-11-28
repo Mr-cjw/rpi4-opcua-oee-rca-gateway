@@ -490,6 +490,13 @@ or no longer appears. Record the public-key SHA-256 fingerprint from the signatu
 report and require it during the signed install. The release private key must
 remain on the trusted signing host and must not be copied to the Pi.
 
+When target hardware is unavailable, run `release:rehearse` with the previous and
+candidate archives plus a copy of the target state directory. It verifies signed
+installation, explicit rollback, failed-health automatic rollback, and state
+backup/restore in an isolated work directory. Keep its mode-`0600` report as
+pre-hardware regression evidence. This rehearsal does not satisfy the Pi reboot,
+power-cut, systemd, network, or 72-hour soak gates.
+
 `commission` produces a single point-in-time acceptance report covering release
 and rollback readiness, systemd state, health/PLC/clock/storage, the OPC UA
 doctor, and edge verification. Run it after installation, every reboot,

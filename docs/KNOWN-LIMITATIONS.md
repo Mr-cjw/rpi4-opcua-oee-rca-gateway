@@ -155,6 +155,10 @@ deployment depends on behavior the Gateway does not provide.
 - The release evidence manifest is an unsigned consistency and provenance index.
   It is not a substitute for the detached archive signature, and it requires the
   original public key to verify the embedded signature evidence.
+- `release:rehearse` simulates service commands, health transitions, and npm
+  installation. It exercises release and state code paths, but it does not prove
+  systemd behavior, real network health checks, reboot recovery, power-loss
+  durability, or Raspberry Pi hardware compatibility.
 - Rollback restores code and the `current`/`previous` links. It does not undo a
   state-format migration unless the release note explicitly defines one and the
   verified pre-upgrade state backup is restored.

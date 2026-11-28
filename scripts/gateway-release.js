@@ -23,6 +23,7 @@ const {
   createReleaseEvidence,
   verifyReleaseEvidence
 } = require("../src/release/evidence");
+const { runReleaseRehearsal } = require("../src/release/rehearsal");
 const { hashFile, pathExists, resolveWithin } = require("../src/release/common");
 const { verifyStateBackup } = require("../src/gateway/state-backup");
 
@@ -41,6 +42,7 @@ function usage() {
       "  npm run release:audit -- --archive <file.tar.gz> [--checksum <file.sha256>] [--dispositions <file.json>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--output <file.json>] [--vex-output <file.cdx.json>] [--force] [--json]",
       "  npm run release:evidence -- --archive <file.tar.gz> --sbom <file.cdx.json> --audit <file.json> --vex <file.cdx.json> [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--output <file.json>] [--force] [--json]",
       "  npm run release:verify-evidence -- --evidence <file.json> [--public-key <file.pem>] [--json]",
+      "  npm run release:rehearse -- --base-archive <file.tar.gz> --candidate-archive <file.tar.gz> --state-dir <directory> --output <file.json> [--public-key <file.pem>] [--require-signature] [--work-dir <directory>] [--force] [--json]",
       "  npm run release:install -- --archive <file.tar.gz> [--checksum <file.sha256>] [--public-key <file.pem>] [--signature <file.sig>] [--require-signature] [--release-root <directory>] [--state-backup <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:rollback -- [--to <release-id>] [--release-root <directory>] [--service <name>] [--health-url <url>] [--json]",
       "  npm run release:status -- [--release-root <directory>] [--json]",
@@ -85,6 +87,12 @@ function parseArgs(argv) {
     ["--audit", "audit"],
     ["--vex", "vex"],
     ["--evidence", "evidence"],
+    ["--base-archive", "baseArchive"],
+    ["--candidate-archive", "candidateArchive"],
+    ["--state-dir", "stateDir"],
+    ["--base-signature", "baseSignature"],
+    ["--candidate-signature", "candidateSignature"],
+    ["--work-dir", "workDir"],
     ["--to", "to"]
   ]);
   for (let index = 1; index < argv.length; index += 1) {
@@ -220,6 +228,16 @@ function printVerifiedEvidence(result) {
   console.log(`Checks: ${result.checks.length}`);
 }
 
+function printRehearsal(result) {
+  console.log(`Offline rehearsal: ${result.report.status}`);
+  console.log(`Report: ${result.outputPath}`);
+  console.log(`Report SHA-256: ${result.outputSha256}`);
+  console.log(`Mode: ${result.report.mode}`);
+  for (const scenario of result.report.scenarios) {
+    console.log(`  ${scenario.status === "passed" ? "PASS" : "FAIL"} ${scenario.id}`);
+  }
+}
+
 async function verifySignatureOrThrow(options, label = "verify-signature") {
   if (!options.archive) {
     throw new Error(`${label} requires --archive <file.tar.gz>`);
@@ -249,6 +267,7 @@ async function main() {
     "audit",
     "evidence",
     "verify-evidence",
+    "rehearse",
     "install",
     "rollback",
     "status"
@@ -490,6 +509,43 @@ async function main() {
       printVerifiedEvidence(result);
     }
     if (result.status !== "passed") {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (options.command === "rehearse") {
+    if (
+      !options.baseArchive ||
+      !options.candidateArchive ||
+      !options.stateDir ||
+      !options.output
+    ) {
+      throw new Error(
+        "rehearse requires --base-archive, --candidate-archive, --state-dir, and --output"
+      );
+    }
+    if (options.requireSignature && !options.publicKey) {
+      throw new Error("rehearse --require-signature requires --public-key <file.pem>");
+    }
+    const result = await runReleaseRehearsal({
+      baseArchivePath: options.baseArchive,
+      candidateArchivePath: options.candidateArchive,
+      stateDir: options.stateDir,
+      outputPath: options.output,
+      workDir: options.workDir,
+      publicKeyPath: options.publicKey,
+      baseSignaturePath: options.baseSignature,
+      candidateSignaturePath: options.candidateSignature,
+      requireSignature: options.requireSignature,
+      force: options.force
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      printRehearsal(result);
+    }
+    if (result.report.status !== "passed") {
       process.exitCode = 1;
     }
     return;
